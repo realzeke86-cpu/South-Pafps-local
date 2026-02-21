@@ -67,13 +67,13 @@ window.loadStateFromServer = async function () {
     const merged = {
       ...serverState,
       // Keep UI-only state from localStorage
-      cart:            local.cart || [],
-      posDraft:        local.posDraft || {},
-      scheduleView:    local.scheduleView || 'daily',
-      scheduleDate:    local.scheduleDate || null,
+      cart: local.cart || [],
+      posDraft: local.posDraft || {},
+      scheduleView: local.scheduleView || 'daily',
+      scheduleDate: local.scheduleDate || null,
       scheduleWeekStart: local.scheduleWeekStart || null,
-      dashboardPrefs:  local.dashboardPrefs || {},
-      currentUser:     null, // always re-login
+      dashboardPrefs: local.dashboardPrefs || {},
+      currentUser: local.currentUser || null, // restore from localStorage if present
     };
 
     localStorage.setItem('pos_state', JSON.stringify(merged));

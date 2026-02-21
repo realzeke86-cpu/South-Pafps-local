@@ -124,6 +124,7 @@ function normalizeState(state) {
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.branchTransfers = Array.isArray(state.branchTransfers) ? state.branchTransfers : [];
   state.handoverNotes = Array.isArray(state.handoverNotes) ? state.handoverNotes : [];
+  state.printProducts = Array.isArray(state.printProducts) ? state.printProducts : [];
   state.dashboardPrefs = state.dashboardPrefs && typeof state.dashboardPrefs === 'object' ? state.dashboardPrefs : {};
   state.posDraft = state.posDraft && typeof state.posDraft === 'object' ? state.posDraft : {};
 
@@ -473,6 +474,7 @@ function doLogout() {
   const s = getState();
   if (s.currentUser) recordAudit(s, { action: 'logout', message: `User logged out: ${s.currentUser.username}`, userId: s.currentUser.id, branchId: s.currentUser.branchId || null });
   s.currentUser = null;
+  saveState(s);
   localStorage.removeItem('pos_currentUser');
   showOverview();
 }
@@ -500,12 +502,18 @@ function getNavItems() {
   if (u.role === 'admin') return [
     { type: 'section', label: 'Overview' },
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
-    { type: 'item', id: 'pos', icon: 'cart', label: 'POS', page: 'pos' },
+    {
+      type: 'group', id: 'pos-group', icon: 'cart', label: 'POS', page: 'pos', children: [
+        { id: 'pos-customers', icon: 'users', label: 'Customer Records', page: 'pos-customers' },
+        { id: 'pos-receipts',  icon: 'clipboard', label: 'Receipt History',  page: 'pos-receipts' },
+      ]
+    },
 
     { type: 'section', label: 'Products & Orders' },
     {
       type: 'group', id: 'products', icon: 'box', label: 'Product Management', page: 'product-mgmt', children: [
-        { id: 'inventory', icon: 'chart', label: 'Inventory', page: 'inventory' },
+        { id: 'inventory', icon: 'chart', label: 'Branch Inventory', page: 'inventory' },
+        { id: 'print-materials', icon: 'box', label: 'Printing Inventory', page: 'print-materials' },
       ]
     },
     { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'orders' },
@@ -517,7 +525,6 @@ function getNavItems() {
         { id: 'payroll', icon: 'money', label: 'Payroll', page: 'payroll' },
       ]
     },
-    { type: 'item', id: 'customers', icon: 'building', label: 'Customer Management', page: 'customers' },
     { type: 'item', id: 'users', icon: 'key', label: 'User Management', page: 'users' },
 
     { type: 'section', label: 'Analytics' },
@@ -528,7 +535,12 @@ function getNavItems() {
   if (u.role === 'staff') return [
     { type: 'section', label: 'My Workspace' },
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
-    { type: 'item', id: 'pos', icon: 'cart', label: 'POS', page: 'pos' },
+    {
+      type: 'group', id: 'pos-group', icon: 'cart', label: 'POS', page: 'pos', children: [
+        { id: 'pos-customers', icon: 'users', label: 'Customer Records', page: 'pos-customers' },
+        { id: 'pos-receipts',  icon: 'clipboard', label: 'Receipt History',  page: 'pos-receipts' },
+      ]
+    },
     { type: 'item', id: 'shift', icon: 'clock', label: 'Shift', page: 'shift' },
     { type: 'item', id: 'payslip', icon: 'money', label: 'Payroll', page: 'payslip' },
 
@@ -539,12 +551,12 @@ function getNavItems() {
   // PRINTING DEPARTMENT
   if (u.role === 'print') return [
     { type: 'section', label: 'Operations' },
-    { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'print-orders' },
+    { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'orders' },
     { type: 'item', id: 'print-materials', icon: 'box', label: 'Printing Inventory', page: 'print-materials' },
 
     { type: 'section', label: 'People' },
-    { type: 'item', id: 'print-personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt' },
-    { type: 'item', id: 'print-payroll', icon: 'money', label: 'Payroll', page: 'payslip' },
+    { type: 'item', id: 'print-personnel', icon: 'users', label: 'Personnel Management', page: 'print-personnel' },
+    { type: 'item', id: 'print-payroll', icon: 'money', label: 'Payroll', page: 'print-payslip' },
 
     { type: 'section', label: 'Analytics' },
     { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'reports' },
@@ -619,6 +631,8 @@ var PAGE_PERMISSIONS = {
 
   // Admin + Staff
   'pos': ['admin', 'staff'],
+  'pos-customers': ['admin', 'staff'],
+  'pos-receipts':  ['admin', 'staff'],
   'customers': ['admin', 'staff'],
   'orders': ['admin', 'staff'],
   'pickup': ['admin', 'staff', 'print'],
@@ -642,6 +656,8 @@ var PAGE_PERMISSIONS = {
   // Print
   'print-orders': ['admin', 'print'],
   'print-qc': ['admin', 'print'],
+  'print-personnel': ['print'],
+  'print-payslip': ['print'],
   'print-materials': ['admin', 'print'],
 };
 
@@ -692,13 +708,13 @@ function navigateTo(page) {
     updateNavActive();
     const s = getState();
     const pageTitleMap = {
-      'pos': 'Point of Sale', 'customers': 'Customer Records', 'orders': 'Order Management',
+      'pos': 'Point of Sale', 'pos-customers': 'Customer Records', 'pos-receipts': 'Receipt History', 'customers': 'Customer Records', 'orders': 'Order Management',
       'production': 'Production Oversight', 'pickup': 'Ready for Pickup', 'product-mgmt': 'Product Management',
       'inventory': 'Stock & Inventory', 'receiving': 'Supplier Receiving', 'personnel-mgmt': 'Personnel',
       'shift-schedule': 'Shift Schedule', 'payroll': 'Payroll Management', 'reconcile': 'Cash Reconciliation',
       'reports': 'Reports & Analytics', 'audit': 'Audit Log', 'transfers': 'Branch Transfers',
       'users': 'User Management', 'branches': 'Branch Management', 'sales': 'Sales History',
-      'staff-reports': 'My Reports', 'print-orders': 'Job Queue', 'print-qc': 'Quality Control',
+      'staff-reports': 'My Reports', 'print-orders': 'Job Queue', 'print-qc': 'Quality Control', 'print-personnel': 'My Profile', 'print-payslip': 'My Payslip',
       'print-materials': 'Materials Log', 'shift': 'Shift Management', 'receipts': 'Receipts', 'dashboard': 'Dashboard',
       'payslip': 'My Payroll',
     };
@@ -722,6 +738,8 @@ function navigateTo(page) {
     'dashboard': renderDashboard,
     'pos': renderPOS,
     'customers': renderCustomers,
+    'pos-customers': renderPosCustomers,
+    'pos-receipts':  renderPosReceipts,
     'orders': renderOrders,
     'production': renderProductionOversight,
     'pickup': renderReadyForPickup,
@@ -744,10 +762,12 @@ function navigateTo(page) {
     'staff-reports': renderStaffReports,
     'print-orders': renderPrintOrders,
     'print-qc': renderQualityControl,
+    'print-personnel': renderPrintPersonnel,
+    'print-payslip': renderPrintPayslip,
     'print-materials': renderMaterialsTracking,
   };
   const pageTitles = {
-    'dashboard': 'Dashboard', 'pos': 'Point of Sale', 'customers': 'Customers', 'orders': 'Order Management',
+    'dashboard': 'Dashboard', 'pos': 'Point of Sale', 'pos-customers': 'Customer Records', 'pos-receipts': 'Receipt History', 'customers': 'Customers', 'orders': 'Order Management',
     'production': 'Production Oversight', 'pickup': 'Ready for Pickup',
     'shift': 'Shift Management', 'sales': 'Sales History',
     'product-mgmt': 'Product Management', 'inventory': 'Inventory Module', 'personnel-mgmt': 'Personnel Management',
@@ -756,7 +776,7 @@ function navigateTo(page) {
     'reconcile': 'Cash Reconciliation', 'reports': 'Reports & Analytics',
     'audit': 'Audit Log', 'transfers': 'Branch Transfers', 'users': 'User Management', 'branches': 'Branch Management',
     'receipts': 'Receipts', 'staff-reports': 'My Reports',
-    'print-orders': 'Production Queue', 'print-qc': 'Quality Control', 'print-materials': 'Materials Tracking',
+    'print-orders': 'Production Queue', 'print-qc': 'Quality Control', 'print-materials': 'Materials Tracking', 'print-personnel': 'My Profile', 'print-payslip': 'My Payslip',
   };
   document.getElementById('topbar-page').textContent = pageTitles[page] || page;
   document.getElementById('topbar-sub').textContent = '';
@@ -788,6 +808,7 @@ function navigateTo(page) {
         content.innerHTML = '<h2>My Shift</h2><p>Shift management module goes here.</p>';
         break;
       case 'receipts':
+      case 'pos-receipts':
         content.innerHTML = '<h2>Receipts</h2><p>Receipts module goes here.</p>';
         break;
       case 'reconcile':
@@ -1032,46 +1053,26 @@ function renderPOS() {
         <div class="pos-cart-header">
           <span class="pos-cart-title">Cart</span>
           <span class="cart-count" id="cart-badge">${cart.length}</span>
-          <button class="btn-cart-customer" title="Add Customer" onclick="showCustomerModal()" style="margin-left:8px;font-size:18px;background:none;border:none;cursor:pointer;outline:none;display:flex;align-items:center;justify-content:center;">
-            <span style="font-size:20px;line-height:1;">+</span>
-            <span style="margin-left:2px;display:flex;align-items:center;">${iconSvg('users')}</span>
+          <button class="btn btn-sm btn-outline" title="Add / Search Customer" onclick="showCustomerModal()" style="margin-left:8px;display:flex;align-items:center;gap:4px;white-space:nowrap">
+            ${iconSvg('users')} Customer
           </button>
           ${cart.length ? `<button class="btn btn-sm btn-outline" style="margin-left:8px" onclick="clearCart()">Clear</button>` : ''}
         </div>
 
         <div class="pos-cart-controls">
-          <div class="form-group" style="margin:0">
-            <label>Customer Account (Optional)</label>
-            <div class="form-select-wrap">
-              <select class="form-control" onchange="setPosDraftField('customerId', this.value)">
-                <option value="">Walk-in Customer</option>
-                ${s.customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? 'selected' : ''}>${c.companyName} (${c.contactPerson})</option>`).join('')}
-              </select>
+          <div id="pos-selected-customer" class="pos-customer-strip${draft.customerId ? '' : ' hidden'}">
+            <div class="pos-customer-strip-name">
+              ${iconSvg('users')}
+              <span id="pos-selected-customer-name">${draft.customerId ? (s.customers.find(c=>c.id===draft.customerId)?.companyName||'') : ''}</span>
             </div>
+            <button class="btn-icon" onclick="posRemoveCustomer()" title="Remove customer">✕</button>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 100px;gap:8px">
-            <div class="form-select-wrap">
-              <select class="form-control" onchange="setPosDraftField('discountType', this.value)">
-                <option value="none" ${draft.discountType === 'none' ? 'selected' : ''}>No Discount</option>
-                ${s.currentUser && s.currentUser.role === 'admin' ? `<option value="percent" ${draft.discountType === 'percent' ? 'selected' : ''}>% Discount</option><option value="fixed" ${draft.discountType === 'fixed' ? 'selected' : ''}>Fixed Discount</option>` : ''}
-              </select>
-            </div>
-            <input class="form-control" type="number" min="0" placeholder="0" value="${draft.discountValue || 0}" onchange="setPosDraftField('discountValue', this.value)">
-          </div>
-          <input class="form-control" placeholder="Discount reason (required if discount > 0)" value="${draft.discountReason || ''}" onchange="setPosDraftField('discountReason', this.value)">
-          <div class="form-select-wrap">
-            <select class="form-control" onchange="setPosDraftField('payMode', this.value)">
-              <option value="regular" ${draft.payMode !== 'credit' ? 'selected' : ''}>Regular Payment</option>
-              <option value="credit" ${draft.payMode === 'credit' ? 'selected' : ''}>Charge to Account (Credit Sale)</option>
-            </select>
-          </div>
+
         </div>
         <div class="pos-cart-items" id="cart-items-list">${renderCartItems(cart)}</div>
         <div class="pos-cart-footer">
           <div class="cart-subtotal"><span>Subtotal</span><span class="amount" id="cart-subtotal">₱${fmt(subtotal)}</span></div>
-          <div class="cart-subtotal"><span>Discount</span><span class="amount" id="cart-discount">- ₱${fmt(discountInfo.amount)}</span></div>
           <div class="cart-subtotal"><span>Total</span><span class="amount" id="cart-total">₱${fmt(payable)}</span></div>
-          ${discountInfo.note ? `<div class="text-xs text-muted" id="cart-discount-note">${discountInfo.note}</div>` : `<div class="text-xs text-muted" id="cart-discount-note"></div>`}
           <div class="payment-row"><span class="payment-label">${iconSvg('cash')} Cash</span><input type="number" id="pay-cash" class="payment-input" placeholder="0.00" min="0" oninput="updateChange()"></div>
           <div class="payment-row"><span class="payment-label">${iconSvg('phone')} GCash</span><input type="number" id="pay-gcash" class="payment-input" placeholder="0.00" min="0" oninput="updateChange()"><button class="btn btn-sm btn-outline" style="white-space:nowrap;margin-left:4px" onclick="showGCashQRModal(document.getElementById('cart-total')?.textContent?.replace(/[₱,]/g,''))">QR</button></div>
           <div id="change-row" style="display:none;background:var(--success-l);border-radius:var(--radius-sm);padding:10px 12px;font-size:13.5px;font-weight:600;color:var(--success);margin-top:8px">
@@ -1753,14 +1754,24 @@ function deleteProduct(pid) {
   renderProductMgmt();
 }
 
+var _pmTab = 'branch'; // 'branch' | 'print'
+function switchPmTab(tab) { _pmTab = tab; _renderProductMgmtPage(); }
+
 function renderProductMgmt() {
   const _pm = getState();
   if (!_pm.currentUser || _pm.currentUser.role !== 'admin') { accessDenied('Product Management'); return; }
+  _renderProductMgmtPage();
+}
+
+function _renderProductMgmtPage() {
   const page = 'product-mgmt';
   const navId = getNavRenderId();
-  const products = getState().products;
+  const s = getState();
+
+  // Branch Products
+  const products = s.products;
   const totalVariants = products.reduce((a, p) => a + (p.variants ? p.variants.length : 0), 0);
-  const rows = products.map(function (p) {
+  const branchRows = products.map(function (p) {
     const prices = (p.variants || []).map(function (v) { return v.price; });
     const min = prices.length ? Math.min.apply(null, prices) : 0;
     const max = prices.length ? Math.max.apply(null, prices) : 0;
@@ -1768,26 +1779,203 @@ function renderProductMgmt() {
     return '<tr>' +
       '<td><strong>' + p.name + '</strong><div style="font-size:12px;color:var(--ink-60)">' + (p.desc || '') + '</div></td>' +
       '<td>' + varCount + ' variant' + (varCount !== 1 ? 's' : '') + '</td>' +
-      '<td class="td-mono">₱' + fmt(min) + (min !== max ? ' – ₱' + fmt(max) : '') + '</td>' +
+      '<td class="td-mono">\u20b1' + fmt(min) + (min !== max ? ' \u2013 \u20b1' + fmt(max) : '') + '</td>' +
       '<td>' + (p.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-neutral">Inactive</span>') + '</td>' +
       '<td>' +
-      '<button class="btn btn-sm btn-outline" onclick="editProductModal(\"' + p.id + '\")">Edit</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="toggleProduct(\"' + p.id + '\")" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="deleteProduct(\"' + p.id + '\")" title="Delete">' + iconSvg('error') + '</button>' +
-      '</td>' +
-      '</tr>';
-  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--ink-60)">No products found.</td></tr>';
+      '<button class="btn btn-sm btn-outline" onclick="editProductModal(\\"' + p.id + '\\")">Edit</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="toggleProduct(\\"' + p.id + '\\")" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="deleteProduct(\\"' + p.id + '\\")" title="Delete">' + iconSvg('error') + '</button>' +
+      '</td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--ink-60)">No branch products found.</td></tr>';
+
+  // Printing Products
+  const printProducts = s.printProducts || [];
+  const totalPrintVariants = printProducts.reduce((a, p) => a + (p.variants ? p.variants.length : 0), 0);
+  const printRows = printProducts.map(function (p) {
+    const prices = (p.variants || []).map(function (v) { return v.price; });
+    const min = prices.length ? Math.min.apply(null, prices) : 0;
+    const max = prices.length ? Math.max.apply(null, prices) : 0;
+    const varCount = p.variants ? p.variants.length : 0;
+    return '<tr>' +
+      '<td><strong>' + p.name + '</strong><div style="font-size:12px;color:var(--ink-60)">' + (p.desc || '') + '</div></td>' +
+      '<td>' + varCount + ' variant' + (varCount !== 1 ? 's' : '') + '</td>' +
+      '<td class="td-mono">\u20b1' + fmt(min) + (min !== max ? ' \u2013 \u20b1' + fmt(max) : '') + '</td>' +
+      '<td>' + (p.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-neutral">Inactive</span>') + '</td>' +
+      '<td>' +
+      '<button class="btn btn-sm btn-outline" onclick="editPrintProductModal(\\"' + p.id + '\\")">Edit</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="togglePrintProduct(\\"' + p.id + '\\")" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="deletePrintProduct(\\"' + p.id + '\\")" title="Delete">' + iconSvg('error') + '</button>' +
+      '</td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--ink-60)">No printing materials found.</td></tr>';
+
+  const isBranch = _pmTab !== 'print';
+
+  const tabBar =
+    '<div style="display:flex;gap:0;border-bottom:2px solid var(--ink-10);margin-bottom:20px">' +
+    '<button onclick="switchPmTab(\'branch\')" style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid ' + (isBranch ? 'var(--maroon)' : 'transparent') + ';color:' + (isBranch ? 'var(--maroon)' : 'var(--ink-60)') + ';margin-bottom:-2px;transition:color .15s">Branch Products</button>' +
+    '<button onclick="switchPmTab(\'print\')" style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid ' + (!isBranch ? 'var(--maroon)' : 'transparent') + ';color:' + (!isBranch ? 'var(--maroon)' : 'var(--ink-60)') + ';margin-bottom:-2px;transition:color .15s">Printing Products</button>' +
+    '</div>';
+
   setPageHtml(page, navId,
     '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">' +
-    '<div><h1 class="page-title">Product Management</h1><p class="page-subtitle">' + products.length + ' products · ' + totalVariants + ' variants</p></div>' +
-    '<button class="btn btn-maroon" onclick="addProductModal()">+ Add Product</button>' +
+    '<div><h1 class="page-title">Product Management</h1><p class="page-subtitle">' +
+      (isBranch ? products.length + ' branch products \u00b7 ' + totalVariants + ' variants' : printProducts.length + ' printing materials \u00b7 ' + totalPrintVariants + ' variants') +
+    '</p></div>' +
+    (isBranch
+      ? '<button class="btn btn-maroon" onclick="addProductModal()">+ Add Branch Product</button>'
+      : '<button class="btn btn-maroon" onclick="addPrintProductModal()">+ Add Printing Material</button>') +
     '</div>' +
+    tabBar +
     '<div class="data-card"><div class="data-card-body no-pad">' +
-    '<table class="data-table"><thead><tr><th>Product</th><th>Variants</th><th>Price Range</th><th>Status</th><th>Actions</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table>' +
+    '<table class="data-table"><thead><tr><th>' + (isBranch ? 'Product' : 'Material') + '</th><th>Variants</th><th>Price Range</th><th>Status</th><th>Actions</th></tr></thead>' +
+    '<tbody>' + (isBranch ? branchRows : printRows) + '</tbody></table>' +
     '</div></div>'
   );
 }
+
+// Printing Product CRUD
+function addPrintProductModal() {
+  const _errSvg = iconSvg('error');
+  const _varRow = '<div class="product-form-variant-row" style="grid-template-columns:1.2fr 0.8fr 0.8fr 0.7fr 0.8fr 0.7fr auto">'
+    + '<input class="form-control vn-name" placeholder="Variant name">'
+    + '<input class="form-control vn-size" placeholder="Size">'
+    + '<input class="form-control vn-color" placeholder="Color name">'
+    + '<input class="form-control vn-colorhex" placeholder="#000000" style="font-family:monospace">'
+    + '<input class="form-control vn-sku" placeholder="SKU">'
+    + '<input class="form-control vn-price" type="number" placeholder="Unit Cost">'
+    + '<button class="btn-icon" onclick="this.closest(&quot;.product-form-variant-row&quot;).remove()">' + _errSvg + '</button>'
+    + '</div>';
+  showModal(
+    '<div class="modal-header"><h2>Add Printing Material</h2><button class="btn-close-modal" onclick="closeModal()">&#x2715;</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-group"><label>Material Type</label><input id="pnp-type" class="form-control" placeholder="e.g. Ink, Paper, Plate, Substrate"></div>'
+    + '<div class="form-group"><label>Material Name</label><input id="pnp-name" class="form-control" placeholder="e.g. Kraft Paper Roll, UV Ink"></div>'
+    + '<div class="form-group"><label>Description</label><input id="pnp-desc" class="form-control" placeholder="Short description..."></div>'
+    + '<hr class="divider">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="font-size:14px">Variants</strong><button class="btn btn-sm btn-outline" onclick="addPrintVariantRow()">+ Add Variant</button></div>'
+    + '<div style="font-size:11px;color:var(--ink-50);margin-bottom:10px">Name &middot; Size &middot; Color &middot; Color Hex &middot; SKU &middot; Unit Cost</div>'
+    + '<div id="print-variant-rows">' + _varRow + '</div>'
+    + '</div>'
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="confirmAddPrintProduct()">Add Material</button></div>',
+    'modal-lg');
+}
+
+function addPrintVariantRow() {
+  const html = `<div class="product-form-variant-row" style="grid-template-columns:1.2fr 0.8fr 0.8fr 0.7fr 0.8fr 0.7fr auto"><input class="form-control vn-name" placeholder="Variant name"><input class="form-control vn-size" placeholder="Size"><input class="form-control vn-color" placeholder="Color name"><input class="form-control vn-colorhex" placeholder="#000000" style="font-family:monospace"><input class="form-control vn-sku" placeholder="SKU"><input class="form-control vn-price" type="number" placeholder="Unit Cost"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button></div>`;
+  document.getElementById('print-variant-rows').insertAdjacentHTML('beforeend', html);
+}
+
+function confirmAddPrintProduct() {
+  const name = document.getElementById('pnp-name').value.trim();
+  const desc = document.getElementById('pnp-desc').value.trim();
+  if (!name) { showToast('Material name required', 'error'); return; }
+  const variants = [];
+  document.querySelectorAll('#print-variant-rows .product-form-variant-row').forEach(row => {
+    const vname = row.querySelector('.vn-name').value.trim();
+    const size = (row.querySelector('.vn-size')?.value || '').trim();
+    const color = (row.querySelector('.vn-color')?.value || '').trim();
+    const colorHex = (row.querySelector('.vn-colorhex')?.value || '').trim();
+    const sku = row.querySelector('.vn-sku').value.trim();
+    const price = parseFloat(row.querySelector('.vn-price').value) || 0;
+    if (vname) variants.push({ name: vname, size, color, colorHex, sku, price });
+  });
+  if (!variants.length) { showToast('At least one variant required', 'error'); return; }
+  const materialType = (document.getElementById('pnp-type')?.value || '').trim();
+  const s = getState();
+  s.printProducts = s.printProducts || [];
+  const newProduct = {
+    id: 'pmat_' + Date.now(),
+    name, desc, materialType, active: true,
+    variants: variants.map(v => ({
+      id: 'pvar_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      name: v.name, size: v.size, color: v.color, colorHex: v.colorHex, sku: v.sku, price: v.price, stock: 0, reorderLevel: 20
+    }))
+  };
+  s.printProducts.push(newProduct);
+  saveState(s);
+  closeModal();
+  showToast('Printing material added!', 'success');
+  _pmTab = 'print';
+  _renderProductMgmtPage();
+}
+
+function editPrintProductModal(pid) {
+  const s = getState();
+  const p = (s.printProducts || []).find(x => x.id === pid);
+  if (!p) return;
+  const varRows = p.variants.map(v =>
+    '<div class="product-form-variant-row" data-vid="' + v.id + '" style="grid-template-columns:1.2fr 0.8fr 0.8fr 0.7fr 0.8fr 0.6fr 0.5fr auto">'
+    + '<input class="form-control vn-name" value="' + (v.name||''   ).replace(/"/g,'&quot;') + '" placeholder="Variant name">'
+    + '<input class="form-control vn-size" value="' + (v.size||''   ).replace(/"/g,'&quot;') + '" placeholder="Size">'
+    + '<input class="form-control vn-color" value="' + (v.color||''  ).replace(/"/g,'&quot;') + '" placeholder="Color name">'
+    + '<input class="form-control vn-colorhex" value="' + (v.colorHex||'').replace(/"/g,'&quot;') + '" placeholder="#000000" style="font-family:monospace">'
+    + '<input class="form-control vn-sku" value="' + (v.sku||''    ).replace(/"/g,'&quot;') + '" placeholder="SKU">'
+    + '<input class="form-control vn-price" type="number" value="' + (v.price||0) + '" placeholder="Unit Cost">'
+    + '<input class="form-control vn-stock" type="number" value="' + (v.stock||0) + '" placeholder="Stock">'
+    + '</div>'
+  ).join('');
+  showModal(
+    '<div class="modal-header"><h2>Edit Printing Material</h2><button class="btn-close-modal" onclick="closeModal()">&#x2715;</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-group"><label>Material Type</label><input id="pep-type" class="form-control" value="' + (p.materialType||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Ink, Paper, Plate"></div>'
+    + '<div class="form-group"><label>Material Name</label><input id="pep-name" class="form-control" value="' + p.name.replace(/"/g,'&quot;') + '"></div>'
+    + '<div class="form-group"><label>Description</label><input id="pep-desc" class="form-control" value="' + (p.desc||'').replace(/"/g,'&quot;') + '"></div>'
+    + '<hr class="divider">'
+    + '<div style="margin-bottom:8px"><strong style="font-size:14px">Variants</strong></div>'
+    + '<div style="font-size:11px;color:var(--ink-50);margin-bottom:10px">Name &middot; Size &middot; Color &middot; Color Hex &middot; SKU &middot; Unit Cost &middot; Stock</div>'
+    + '<div id="pep-variant-rows">' + varRows + '</div>'
+    + '</div>'
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="confirmEditPrintProduct(&quot;' + pid + '&quot;)">Save</button></div>'
+  );
+}
+
+function confirmEditPrintProduct(pid) {
+  const name = document.getElementById('pep-name').value.trim();
+  const desc = document.getElementById('pep-desc').value.trim();
+  const variants = [];
+  document.querySelectorAll('#pep-variant-rows .product-form-variant-row').forEach(row => {
+    const vname = row.querySelector('.vn-name').value.trim();
+    const size = (row.querySelector('.vn-size')?.value || '').trim();
+    const color = (row.querySelector('.vn-color')?.value || '').trim();
+    const colorHex = (row.querySelector('.vn-colorhex')?.value || '').trim();
+    const sku = row.querySelector('.vn-sku').value.trim();
+    const price = parseFloat(row.querySelector('.vn-price').value) || 0;
+    const stock = parseInt(row.querySelector('.vn-stock').value) || 0;
+    const vid = row.getAttribute('data-vid');
+    if (vname) variants.push({ id: vid, name: vname, size, color, colorHex, sku, price, stock });
+  });
+  const s = getState();
+  const p = (s.printProducts || []).find(x => x.id === pid);
+  if (!p) return;
+  p.name = name; p.desc = desc;
+  p.materialType = (document.getElementById('pep-type')?.value || '').trim();
+  p.variants = variants.map(v => {
+    const existing = p.variants.find(ev => ev.id === v.id) || {};
+    return { ...existing, id: v.id || ('pvar_' + Date.now()), name: v.name, size: v.size, color: v.color, colorHex: v.colorHex, sku: v.sku, price: v.price, stock: v.stock };
+  });
+  saveState(s);
+  closeModal();
+  showToast('Printing material updated!', 'success');
+  _pmTab = 'print';
+  _renderProductMgmtPage();
+}
+
+function togglePrintProduct(pid) {
+  const s = getState();
+  const p = (s.printProducts || []).find(x => x.id === pid);
+  if (p) { p.active = !p.active; saveState(s); showToast(`Material ${p.active ? 'activated' : 'deactivated'}.`, 'success'); _pmTab = 'print'; _renderProductMgmtPage(); }
+}
+
+function deletePrintProduct(pid) {
+  if (!confirm('Delete this printing material? This cannot be undone.')) return;
+  const s = getState();
+  s.printProducts = (s.printProducts || []).filter(p => p.id !== pid);
+  saveState(s);
+  showToast('Printing material deleted!', 'success');
+  _pmTab = 'print';
+  _renderProductMgmtPage();
+}
+
 
 function addProductModal() {
   const suggestions = getDefaultPosProducts();
@@ -1808,6 +1996,7 @@ function addProductModal() {
         <div class="text-xs text-muted" style="margin-top:4px">Select a suggestion to auto-fill, or fill in manually below.</div>
       </div>
       <hr class="divider">
+      <div class="form-group"><label>Product Type</label><input id="np-type" class="form-control" placeholder="e.g. Cup, Box, Bag, Wrap"></div>
       <div class="form-group"><label>Product Name</label><input id="np-name" class="form-control" placeholder="e.g. Ripple Wall Cup (25s)"></div>
       <div class="form-group"><label>Description</label><input id="np-desc" class="form-control" placeholder="Short description..."></div>
       <hr class="divider">
@@ -1875,29 +2064,31 @@ function applyProductSuggestion(pid) {
 }
 
 function addVariantRow() {
-  const html = `<div class="product-form-variant-row"><input class="form-control vn-name" placeholder="Variant name"><input class="form-control vn-sku" placeholder="SKU"><input class="form-control vn-price" type="number" placeholder="Price"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button></div>`;
+  const html = `<div class="product-form-variant-row"><input class="form-control vn-name" placeholder="Variant name"><input class="form-control vn-size" placeholder="Size (e.g. 8oz)"><input class="form-control vn-sku" placeholder="SKU"><input class="form-control vn-price" type="number" placeholder="Price"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button></div>`;
   document.getElementById('variant-rows').insertAdjacentHTML('beforeend', html);
 }
 
 function confirmAddProduct() {
   const name = document.getElementById('np-name').value.trim();
   const desc = document.getElementById('np-desc').value.trim();
+  const productType = (document.getElementById('np-type')?.value || '').trim();
   if (!name) { showToast('Product name required', 'error'); return; }
   const variants = [];
   document.querySelectorAll('.product-form-variant-row').forEach(row => {
     const vname = row.querySelector('.vn-name').value.trim();
+    const size = (row.querySelector('.vn-size')?.value || '').trim();
     const sku = row.querySelector('.vn-sku').value.trim();
     const price = parseFloat(row.querySelector('.vn-price').value) || 0;
-    if (vname) variants.push({ name: vname, sku, price, stock: 100 });
+    if (vname) variants.push({ name: vname, size, sku, price, stock: 100 });
   });
   if (!variants.length) { showToast('At least one variant required', 'error'); return; }
   const s = getState();
   const newProduct = {
     id: 'prod_' + Date.now(),
-    name, desc, active: true,
+    name, desc, productType, active: true,
     variants: variants.map(v => ({
       id: 'var_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      name: v.name, sku: v.sku, price: v.price, stock: v.stock || 100,
+      name: v.name, size: v.size, sku: v.sku, price: v.price, stock: v.stock || 100,
       reorderLevel: 20, reserved: 0, branchStocks: {}
     }))
   };
@@ -1921,12 +2112,14 @@ function editProductModal(pid) {
   if (!p) return;
   showModal(`<div class="modal-header"><h2>Edit Product</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
+      <div class="form-group"><label>Product Type</label><input id="ep-type" class="form-control" value="${p.productType || ''}" placeholder="e.g. Cup, Box, Bag"></div>
       <div class="form-group"><label>Product Name</label><input id="ep-name" class="form-control" value="${p.name}"></div>
-      <div class="form-group"><label>Description</label><input id="ep-desc" class="form-control" value="${p.desc}"></div>
+      <div class="form-group"><label>Description</label><input id="ep-desc" class="form-control" value="${p.desc || ''}"></div>
       <hr class="divider">
       <div style="margin-bottom:12px"><strong style="font-size:14px">Variants</strong></div>
       <div id="ep-variant-rows">${p.variants.map(v => `<div class="product-form-variant-row" data-vid="${v.id}">
         <input class="form-control vn-name" value="${v.name}" placeholder="Variant name">
+        <input class="form-control vn-size" value="${v.size || ''}" placeholder="Size (e.g. 8oz)">
         <input class="form-control vn-sku" value="${v.sku}" placeholder="SKU">
         <input class="form-control vn-price" type="number" value="${v.price}" placeholder="Price">
         <input class="form-control vn-stock" type="number" value="${v.stock}" placeholder="Stock" style="width:80px">
@@ -1941,20 +2134,22 @@ function confirmEditProduct(pid) {
   const variants = [];
   document.querySelectorAll('#ep-variant-rows .product-form-variant-row').forEach(row => {
     const vname = row.querySelector('.vn-name').value.trim();
+    const size = (row.querySelector('.vn-size')?.value || '').trim();
     const sku = row.querySelector('.vn-sku').value.trim();
     const price = parseFloat(row.querySelector('.vn-price').value) || 0;
     const stock = parseInt(row.querySelector('.vn-stock').value) || 0;
     const vid = row.getAttribute('data-vid');
-    if (vname) variants.push({ id: vid, name: vname, sku, price, stock });
+    if (vname) variants.push({ id: vid, name: vname, size, sku, price, stock });
   });
   const s = getState();
   const p = s.products.find(x => x.id === pid);
   if (!p) return;
   p.name = name;
   p.desc = desc;
+  p.productType = (document.getElementById('ep-type')?.value || '').trim();
   p.variants = variants.map(v => {
     const existing = p.variants.find(ev => ev.id === v.id) || {};
-    return { ...existing, id: v.id || ('var_' + Date.now()), name: v.name, sku: v.sku, price: v.price, stock: v.stock };
+    return { ...existing, id: v.id || ('var_' + Date.now()), name: v.name, size: v.size, sku: v.sku, price: v.price, stock: v.stock };
   });
   saveState(s);
   DB.updateProduct(pid, { name: p.name, desc: p.desc, variants: p.variants });
@@ -1965,6 +2160,7 @@ function confirmEditProduct(pid) {
 
 // INVENTORY
 var _invFilter = { search: '', status: 'all' };
+function clearInvFilter() { _invFilter = { search: '', status: 'all' }; _renderInventoryPage(); }
 
 function renderInventory() {
   _invFilter = { search: '', status: 'all' };
@@ -1975,7 +2171,6 @@ function _renderInventoryPage() {
   const s = getState();
   const isAdmin = s.currentUser && s.currentUser.role === 'admin';
 
-  // Build flat list of all variants with parent product info
   const allVariants = s.products.filter(p => p.active).flatMap(p =>
     (p.variants || []).map(v => ({ p, v, reorderLevel: v.reorderLevel ?? 20 }))
   );
@@ -1985,12 +2180,13 @@ function _renderInventoryPage() {
   const outOfStockCount = allVariants.filter(({ v }) => v.stock === 0).length;
   const healthyCount = totalVariants - lowStockCount - outOfStockCount;
 
-  // Apply search + status filter
   const q = (_invFilter.search || '').toLowerCase();
   const filtered = allVariants.filter(({ p, v, reorderLevel }) => {
     const matchSearch = !q ||
       p.name.toLowerCase().includes(q) ||
+      (p.productType || '').toLowerCase().includes(q) ||
       v.name.toLowerCase().includes(q) ||
+      (v.size || '').toLowerCase().includes(q) ||
       (v.sku || '').toLowerCase().includes(q);
     const lvl = v.stock === 0 ? 'out' : v.stock <= reorderLevel ? 'low' : 'ok';
     const matchStatus =
@@ -2003,7 +2199,7 @@ function _renderInventoryPage() {
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h1 class="page-title">Inventory Module</h1><p class="page-subtitle">Stock monitoring across all variants</p></div>
+      <div><h1 class="page-title">Branch Inventory</h1><p class="page-subtitle">Stock monitoring across all branch products</p></div>
     </div>
 
     <div class="kpi-grid">
@@ -2021,10 +2217,8 @@ function _renderInventoryPage() {
         <span class="text-sm text-muted">${filtered.length} of ${totalVariants} variants</span>
       </div>
       <div class="data-card-body" style="padding:12px 16px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <input
-          class="form-control"
-          style="flex:1;min-width:200px;max-width:360px"
-          placeholder="Search product, variant, or SKU..."
+        <input class="form-control" style="flex:1;min-width:200px;max-width:360px"
+          placeholder="Search type, size, product..."
           value="${_invFilter.search}"
           oninput="_invFilter.search=this.value;_renderInventoryPage()">
         <select class="form-control" style="width:auto" onchange="_invFilter.status=this.value;_renderInventoryPage()">
@@ -2033,30 +2227,44 @@ function _renderInventoryPage() {
           <option value="low" ${_invFilter.status === 'low' ? 'selected' : ''}>Low Stock</option>
           <option value="out" ${_invFilter.status === 'out' ? 'selected' : ''}>Out of Stock</option>
         </select>
-        ${_invFilter.search || _invFilter.status !== 'all' ? '<button class="btn btn-sm btn-outline" onclick="_invFilter={search:\'\',status:\'all\'};_renderInventoryPage()">Clear Filter</button>' : ''}
+        ${_invFilter.search || _invFilter.status !== 'all' ? '<button class="btn btn-sm btn-outline" onclick="clearInvFilter()">Clear Filter</button>' : ''}
       </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Product</th><th>Variant</th><th>SKU</th><th>Price</th><th>Stock</th><th>Reorder Level</th><th>Recommended Reorder</th><th>Level</th><th>Adjust</th></tr></thead>
+          <thead><tr>
+            <th>Product Type</th>
+            <th>Product Size</th>
+            <th>Current Stock</th>
+            <th>Reorder Point</th>
+            <th>Max Stock</th>
+            <th>Last Count Date</th>
+            <th>Status</th>
+            <th>Adjust</th>
+          </tr></thead>
           <tbody>${filtered.length === 0 ? `
-            <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--ink-60)">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">
               ${_invFilter.search || _invFilter.status !== 'all' ? 'No variants match your search.' : 'No inventory data yet.'}
             </td></tr>` :
       filtered.map(({ p, v, reorderLevel }) => {
-        const pct = Math.min(100, (v.stock / 200) * 100);
-        const lvl = v.stock === 0 ? 'low' : v.stock <= reorderLevel ? 'low' : v.stock < 60 ? 'mid' : 'high';
+        const maxStock = v.maxStock ?? (reorderLevel * 3);
         const stockColor = v.stock === 0 ? 'var(--danger)' : v.stock <= reorderLevel ? 'var(--warning)' : 'var(--success)';
-        const recommended = Math.max(0, reorderLevel * 2 - v.stock);
+        const statusBadge = v.stock === 0
+          ? '<span class="badge badge-danger">Out of Stock</span>'
+          : v.stock <= reorderLevel
+            ? '<span class="badge badge-warning">Low Stock</span>'
+            : '<span class="badge badge-success">Healthy</span>';
+        const lastCount = v.lastCountDate
+          ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+          : '<span class="text-muted">\u2014</span>';
         return `<tr>
-                <td><strong>${p.name}</strong></td>
-                <td>${v.name}</td>
-                <td class="td-mono" style="font-size:12px">${v.sku}</td>
-                <td class="td-mono">₱${fmt(v.price)}</td>
-                <td class="td-mono" style="font-weight:700;color:${stockColor}">${v.stock === 0 ? 'Out of Stock' : v.stock}</td>
-                <td>${reorderLevel}</td>
-                <td>${recommended > 0 ? recommended : '<span class="badge badge-success">OK</span>'}</td>
-                <td style="width:140px"><div class="inventory-status-bar"><div class="inventory-fill ${lvl}" style="width:${pct}%"></div></div></td>
-                <td>${isAdmin ? '<button class="btn btn-sm btn-outline" onclick="adjustStockModal(\'' + p.id + '\',\'' + v.id + '\')">Adjust</button>' : '<span class="badge badge-neutral">View Only</span>'}</td>
+                <td><strong>${p.productType || p.name}</strong><div style="font-size:11px;color:var(--ink-50)">${p.name}</div></td>
+                <td>${v.size || v.name}</td>
+                <td class="td-mono" style="font-weight:700;color:${stockColor}">${v.stock}</td>
+                <td class="td-mono">${reorderLevel}</td>
+                <td class="td-mono">${maxStock}</td>
+                <td class="td-mono" style="font-size:12px">${lastCount}</td>
+                <td>${statusBadge}</td>
+                <td>${isAdmin ? '<button class="btn btn-sm btn-outline" onclick="adjustStockModal(\'' + p.id + '\',\'' + v.id + '\')">' + 'Adjust</button>' : '<span class="badge badge-neutral">View Only</span>'}</td>
               </tr>`;
       }).join('')}
           </tbody>
@@ -2071,12 +2279,16 @@ function adjustStockModal(pid, vid) {
   const p = s.products.find(x => x.id === pid);
   const v = p?.variants.find(x => x.id === vid);
   if (!v) return;
-  showModal(`<div class="modal-header"><h2>Adjust Stock — ${p.name} (${v.name})</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+  const maxStock = v.maxStock ?? ((v.reorderLevel ?? 20) * 3);
+  showModal(`<div class="modal-header"><h2>Adjust Stock — ${p.productType || p.name} · ${v.size || v.name}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div class="alert alert-info">Current stock: <strong>${v.stock} units</strong></div>
+      <div class="alert alert-info">Current stock: <strong>${v.stock} units</strong>${v.lastCountDate ? ' · Last count: ' + new Date(v.lastCountDate).toLocaleDateString('en-PH', {year:'numeric',month:'short',day:'numeric'}) : ''}</div>
       <div class="form-group"><label>Adjustment Type</label><div class="form-select-wrap"><select id="adj-type" class="form-control"><option value="add">Add Stock (+)</option><option value="remove">Remove Stock (−)</option><option value="set">Set Exact Value</option></select></div></div>
       <div class="form-group"><label>Quantity</label><input type="number" id="adj-qty" class="form-control" placeholder="0" min="0"></div>
-      <div class="form-group"><label>Reorder Level</label><input type="number" id="adj-reorder" class="form-control" placeholder="20" min="1" value="${v.reorderLevel ?? 20}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Reorder Point</label><input type="number" id="adj-reorder" class="form-control" placeholder="20" min="1" value="${v.reorderLevel ?? 20}"></div>
+        <div class="form-group"><label>Max Stock</label><input type="number" id="adj-maxstock" class="form-control" placeholder="${maxStock}" min="1" value="${maxStock}"></div>
+      </div>
     </div>
     <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="confirmAdjustStock('${pid}','${vid}')">Apply</button></div>`);
 }
@@ -2084,8 +2296,8 @@ function adjustStockModal(pid, vid) {
 function confirmAdjustStock(pid, vid) {
   const type = document.getElementById('adj-type').value;
   const qty = parseInt(document.getElementById('adj-qty').value) || 0;
-  const reorderLevel = parseInt(document.getElementById('adj-reorder').value) || 20;
-  const newReorderLevel = Math.max(1, reorderLevel);
+  const reorderLevel = Math.max(1, parseInt(document.getElementById('adj-reorder').value) || 20);
+  const maxStock = Math.max(1, parseInt(document.getElementById('adj-maxstock').value) || reorderLevel * 3);
 
   const s = getState();
   const prod = s.products.find(x => x.id === pid);
@@ -2094,21 +2306,20 @@ function confirmAdjustStock(pid, vid) {
   if (type === 'add') variant.stock = (variant.stock || 0) + qty;
   else if (type === 'remove') variant.stock = Math.max(0, (variant.stock || 0) - qty);
   else if (type === 'set') variant.stock = Math.max(0, qty);
-  variant.reorderLevel = newReorderLevel;
+  variant.reorderLevel = reorderLevel;
+  variant.maxStock = maxStock;
+  variant.lastCountDate = new Date().toISOString();
 
-  // Recalculate branchStocks to match new total stock
   const branchIds = (s.branches || []).map(b => b.id);
-  const branchCount = Math.max(1, branchIds.length);
-  const split = Math.floor(variant.stock / branchCount);
-  let remainder = variant.stock - split * branchCount;
+  const split = Math.floor(variant.stock / Math.max(1, branchIds.length));
+  let remainder = variant.stock - split * branchIds.length;
   variant.branchStocks = variant.branchStocks || {};
-  branchIds.forEach((bid, idx) => {
+  branchIds.forEach((bid) => {
     variant.branchStocks[bid] = split + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder--;
   });
 
   saveState(s);
-  // Persist to database
   DB.updateProduct(pid, { name: prod.name, desc: prod.desc, variants: prod.variants });
   closeModal();
   showToast('Stock updated.', 'success');
@@ -2567,14 +2778,14 @@ function getPayPeriods(userId, shifts) {
 }
 
 function calcPayslip(user, periodData, state) {
-  const DAILY_RATE = user.dailyRate || 600;
+  const DAILY_RATE          = user.dailyRate    || 400;
   const COMMISSION_CUP_RATE = user.commissionCup || 300;
   const COMMISSION_GP_RATE  = user.commissionGp  || 150;
 
   const totalDays = periodData.shifts.length;
   const basicPay  = totalDays * DAILY_RATE;
 
-  // Count commission-eligible days (Opening shifts = cup day, Closing = GP day)
+  // Commission days: Opening = Cups, Closing = GP
   const openingDays = periodData.shifts.filter(sh => {
     const sk = `${user.id}_${sh.openedAt ? sh.openedAt.slice(0,10) : ''}`;
     return (state.shiftSchedules || {})[sk] === 'Opening';
@@ -2584,18 +2795,24 @@ function calcPayslip(user, periodData, state) {
     return (state.shiftSchedules || {})[sk] === 'Closing';
   }).length;
 
-  // SSS, PhilHealth, HDMF standard Philippine deduction estimates
-  const grossPay = basicPay;
-  const sss      = Math.round(grossPay * 0.045);
-  const philhealth = Math.round(grossPay * 0.02);
-  const hdmf     = Math.min(Math.round(grossPay * 0.02), 100);
+  const commissionCup = openingDays * COMMISSION_CUP_RATE;
+  const commissionGp  = closingDays * COMMISSION_GP_RATE;
+  const grossPay      = basicPay + commissionCup + commissionGp;
+
+  // Philippine statutory deductions
+  const sss         = Math.round(grossPay * 0.045);
+  const philhealth  = Math.round(grossPay * 0.02);
+  const hdmf        = Math.min(Math.round(grossPay * 0.02), 100);
   const totalDeductions = sss + philhealth + hdmf;
-  const netPay   = grossPay - totalDeductions;
+  const netPay      = grossPay - totalDeductions;
 
   return {
     totalDays, basicPay, openingDays, closingDays,
+    commissionCup, commissionGp,
     grossPay, sss, philhealth, hdmf, totalDeductions, netPay,
     dailyRate: DAILY_RATE,
+    commissionCupRate: COMMISSION_CUP_RATE,
+    commissionGpRate:  COMMISSION_GP_RATE,
   };
 }
 
@@ -2713,140 +2930,162 @@ function renderPayslip() {
     </div>
 
     <!-- PAYSLIP DOCUMENT -->
-    <div class="data-card" id="payslip-document" style="margin-bottom:24px;max-width:860px">
-      <div class="data-card-body" style="padding:32px 40px;font-family:'Times New Roman',serif">
+    <div class="data-card" id="payslip-document" style="margin-bottom:24px;max-width:860px;">
+      <div class="data-card-body" style="padding:32px 40px;font-family:'Arial',sans-serif;font-size:12px;color:#111;">
 
-        <!-- Header -->
-        <div style="display:flex;align-items:flex-start;gap:28px;margin-bottom:18px">
-          <div style="flex-shrink:0">
-            <!-- Logo placeholder matching brand -->
-            <div style="width:90px;height:70px;display:flex;align-items:center;justify-content:center;background:var(--maroon);border-radius:8px;color:#fff;font-size:10px;font-weight:700;text-align:center;letter-spacing:0.5px;padding:8px">
-              SOUTH<br>PAFPS<br><span style="font-size:8px;opacity:0.8">PACKAGING SUPPLIES</span>
+        <!-- ── HEADER ── -->
+        <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+          <div style="flex-shrink:0;width:100px;">
+            <img src="logo.png" alt="South Pafps" style="width:100px;height:auto;display:block;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div style="display:none;width:100px;height:76px;background:var(--maroon);border-radius:8px;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;text-align:center;padding:8px;box-sizing:border-box;">SOUTH<br>PAFPS<br><span style="font-size:7px;opacity:.8">PACKAGING SUPPLIES</span></div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div>
+            <div style="font-size:11px;line-height:1.7;color:#333;">
+              ${COMPANY.address1}<br>
+              ${COMPANY.address2}<br>
+              ${COMPANY.tel}
             </div>
           </div>
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:15px;margin-bottom:3px">${COMPANY.name}</div>
-            <div style="font-size:12px;color:#333;line-height:1.6">${COMPANY.address1}</div>
-            <div style="font-size:12px;color:#333">${COMPANY.address2}</div>
-            <div style="font-size:12px;color:#333">${COMPANY.tel}</div>
-          </div>
         </div>
 
-        <!-- PAYSLIP title -->
-        <div style="text-align:center;font-weight:700;font-size:14px;letter-spacing:2px;margin-bottom:18px;text-decoration:underline">PAYSLIP</div>
+        <!-- ── PAYSLIP TITLE ── -->
+        <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
 
-        <!-- Employee info grid -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:0;font-size:12px;border:1px solid #333">
-          <div style="padding:5px 10px;border-right:1px solid #333;border-bottom:1px solid #ccc">
-            <strong>Employee Name:</strong>&nbsp;&nbsp;${me.name || '—'}
-          </div>
-          <div style="padding:5px 10px;border-bottom:1px solid #ccc">
-            <strong>SSS Number:</strong>&nbsp;&nbsp;${me.sssNumber || ''}
-          </div>
-          <div style="padding:5px 10px;border-right:1px solid #333;border-bottom:1px solid #ccc">
-            <strong>Employee Number:</strong>&nbsp;&nbsp;${empNum}
-          </div>
-          <div style="padding:5px 10px;border-bottom:1px solid #ccc">
-            <strong>Philhealth Number:</strong>&nbsp;&nbsp;${me.philhealthNumber || ''}
-          </div>
-          <div style="padding:5px 10px;border-right:1px solid #333;border-bottom:1px solid #ccc">
-            <strong>Position:</strong>&nbsp;&nbsp;${positionLabel}
-          </div>
-          <div style="padding:5px 10px;border-bottom:1px solid #ccc">
-            <strong>HDMF Number:</strong>&nbsp;&nbsp;${me.hdmfNumber || ''}
-          </div>
-          <div style="padding:5px 10px;border-right:1px solid #333;border-bottom:1px solid #ccc">
-            <strong>Pay Period:</strong>&nbsp;&nbsp;${selectedPeriod.label}
-          </div>
-          <div style="padding:5px 10px;border-bottom:1px solid #ccc">
-            <strong>TIN Number:</strong>&nbsp;&nbsp;${me.tinNumber || ''}
-          </div>
-          <div style="padding:5px 10px;border-right:1px solid #333">
-            <strong>Pay Date:</strong>&nbsp;&nbsp;${selectedPeriod.payDateLabel}
-          </div>
-          <div style="padding:5px 10px"></div>
-        </div>
+        <!-- ── EMPLOYEE INFO ── -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+          <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+          <tbody>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${empNum}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${selectedPeriod.label}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${selectedPeriod.payDateLabel}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"></td>
+              <td style="padding:4px 8px;border:1px solid #999;"></td>
+            </tr>
+          </tbody>
+        </table>
 
-        <!-- Earnings / Deductions table -->
-        <table style="width:100%;border-collapse:collapse;margin-top:0;font-size:12px">
+        <!-- ── EARNINGS / DEDUCTIONS ── -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
           <colgroup>
-            <col style="width:38%"><col style="width:10%"><col style="width:17%">
-            <col style="width:2px">
-            <col style="width:33%">
+            <col style="width:34%">
+            <col style="width:10%">
+            <col style="width:14%">
+            <col style="width:3px">
+            <col style="width:auto">
+            <col style="width:14%">
           </colgroup>
           <thead>
-            <tr style="background:#eee">
-              <th colspan="3" style="border:1px solid #333;padding:6px 10px;text-align:left;font-weight:700">EARNINGS/INCOME</th>
-              <td style="border-top:1px solid #333;border-bottom:1px solid #333;background:#fff;width:4px"></td>
-              <th style="border:1px solid #333;padding:6px 10px;text-align:left;font-weight:700">DEDUCTIONS</th>
+            <tr>
+              <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
+              <td style="border-top:1px solid #333;border-bottom:1px solid #333;padding:0;width:3px;background:#333;"></td>
+              <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
             </tr>
           </thead>
           <tbody>
+            <!-- Basic Pay row -->
             <tr>
-              <td style="border-left:1px solid #333;padding:5px 10px">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td>
-              <td style="border-left:1px solid #ccc;padding:5px 10px;text-align:right">${calc.totalDays}</td>
-              <td style="border-left:1px solid #ccc;border-right:1px solid #333;padding:5px 10px;text-align:right">₱${fmt(calc.basicPay)}</td>
-              <td style="background:#fff;border-top:none"></td>
-              <td style="border-right:1px solid #333;border-left:1px solid #333;padding:5px 10px">SSS EE Contribution</td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.totalDays}</td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.basicPay)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.sss > 0 ? '₱'+fmt(calc.sss) : ''}</td>
             </tr>
-            <tr>
-              <td style="border-left:1px solid #333;padding:5px 10px"></td>
-              <td style="border-left:1px solid #ccc;padding:5px 10px"></td>
-              <td style="border-left:1px solid #ccc;border-right:1px solid #333;padding:5px 10px"></td>
-              <td style="background:#fff"></td>
-              <td style="border-right:1px solid #333;border-left:1px solid #333;padding:5px 10px">NHIP EE Contribution</td>
+            <!-- Commission Cups row -->
+            ${calc.commissionCup > 0 ? `<tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;">Commission (Cups)</td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.openingDays}</td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.commissionCup)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱'+fmt(calc.philhealth) : ''}</td>
+            </tr>` : `<tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱'+fmt(calc.philhealth) : ''}</td>
+            </tr>`}
+            <!-- Commission GP row -->
+            ${calc.commissionGp > 0 ? `<tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;">Commission (GP)</td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.closingDays}</td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.commissionGp)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱'+fmt(calc.hdmf) : ''}</td>
+            </tr>` : `<tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱'+fmt(calc.hdmf) : ''}</td>
+            </tr>`}
+            <!-- Filler rows to match document height -->
+            <tr style="height:22px;">
+              <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
             </tr>
-            <tr>
-              <td style="border-left:1px solid #333;padding:5px 10px"></td>
-              <td style="border-left:1px solid #ccc;padding:5px 10px"></td>
-              <td style="border-left:1px solid #ccc;border-right:1px solid #333;padding:5px 10px"></td>
-              <td style="background:#fff"></td>
-              <td style="border-right:1px solid #333;border-left:1px solid #333;padding:5px 10px">HDMF Contribution</td>
-            </tr>
-            <tr style="height:24px">
-              <td style="border-left:1px solid #333"></td>
-              <td style="border-left:1px solid #ccc"></td>
-              <td style="border-left:1px solid #ccc;border-right:1px solid #333"></td>
-              <td style="background:#fff"></td>
-              <td style="border-right:1px solid #333;border-left:1px solid #333"></td>
-            </tr>
-            <tr style="height:24px">
-              <td style="border-left:1px solid #333"></td>
-              <td style="border-left:1px solid #ccc"></td>
-              <td style="border-left:1px solid #ccc;border-right:1px solid #333"></td>
-              <td style="background:#fff"></td>
-              <td style="border-right:1px solid #333;border-left:1px solid #333"></td>
+            <tr style="height:22px;">
+              <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
             </tr>
           </tbody>
           <tfoot>
-            <tr style="background:#eee;font-weight:700">
-              <td colspan="2" style="border:1px solid #333;padding:6px 10px">GROSS PAY</td>
-              <td style="border:1px solid #333;padding:6px 10px;text-align:right">₱${fmt(calc.grossPay)}</td>
-              <td style="background:#fff;width:4px;border:none"></td>
-              <td style="border:1px solid #333;padding:6px 10px;display:flex;justify-content:space-between">
-                <span>TOTAL DEDUCTION</span><span>₱${fmt(calc.totalDeductions)}</span>
-              </td>
+            <!-- GROSS PAY / TOTAL DEDUCTION -->
+            <tr style="font-weight:700;background:#e8e8e8;">
+              <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.grossPay)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.totalDeductions)}</td>
             </tr>
-            <tr>
-              <td colspan="3" style="border:1px solid #333;padding:6px 10px;background:#fff"></td>
-              <td style="background:#fff;border:none"></td>
-              <td style="border:1px solid #333;padding:6px 10px;font-weight:700;display:flex;justify-content:space-between">
-                <span>NET PAY</span><span style="color:var(--maroon)">₱${fmt(calc.netPay)}</span>
-              </td>
+            <!-- NET PAY -->
+            <tr style="font-weight:700;">
+              <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;color:var(--maroon);">₱${fmt(calc.netPay)}</td>
             </tr>
           </tfoot>
         </table>
 
-        <!-- Deduction detail note -->
-        <div style="margin-top:12px;font-size:10px;color:#666;border-top:1px dashed #ccc;padding-top:8px">
-          Deduction breakdown: SSS ₱${fmt(calc.sss)} · PhilHealth (NHIP) ₱${fmt(calc.philhealth)} · HDMF ₱${fmt(calc.hdmf)}
-          <span style="float:right">Branch: ${branch?.name || '—'}</span>
+        <!-- ── CUT LINE ── -->
+        <div style="margin-top:28px;border-top:2px dashed #ccc;text-align:center;padding-top:4px;font-size:10px;color:#aaa;letter-spacing:2px;">
+          · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
         </div>
 
-        <!-- Cut line -->
-        <div style="margin-top:24px;border-top:2px dashed #ccc;padding-top:4px;text-align:center;font-size:10px;color:#aaa;letter-spacing:2px">
-          - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-        </div>
       </div>
     </div>
 
@@ -3054,6 +3293,312 @@ function viewReceiptModal(saleId) {
   showReceiptModal(sale, s);
 }
 
+// ─────────────────────────────────────────────────────────────
+// POS → Customer Records
+// Shows walk-in customers created through the POS terminal
+// ─────────────────────────────────────────────────────────────
+var _posCustFilter = { search: '', sort: 'recent' };
+
+function renderPosCustomers() {
+  const s = getState();
+  const isAdmin = s.currentUser && s.currentUser.role === 'admin';
+  const staffBranchId = !isAdmin ? s.currentUser?.branchId : null;
+
+  // Build per-customer stats from sales
+  const totalSpent   = {};
+  const visitCount   = {};
+  const lastVisit    = {};
+  const branchCustIds = new Set();
+
+  (s.sales || []).forEach(sale => {
+    if (sale.voided) return;
+    if (sale.customerId) {
+      totalSpent[sale.customerId]  = (totalSpent[sale.customerId]  || 0) + (sale.total || 0);
+      visitCount[sale.customerId]  = (visitCount[sale.customerId]  || 0) + 1;
+      if (!lastVisit[sale.customerId] || sale.createdAt > lastVisit[sale.customerId])
+        lastVisit[sale.customerId] = sale.createdAt;
+      if (staffBranchId && sale.branchId === staffBranchId)
+        branchCustIds.add(sale.customerId);
+    }
+  });
+  // Also include customers explicitly tagged to this branch
+  if (staffBranchId) {
+    (s.customers || []).forEach(c => { if (c.branchId === staffBranchId) branchCustIds.add(c.id); });
+  }
+
+  // Only POS-sourced customers
+  let pool = (s.customers || []).filter(c => c.source === 'pos');
+  if (staffBranchId) pool = pool.filter(c => branchCustIds.has(c.id));
+
+  // Search
+  const q = (_posCustFilter.search || '').toLowerCase();
+  let filtered = pool.filter(c =>
+    !q ||
+    (c.companyName    || '').toLowerCase().includes(q) ||
+    (c.contactPerson  || '').toLowerCase().includes(q) ||
+    (c.phone          || '').toLowerCase().includes(q)
+  );
+
+  // Sort
+  filtered.sort((a, b) => {
+    if (_posCustFilter.sort === 'name')    return (a.companyName || a.contactPerson || '').localeCompare(b.companyName || b.contactPerson || '');
+    if (_posCustFilter.sort === 'spent')   return (totalSpent[b.id] || 0) - (totalSpent[a.id] || 0);
+    if (_posCustFilter.sort === 'visits')  return (visitCount[b.id] || 0) - (visitCount[a.id] || 0);
+    // recent (default)
+    return (lastVisit[b.id] || '').localeCompare(lastVisit[a.id] || '');
+  });
+
+  const totalRevenue = filtered.reduce((s, c) => s + (totalSpent[c.id] || 0), 0);
+  const returningCount = filtered.filter(c => (visitCount[c.id] || 0) > 1).length;
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">POS Customer Records</h1>
+        <p class="page-subtitle">Walk-in customers punched through the POS terminal</p>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Total Walk-ins</div><div class="kpi-icon blue">${iconSvg('users')}</div></div>
+        <div class="kpi-value">${filtered.length}</div>
+        <div class="kpi-sub">Unique POS customers</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Returning</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+        <div class="kpi-value">${returningCount}</div>
+        <div class="kpi-sub">More than 1 visit</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Total Revenue</div><div class="kpi-icon maroon">${iconSvg('money')}</div></div>
+        <div class="kpi-value">₱${fmt(totalRevenue)}</div>
+        <div class="kpi-sub">From walk-in sales</div>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header">
+        <span class="data-card-title">Walk-in Customers</span>
+        <span class="text-sm text-muted">${filtered.length} record${filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="data-card-body" style="padding:12px 16px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input class="form-control" style="flex:1;min-width:200px;max-width:340px"
+          placeholder="Search name or phone..."
+          value="${_posCustFilter.search}"
+          oninput="_posCustFilter.search=this.value;renderPosCustomers()">
+        <select class="form-control" style="width:auto" onchange="_posCustFilter.sort=this.value;renderPosCustomers()">
+          <option value="recent"  ${_posCustFilter.sort === 'recent'  ? 'selected' : ''}>Most Recent</option>
+          <option value="spent"   ${_posCustFilter.sort === 'spent'   ? 'selected' : ''}>Highest Spend</option>
+          <option value="visits"  ${_posCustFilter.sort === 'visits'  ? 'selected' : ''}>Most Visits</option>
+          <option value="name"    ${_posCustFilter.sort === 'name'    ? 'selected' : ''}>Name A–Z</option>
+        </select>
+      </div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Visits</th>
+            <th>Total Spent</th>
+            <th>Last Visit</th>
+            <th>AR Balance</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody>${filtered.length === 0
+            ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No walk-in customers found.</td></tr>'
+            : filtered.map(c => {
+                const balance = c.outstandingBalance || 0;
+                const balCell = balance > 0
+                  ? '<span class="td-mono" style="color:var(--danger);font-weight:700">₱' + fmt(balance) + '</span>'
+                  : '<span class="badge badge-success">Clear</span>';
+                return '<tr>' +
+                  '<td><strong>' + (c.companyName || c.contactPerson || 'Unknown') + '</strong>' +
+                    (c.contactPerson && c.companyName ? '<div style="font-size:11px;color:var(--ink-50)">' + c.contactPerson + '</div>' : '') +
+                  '</td>' +
+                  '<td class="td-mono">' + (c.phone || '—') + '</td>' +
+                  '<td class="td-mono">' + (visitCount[c.id] || 0) + '</td>' +
+                  '<td class="td-mono" style="font-weight:700;color:var(--maroon)">₱' + fmt(totalSpent[c.id] || 0) + '</td>' +
+                  '<td class="td-mono" style="font-size:12px">' + (lastVisit[c.id] ? fmtDate(lastVisit[c.id]) : '—') + '</td>' +
+                  '<td>' + balCell + '</td>' +
+                  '<td><button class="btn btn-sm btn-outline" onclick="viewPosCustomerModal(\'' + c.id + '\')">View</button></td>' +
+                  '</tr>';
+              }).join('')
+          }</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function viewPosCustomerModal(cid) {
+  const s = getState();
+  const c = (s.customers || []).find(x => x.id === cid);
+  if (!c) return;
+  const custSales = (s.sales || []).filter(x => x.customerId === cid && !x.voided)
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const totalSpent = custSales.reduce((sum, x) => sum + (x.total || 0), 0);
+  const salesHtml = custSales.slice(0, 10).map(sale =>
+    '<tr>' +
+    '<td class="td-mono" style="font-size:12px">' + (sale.receiptNo || String(sale.id).slice(-6).toUpperCase()) + '</td>' +
+    '<td class="td-mono">₱' + fmt(sale.total) + '</td>' +
+    '<td class="td-mono" style="font-size:12px">' + fmtTime(sale.createdAt) + '</td>' +
+    '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">Receipt</button></td>' +
+    '</tr>'
+  ).join('') || '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No sales found.</td></tr>';
+
+  showModal(
+    '<div class="modal-header"><h2>' + iconSvg('users') + ' ' + (c.companyName || c.contactPerson || 'Customer') + '</h2>' +
+    '<button class="btn-close-modal" onclick="closeModal()">&#x2715;</button></div>' +
+    '<div class="modal-body">' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">' +
+    '<div class="form-group" style="margin:0"><label>Contact Person</label><div class="form-control-static">' + (c.contactPerson || '—') + '</div></div>' +
+    '<div class="form-group" style="margin:0"><label>Phone</label><div class="form-control-static td-mono">' + (c.phone || '—') + '</div></div>' +
+    '<div class="form-group" style="margin:0"><label>Total Visits</label><div class="form-control-static td-mono">' + custSales.length + '</div></div>' +
+    '<div class="form-group" style="margin:0"><label>Total Spent</label><div class="form-control-static td-mono" style="color:var(--maroon);font-weight:700">₱' + fmt(totalSpent) + '</div></div>' +
+    '</div>' +
+    '<div style="font-weight:600;margin-bottom:8px;font-size:13px">Recent Purchases</div>' +
+    '<table class="data-table"><thead><tr><th>Receipt</th><th>Total</th><th>Date</th><th></th></tr></thead>' +
+    '<tbody>' + salesHtml + '</tbody></table>' +
+    '</div>' +
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>'
+  , 'modal-lg');
+}
+
+// ─────────────────────────────────────────────────────────────
+// POS → Receipt History
+// Full searchable history of all POS receipts
+// ─────────────────────────────────────────────────────────────
+var _posReceiptFilter = { search: '', status: 'all', dateFrom: '', dateTo: '' };
+function clearPosReceiptFilter() { _posReceiptFilter = { search: '', status: 'all', dateFrom: '', dateTo: '' }; renderPosReceipts(); }
+
+function renderPosReceipts() {
+  const s = getState();
+  const isAdmin = s.currentUser && s.currentUser.role === 'admin';
+  const staffBranchId = !isAdmin ? s.currentUser?.branchId : null;
+
+  // All sales scoped to role
+  let allSales = [...(s.sales || [])].reverse();
+  if (staffBranchId) allSales = allSales.filter(x => x.branchId === staffBranchId);
+
+  // Apply filters
+  const q = (_posReceiptFilter.search || '').toLowerCase();
+  const filtered = allSales.filter(sale => {
+    const cust = (s.customers || []).find(c => c.id === sale.customerId);
+    const custName = cust ? (cust.companyName || cust.contactPerson || '') : 'Walk-in';
+    const receiptNo = (sale.receiptNo || String(sale.id).slice(-6)).toUpperCase();
+    const matchSearch = !q || receiptNo.toLowerCase().includes(q) || custName.toLowerCase().includes(q);
+    const isVoided = sale.voided || sale.status === 'voided';
+    const matchStatus =
+      _posReceiptFilter.status === 'all'    ? true :
+      _posReceiptFilter.status === 'paid'   ? !isVoided :
+      _posReceiptFilter.status === 'voided' ? isVoided : true;
+    const saleDate = (sale.createdAt || '').slice(0, 10);
+    const matchFrom = !_posReceiptFilter.dateFrom || saleDate >= _posReceiptFilter.dateFrom;
+    const matchTo   = !_posReceiptFilter.dateTo   || saleDate <= _posReceiptFilter.dateTo;
+    return matchSearch && matchStatus && matchFrom && matchTo;
+  });
+
+  const totalRevenue  = filtered.filter(x => !x.voided && x.status !== 'voided').reduce((s, x) => s + (x.total || 0), 0);
+  const voidedCount   = filtered.filter(x => x.voided || x.status === 'voided').length;
+  const paidCount     = filtered.length - voidedCount;
+  const hasFilter     = q || _posReceiptFilter.status !== 'all' || _posReceiptFilter.dateFrom || _posReceiptFilter.dateTo;
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Receipt History</h1>
+        <p class="page-subtitle">Complete record of all POS charges and transactions</p>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Total Receipts</div><div class="kpi-icon blue">${iconSvg('clipboard')}</div></div>
+        <div class="kpi-value">${filtered.length}</div>
+        <div class="kpi-sub">${hasFilter ? 'Matching filter' : 'All time'}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Paid</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+        <div class="kpi-value">${paidCount}</div>
+        <div class="kpi-sub">Completed transactions</div>
+      </div>
+      <div class="kpi-card" style="${voidedCount > 0 ? 'cursor:pointer' : ''}" onclick="_posReceiptFilter.status='voided';renderPosReceipts()">
+        <div class="kpi-header"><div class="kpi-label">Voided</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
+        <div class="kpi-value" style="color:${voidedCount > 0 ? 'var(--danger)' : 'inherit'}">${voidedCount}</div>
+        <div class="kpi-sub">Cancelled receipts</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Revenue</div><div class="kpi-icon gold">${iconSvg('money')}</div></div>
+        <div class="kpi-value">₱${fmt(totalRevenue)}</div>
+        <div class="kpi-sub">${hasFilter ? 'Filtered total' : 'All paid sales'}</div>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header">
+        <span class="data-card-title">All Receipts</span>
+        <span class="text-sm text-muted">${filtered.length} of ${allSales.length} records</span>
+      </div>
+      <div class="data-card-body" style="padding:12px 16px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input class="form-control" style="flex:1;min-width:180px;max-width:300px"
+          placeholder="Search receipt # or customer..."
+          value="${_posReceiptFilter.search}"
+          oninput="_posReceiptFilter.search=this.value;renderPosReceipts()">
+        <select class="form-control" style="width:auto" onchange="_posReceiptFilter.status=this.value;renderPosReceipts()">
+          <option value="all"    ${_posReceiptFilter.status === 'all'    ? 'selected' : ''}>All Status</option>
+          <option value="paid"   ${_posReceiptFilter.status === 'paid'   ? 'selected' : ''}>Paid</option>
+          <option value="voided" ${_posReceiptFilter.status === 'voided' ? 'selected' : ''}>Voided</option>
+        </select>
+        <input type="date" class="form-control" style="width:auto"
+          value="${_posReceiptFilter.dateFrom}"
+          onchange="_posReceiptFilter.dateFrom=this.value;renderPosReceipts()"
+          title="From date">
+        <input type="date" class="form-control" style="width:auto"
+          value="${_posReceiptFilter.dateTo}"
+          onchange="_posReceiptFilter.dateTo=this.value;renderPosReceipts()"
+          title="To date">
+        ${hasFilter ? '<button class="btn btn-sm btn-outline" onclick="clearPosReceiptFilter()">Clear</button>' : ''}
+      </div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr>
+            <th>Receipt #</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Payment</th>
+            <th>Total</th>
+            <th>Status</th>
+            <th>Date & Time</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody>${filtered.length === 0
+            ? '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">' + (hasFilter ? 'No receipts match your filter.' : 'No receipts yet.') + '</td></tr>'
+            : filtered.map(sale => {
+                const cust = (s.customers || []).find(c => c.id === sale.customerId);
+                const custName = cust ? (cust.companyName || cust.contactPerson || 'Walk-in') : 'Walk-in';
+                const isVoided = sale.voided || sale.status === 'voided';
+                const receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
+                const payMethods = (sale.payments || []).map(p => p.method).join(', ') || (sale.paymentMode || '—');
+                const itemCount = (sale.items || []).length;
+                return '<tr>' +
+                  '<td class="td-mono" style="font-weight:600">' + receiptNo + '</td>' +
+                  '<td>' + (cust && cust.source === 'pos' ? '🛒 ' : '') + custName + '</td>' +
+                  '<td class="td-mono">' + itemCount + '</td>' +
+                  '<td style="text-transform:capitalize;font-size:12px">' + payMethods + '</td>' +
+                  '<td class="td-mono" style="font-weight:700;color:' + (isVoided ? 'var(--ink-40)' : 'var(--maroon)') + '">' +
+                    (isVoided ? '<s>₱' + fmt(sale.total) + '</s>' : '₱' + fmt(sale.total)) +
+                  '</td>' +
+                  '<td>' + (isVoided ? '<span class="badge badge-danger">Voided</span>' : '<span class="badge badge-success">Paid</span>') + '</td>' +
+                  '<td class="td-mono" style="font-size:12px">' + fmtTime(sale.createdAt || sale.created_at) + '</td>' +
+                  '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">View</button></td>' +
+                  '</tr>';
+              }).join('')
+          }</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 // RECEIPTS (Printing Role)
 function renderReceipts() {
   const page = 'receipts';
@@ -3121,19 +3666,19 @@ function renderSales() {
     <div class="page-header"><h1 class="page-title">Sales History</h1></div>
     <div class="data-card"><div class="data-card-body no-pad">
       <table class="data-table"><thead><tr><th>Receipt #</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Time</th>${u.role === 'admin' ? '<th>Actions</th>' : ''}</tr></thead>
-      <tbody>\${allSales.map(sale => {
+      <tbody>${allSales.map(sale => {
         const cust = s2.customers.find(c => c.id === sale.customerId);
         const customer = cust ? (cust.companyName || cust.contactPerson) : 'Walk-in';
-        return \`<tr>
-          <td class="td-mono">\${sale.receiptNo || String(sale.id).slice(-6).toUpperCase()}</td>
-          <td>\${customer}</td>
-          <td>\${sale.items ? sale.items.length : 0}</td>
-          <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱\${fmt(sale.total)}</td>
-          <td><span class="badge \${sale.voided||sale.status==='voided'?'badge-danger':'badge-success'}">\${sale.voided||sale.status==='voided'?'Voided':'Paid'}</span></td>
-          <td class="td-mono">\${fmtTime(sale.createdAt || sale.created_at)}</td>
-          \${u.role === 'admin' ? \`<td><button class="btn btn-sm btn-outline" onclick="editSaleModal('\${sale.id}')">Edit</button> <button class="btn btn-sm btn-icon" onclick="voidSaleModal('\${sale.id}')">\${iconSvg('error')}</button></td>\` : ''}
-        </tr>\`;
-      }).join('') || \`<tr><td colspan="\${u.role === 'admin' ? 7 : 6}" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found.</td></tr>\`}
+        return `<tr>
+          <td class="td-mono">${sale.receiptNo || String(sale.id).slice(-6).toUpperCase()}</td>
+          <td>${customer}</td>
+          <td>${sale.items ? sale.items.length : 0}</td>
+          <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(sale.total)}</td>
+          <td><span class="badge ${sale.voided||sale.status==='voided'?'badge-danger':'badge-success'}">${sale.voided||sale.status==='voided'?'Voided':'Paid'}</span></td>
+          <td class="td-mono">${fmtTime(sale.createdAt || sale.created_at)}</td>
+          ${u.role === 'admin' ? `<td><button class="btn btn-sm btn-outline" onclick="editSaleModal('${sale.id}')">Edit</button> <button class="btn btn-sm btn-icon" onclick="voidSaleModal('${sale.id}')">${iconSvg('error')}</button></td>` : ''}
+        </tr>`;
+      }).join('') || `<tr><td colspan="${u.role === 'admin' ? 7 : 6}" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found.</td></tr>`}
       </tbody></table>
     </div></div>`);
 }
@@ -3576,8 +4121,14 @@ function addCustomerModal(fromPOS = false) {
     <div class="modal-header"><h2>Add Customer</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
-        <div class="form-group" style="grid-column:1/-1"><label>Company / Business Name <span style="color:var(--danger)">*</span></label><input id="cust-company" class="form-control" placeholder="e.g. ABC Trading Co."></div>
-        <div class="form-group"><label>Contact Person <span style="color:var(--danger)">*</span></label><input id="cust-contact" class="form-control" placeholder="Full name"></div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>Name <span style="color:var(--danger)">*</span></label>
+          <div style="position:relative">
+            <input id="cust-company" class="form-control" placeholder="e.g. Juan dela Cruz" autocomplete="off"
+              oninput="custNameSearch(this.value)" onblur="setTimeout(function(){var d=document.getElementById('cust-suggest');if(d)d.style.display='none';},180)">
+            <div id="cust-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--ink-10);border-radius:var(--radius);box-shadow:var(--shadow);z-index:9999;max-height:220px;overflow-y:auto"></div>
+          </div>
+        </div>
         <div class="form-group"><label>Phone</label><input id="cust-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>
         <div class="form-group"><label>Email</label><input id="cust-email" class="form-control" type="email" placeholder="email@company.com"></div>
         <div class="form-group" style="grid-column:1/-1"><label>Address</label><input id="cust-address" class="form-control" placeholder="Business address"></div>
@@ -3588,6 +4139,63 @@ function addCustomerModal(fromPOS = false) {
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       <button class="btn btn-maroon" onclick="confirmAddCustomer(${fromPOS})">${fromPOS ? 'Add &amp; Select' : 'Add Customer'}</button>
     </div>`);
+}
+
+function custNameSearch(val) {
+  var drop = document.getElementById('cust-suggest');
+  if (!drop) return;
+  var q = (val || '').trim().toLowerCase();
+  if (!q) { drop.style.display = 'none'; return; }
+
+  // Pull from both stores and normalise to a common shape
+  var posCustomers = (getState().customers || []).map(function(c) {
+    return { _id: c.id, _src: 'pos', name: c.companyName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
+  });
+  var omCustomers = (getCustomerRecords() || []).map(function(c) {
+    return { _id: c.id, _src: 'om', name: c.businessName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
+  });
+
+  // Combine, deduplicate by name, filter by query
+  var seen = {};
+  var matches = posCustomers.concat(omCustomers).filter(function(c) {
+    var key = c.name.toLowerCase();
+    if (seen[key]) return false;
+    seen[key] = true;
+    return c.name.toLowerCase().indexOf(q) !== -1 || c.contact.toLowerCase().indexOf(q) !== -1;
+  }).slice(0, 8);
+
+  if (!matches.length) { drop.style.display = 'none'; return; }
+
+  drop.innerHTML = matches.map(function(c) {
+    return '<div class="cust-suggest-item" onmousedown="custFillFromRecord(\'' + c._id + '\',\'' + c._src + '\')">'
+      + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
+      + '<div style="font-size:11px;color:var(--ink-60)">'
+        + (c.contact || '')
+        + (c.phone ? ' · ' + c.phone : '')
+      + '</div>'
+    + '</div>';
+  }).join('');
+  drop.style.display = 'block';
+}
+
+function custFillFromRecord(custId, src) {
+  var c = null;
+  if (src === 'om') {
+    c = (getCustomerRecords() || []).find(function(x) { return x.id === custId; });
+    if (c) c = { companyName: c.businessName, contactPerson: c.contactPerson, phone: c.phone, email: c.email, address: c.address, notes: c.notes || '' };
+  } else {
+    c = (getState().customers || []).find(function(x) { return x.id === custId; });
+  }
+  if (!c) return;
+  function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
+  sv('cust-company',  c.companyName);
+  sv('cust-contact',  c.contactPerson);
+  sv('cust-phone',    c.phone);
+  sv('cust-email',    c.email);
+  sv('cust-address',  c.address);
+  sv('cust-notes',    c.notes);
+  var drop = document.getElementById('cust-suggest');
+  if (drop) drop.style.display = 'none';
 }
 
 function confirmAddCustomer(fromPOS = false) {
@@ -3791,8 +4399,128 @@ var _omTab = 'orders';
 var _omSearch = '';
 var _omFilter = '';
 
-// showCustomerModal — quick-add customer from POS
+// showCustomerModal — search existing or add new customer from POS
 function showCustomerModal() {
+  var s = getState();
+  var allPOS = (s.customers || []);
+  var allOM  = (getCustomerRecords() || []);
+
+  // Build combined list normalised to { id, src, name, contact, phone }
+  var combined = [];
+  var seenNames = {};
+  allPOS.forEach(function(c) {
+    var n = (c.companyName || c.contactPerson || '').trim();
+    if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'pos', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
+  });
+  allOM.forEach(function(c) {
+    var n = (c.businessName || c.contactPerson || '').trim();
+    if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'om', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
+  });
+
+  function renderList(q) {
+    var q2 = (q || '').toLowerCase().trim();
+    var shown = q2 ? combined.filter(function(c) {
+      return c.name.toLowerCase().indexOf(q2) !== -1 || c.contact.toLowerCase().indexOf(q2) !== -1;
+    }) : combined;
+    shown = shown.slice(0, 10);
+    if (!shown.length) return '<div style="padding:20px;text-align:center;color:var(--ink-60);font-size:13px">' + (q2 ? 'No matching customers found.' : 'No customer records yet.') + '</div>';
+    return shown.map(function(c) {
+      return '<div class="cust-suggest-item" onclick="posSelectCustomer(\'' + c.id + '\',\'' + c.src + '\')" style="cursor:pointer;padding:12px 16px">'
+        + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
+        + '<div style="font-size:11px;color:var(--ink-60)">' + (c.contact || '') + (c.phone ? ' · ' + c.phone : '') + '</div>'
+      + '</div>';
+    }).join('');
+  }
+
+  showModal(
+    '<div class="modal-header"><h2>' + iconSvg('users') + ' Customer</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body" style="padding-bottom:8px">'
+      + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+        + '<div style="position:relative;flex:1">'
+          + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
+          + '<input id="pos-cust-search" class="form-control" style="padding-left:34px" placeholder="Search customer name…" autocomplete="off" oninput="posCustomerSearchRefresh(this.value)">'
+        + '</div>'
+        + '<button class="btn btn-maroon" onclick="posOpenNewCustomerForm()">+ New Customer</button>'
+      + '</div>'
+      + '<div id="pos-cust-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--ink-10);border-radius:var(--radius)">'
+        + renderList('')
+      + '</div>'
+    + '</div>'
+  );
+
+  // Store combined list for live search
+  window._posCustList = combined;
+}
+
+function posCustomerSearchRefresh(q) {
+  var list = window._posCustList || [];
+  var q2 = (q || '').toLowerCase().trim();
+  var shown = q2 ? list.filter(function(c) {
+    return c.name.toLowerCase().indexOf(q2) !== -1 || c.contact.toLowerCase().indexOf(q2) !== -1;
+  }) : list;
+  shown = shown.slice(0, 10);
+  var el = document.getElementById('pos-cust-list');
+  if (!el) return;
+  if (!shown.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-60);font-size:13px">' + (q2 ? 'No matching customers found.' : 'No customer records yet.') + '</div>'; return; }
+  el.innerHTML = shown.map(function(c) {
+    return '<div class="cust-suggest-item" onclick="posSelectCustomer(\'' + c.id + '\',\'' + c.src + '\')" style="cursor:pointer;padding:12px 16px">'
+      + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
+      + '<div style="font-size:11px;color:var(--ink-60)">' + (c.contact || '') + (c.phone ? ' · ' + c.phone : '') + '</div>'
+    + '</div>';
+  }).join('');
+}
+
+function posSelectCustomer(custId, src) {
+  var c = null;
+  var name = '';
+  if (src === 'om') {
+    var rec = (getCustomerRecords() || []).find(function(x) { return x.id === custId; });
+    if (rec) {
+      name = rec.businessName || rec.contactPerson || '';
+      // Mirror into pos customers so credit sales work
+      var s = getState();
+      var existing = s.customers.find(function(x) { return (x.companyName || '').toLowerCase() === name.toLowerCase(); });
+      if (!existing) {
+        var newC = { id: 'cust_om_' + custId, companyName: name, contactPerson: rec.contactPerson || '', phone: rec.phone || '', email: rec.email || '', address: rec.address || '', notes: rec.notes || '', outstandingBalance: 0, blocked: false, source: 'pos', createdAt: new Date().toISOString() };
+        s.customers.push(newC);
+        saveState(s);
+        custId = newC.id;
+      } else {
+        custId = existing.id;
+      }
+    }
+  } else {
+    var s2 = getState();
+    var posC = (s2.customers || []).find(function(x) { return x.id === custId; });
+    if (posC) name = posC.companyName || posC.contactPerson || '';
+  }
+
+  var s3 = getState();
+  s3.posDraft = s3.posDraft || {};
+  s3.posDraft.customerId = custId;
+  saveState(s3);
+
+  // Update the cart strip without full re-render
+  var strip = document.getElementById('pos-selected-customer');
+  var nameEl = document.getElementById('pos-selected-customer-name');
+  if (strip) strip.classList.remove('hidden');
+  if (nameEl) nameEl.textContent = name;
+
+  closeModal();
+  showToast(name + ' selected.', 'success');
+}
+
+function posRemoveCustomer() {
+  var s = getState();
+  s.posDraft = s.posDraft || {};
+  s.posDraft.customerId = '';
+  saveState(s);
+  var strip = document.getElementById('pos-selected-customer');
+  if (strip) strip.classList.add('hidden');
+}
+
+function posOpenNewCustomerForm() {
+  closeModal();
   addCustomerModal(true);
 }
 
@@ -3884,30 +4612,42 @@ function omPayStatusBadge(s) {
 
 // MAIN RENDER
 function renderOrders(filterStatus, searchQuery) {
-  _omTab = _omTab || 'orders';
+  var s = getState();
+  var u = s.currentUser;
+  var isPrint = u && u.role === 'print';
+
+  // Print personnel: force to production tab, restrict available tabs
+  if (isPrint && (_omTab === 'customers' || _omTab === 'orders' || _omTab === 'logos' || _omTab === 'payment')) {
+    _omTab = 'production';
+  }
+  _omTab = _omTab || (isPrint ? 'production' : 'orders');
   if (filterStatus !== undefined) _omFilter = filterStatus;
   if (searchQuery !== undefined) _omSearch = searchQuery;
 
-  var s = getState();
-  var u = s.currentUser;
   var orders = getOrders();
   var crs = getCustomerRecords();
   var prods = getProductionRecords();
   var dispatches = getDispatchRecords();
   var payments = getPaymentRecords();
+  var logos = getLogoUploads();
 
-  var pending = orders.filter(function (o) { return o.status === 'pending'; }).length;
-  var inProd = orders.filter(function (o) { return o.status === 'production'; }).length;
-  var dispCount = orders.filter(function (o) { return o.status === 'dispatch'; }).length;
-  var done = orders.filter(function (o) { return o.status === 'completed'; }).length;
-  var balDue = orders.reduce(function (sum, o) { return sum + (o.balance || 0); }, 0);
+  var pending  = orders.filter(function (o) { return o.status === 'pending'; }).length;
+  var inProd   = orders.filter(function (o) { return o.status === 'production'; }).length;
+  var dispCount= orders.filter(function (o) { return o.status === 'dispatch'; }).length;
+  var done     = orders.filter(function (o) { return o.status === 'completed'; }).length;
+  var balDue   = orders.reduce(function (sum, o) { return sum + (o.balance || 0); }, 0);
 
-  var tabs = [
-    { id: 'orders', label: '\uD83D\uDCCB Orders', count: orders.length },
-    { id: 'customers', label: '\uD83D\uDC65 Customers', count: crs.length },
-    { id: 'payment', label: '\uD83D\uDCB3 Payments', count: payments.length },
-    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production', count: prods.length },
-    { id: 'dispatch', label: '\uD83D\uDE9A Dispatch', count: dispatches.length },
+  // Print role only sees Production + Dispatch
+  var tabs = isPrint ? [
+    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production',  count: prods.length },
+    { id: 'dispatch',   label: '\uD83D\uDE9A Daily Dispatch',     count: dispatches.length },
+  ] : [
+    { id: 'customers',  label: '\uD83D\uDC65 Customer Records',   count: crs.length },
+    { id: 'orders',     label: '\uD83D\uDCCB Order Details',      count: orders.length },
+    { id: 'logos',      label: '\uD83D\uDDBC\uFE0F Logo Upload', count: logos.length },
+    { id: 'payment',    label: '\uD83D\uDCB3 Payment (50% DP)',   count: payments.length },
+    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production',  count: prods.length },
+    { id: 'dispatch',   label: '\uD83D\uDE9A Daily Dispatch',     count: dispatches.length },
   ];
 
   var tabsHtml = tabs.map(function (t) {
@@ -3917,22 +4657,25 @@ function renderOrders(filterStatus, searchQuery) {
   var tabContent = '';
   if (_omTab === 'orders') tabContent = omRenderOrdersTab();
   else if (_omTab === 'customers') tabContent = omRenderCustomersTab();
+  else if (_omTab === 'logos') tabContent = omRenderLogoTab();
   else if (_omTab === 'payment') tabContent = omRenderPaymentsTab();
   else if (_omTab === 'production') tabContent = omRenderProductionTab();
   else if (_omTab === 'dispatch') tabContent = omRenderDispatchTab();
 
-  var html = '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">'
-    + '<div><h1 class="page-title">Order Management</h1><p class="page-subtitle">Full order lifecycle \u2014 from customer records to dispatch.</p></div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    + (u.role !== 'print' ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
-    + (u.role === 'admin' ? '<button class="btn btn-outline" onclick="omNewCustomerModal()">+ Customer</button>' : '')
-    + '</div></div>'
+  var subtitle = isPrint
+    ? 'Update production status and manage daily dispatch.'
+    : 'Full order lifecycle \u2014 from customer records to dispatch.';
+
+  var html = '<div class="page-header" style="margin-bottom:16px">'
+    + '<h1 class="page-title">Order Management</h1>'
+    + '<p class="page-subtitle">' + subtitle + '</p>'
+    + '</div>'
     + '<div class="om-kpi-strip">'
     + '<div class="om-kpi"><div class="om-kpi-val">' + pending + '</div><div class="om-kpi-lbl">Pending</div></div>'
     + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--info)">' + inProd + '</div><div class="om-kpi-lbl">In Production</div></div>'
     + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--gold)">' + dispCount + '</div><div class="om-kpi-lbl">In Dispatch</div></div>'
     + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--success)">' + done + '</div><div class="om-kpi-lbl">Completed</div></div>'
-    + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Total Balance Due</div></div>'
+    + (!isPrint ? '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Balance Due</div></div>' : '')
     + '</div>'
     + '<div class="om-tabs">' + tabsHtml + '</div>'
     + '<div id="om-tab-content">' + tabContent + '</div>';
@@ -3953,236 +4696,405 @@ function omRefreshTab() {
   if (!el) return;
   if (_omTab === 'orders') el.innerHTML = omRenderOrdersTab();
   else if (_omTab === 'customers') el.innerHTML = omRenderCustomersTab();
+  else if (_omTab === 'logos') el.innerHTML = omRenderLogoTab();
   else if (_omTab === 'payment') el.innerHTML = omRenderPaymentsTab();
   else if (_omTab === 'production') el.innerHTML = omRenderProductionTab();
   else if (_omTab === 'dispatch') el.innerHTML = omRenderDispatchTab();
 }
 
-// TAB 1: ORDERS
-function omRenderOrdersTab() {
-  var orders = getOrders();
-  var statusCounts = { pending: 0, production: 0, dispatch: 0, completed: 0, cancelled: 0 };
-  orders.forEach(function (o) { if (o.status in statusCounts) statusCounts[o.status]++; });
-
-  var filtered = orders.filter(function (o) {
-    var matchStatus = !_omFilter || o.status === _omFilter;
-    var q = (_omSearch || '').toLowerCase();
-    var matchQ = !q ||
-      (o.customer_name || '').toLowerCase().indexOf(q) !== -1 ||
-      (o.contact_person || '').toLowerCase().indexOf(q) !== -1 ||
-      String(o.id).indexOf(q) !== -1 ||
-      (o.product_type || '').toLowerCase().indexOf(q) !== -1;
-    return matchStatus && matchQ;
-  });
-
-  var rows = [...filtered].reverse().map(function (o) {
-    return '<tr>'
-      + '<td class="td-mono" style="font-weight:700">#' + String(o.id).padStart(6, '0') + '</td>'
-      + '<td class="td-mono text-xs">' + omDate(o.created_at) + '</td>'
-      + '<td><strong>' + (o.customer_name || '\u2014') + '</strong><div class="text-xs text-muted">' + (o.contact_person || '') + '</div></td>'
-      + '<td>' + (o.product_type || o.product_category || '\u2014') + (o.print_color ? '<div class="text-xs text-muted">\uD83C\uDFA8 ' + o.print_color + '</div>' : '') + '</td>'
-      + '<td>' + (o.quantity || '\u2014') + '</td>'
-      + '<td>' + omStatusBadge(o.status) + '</td>'
-      + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20B1' + omFmt(o.total_amount) + '</td>'
-      + '<td class="td-mono">\u20B1' + omFmt(o.downpayment) + '</td>'
-      + '<td class="td-mono" style="color:' + ((o.balance || 0) > 0 ? 'var(--danger)' : 'var(--success)') + '">\u20B1' + omFmt(o.balance) + '</td>'
-      + '<td><span class="badge badge-neutral">' + (o.payment_mode || o.mode_of_payment || '\u2014') + '</span></td>'
-      + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
-      + '<td><div style="display:flex;gap:4px;flex-wrap:wrap">'
-      + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
-      + (o.status === 'pending' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="Start Production">' + iconSvg('printer') + '</button>' : '')
-      + (o.status === 'production' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToDispatch(\'' + o.id + '\')" title="Dispatch">' + iconSvg('truck') + '</button>' : '')
-      + '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>'
-      + '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>'
-      + '</div></td>'
-      + '</tr>';
-  }).join('') || '<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--ink-60)">No orders found.</td></tr>';
-
-  return '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
-    + '<div style="position:relative;flex:1;min-width:180px">'
-    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-    + '<input class="form-control" style="padding-left:34px" placeholder="Search order, customer, product\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">'
-    + '</div>'
-    + '<div class="form-select-wrap" style="min-width:160px">'
-    + '<select class="form-control" onchange="_omFilter=this.value;omRefreshTab()">'
-    + '<option value="" ' + (!_omFilter ? 'selected' : '') + '>All Orders (' + orders.length + ')</option>'
-    + '<option value="pending" ' + (_omFilter === 'pending' ? 'selected' : '') + '>Pending (' + statusCounts.pending + ')</option>'
-    + '<option value="production" ' + (_omFilter === 'production' ? 'selected' : '') + '>In Production (' + statusCounts.production + ')</option>'
-    + '<option value="dispatch" ' + (_omFilter === 'dispatch' ? 'selected' : '') + '>Dispatch (' + statusCounts.dispatch + ')</option>'
-    + '<option value="completed" ' + (_omFilter === 'completed' ? 'selected' : '') + '>Completed (' + statusCounts.completed + ')</option>'
-    + '<option value="cancelled" ' + (_omFilter === 'cancelled' ? 'selected' : '') + '>Cancelled (' + statusCounts.cancelled + ')</option>'
-    + '</select></div></div>'
-    + '<div class="data-card"><div class="data-card-body no-pad">'
-    + '<table class="data-table"><thead><tr>'
-    + '<th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th><th>Status</th>'
-    + '<th>Total</th><th>Paid</th><th>Balance</th><th>Pay Mode</th><th>Pay Status</th><th>Actions</th>'
-    + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+// ── Shared helpers ────────────────────────────────────────────────────────────
+function omEsc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// TAB 2: CUSTOMER RECORDS
+function omTable(headCols, bodyRows) {
+  return '<div class="om-table-card">'
+    +'<div class="om-table-scroll">'
+    +'<table class="data-table om-table"><thead><tr>'+headCols+'</tr></thead>'
+    +'<tbody>'+bodyRows+'</tbody></table>'
+    +'</div></div>';
+}
+
+function omToolbar(leftHtml, rightHtml) {
+  return '<div class="om-toolbar">'
+    +'<div class="om-search-wrap">'+iconSvg('search')+leftHtml+'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+rightHtml+'</div>'
+    +'</div>';
+}
+
+// ── TAB: LOGO UPLOAD ──────────────────────────────────────────────────────────
+function omRenderLogoTab() {
+  var logos = getLogoUploads();
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = [...logos].reverse().filter(function (l) {
+    return !q
+      || (l.businessName || '').toLowerCase().indexOf(q) !== -1
+      || String(l.orderNumber || '').indexOf(q) !== -1
+      || (l.fileName || '').toLowerCase().indexOf(q) !== -1;
+  });
+
+  var rows = filtered.map(function (l) {
+    return '<tr>'
+      + '<td class="xs">' + omDate(l.uploadedAt) + '</td>'
+      + '<td class="fw7">#' + String(l.orderNumber || l.orderId || '').padStart(6,'0') + '</td>'
+      + '<td><div class="cell-primary">' + omEsc(l.businessName || '\u2014') + '</div></td>'
+      + '<td class="truncate" title="' + omEsc(l.fileName||'') + '">' + omEsc(l.fileName || '\u2014') + '</td>'
+      + '<td class="xs">' + omEsc(l.fileType || '\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(l.notes||'') + '">' + omEsc(l.notes || '\u2014') + '</td>'
+      + '<td class="actions-cell">'
+        + (l.fileData
+          ? '<a class="btn btn-sm btn-outline" href="' + l.fileData + '" download="' + omEsc(l.fileName||'logo') + '">\u2193 Download</a> '
+          : '')
+        + '<button class="btn btn-sm btn-danger" onclick="omDeleteLogo(\'' + l.id + '\')">\u2715</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="7" class="empty-row">No logo uploads yet.</td></tr>';
+
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search logos\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<button class="btn btn-maroon" onclick="omNewLogoModal()">\uD83D\uDDBC\uFE0F Upload Logo</button>'
+  )
+  + omTable(
+    '<th class="wfix90">Date</th>'
+    + '<th class="wfix80">Order #</th>'
+    + '<th class="wgrow">Client Name</th>'
+    + '<th class="wgrow">File Name</th>'
+    + '<th class="wfix90">Type</th>'
+    + '<th class="wgrow-sm">Notes</th>'
+    + '<th class="wfix120">Actions</th>',
+    rows
+  );
+}
+
+function omNewLogoModal() {
+  var orders = getOrders().filter(function (o) { return o.status !== 'cancelled'; });
+  var orderOptions = orders.map(function (o) {
+    return '<option value="' + o.id + '">#' + String(o.id).padStart(6,'0') + ' \u2014 ' + omEsc(o.customer_name||'') + '</option>';
+  }).join('');
+  showModal('<div class="modal-header"><h2>\uD83D\uDDBC\uFE0F Upload Logo</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-row-2"><div class="form-group"><label>Link to Order</label><div class="form-select-wrap"><select id="omlogo-order" class="form-control" onchange="omAutofillLogo(this.value)"><option value="">\u2014 Select Order (optional) \u2014</option>' + orderOptions + '</select></div></div>'
+    + '<div class="form-group"><label>Client Name</label><input id="omlogo-business" class="form-control" placeholder="Auto-filled from order"></div></div>'
+    + '<div class="form-group"><label>Logo File <span style="color:var(--danger)">*</span></label><input id="omlogo-file" type="file" class="form-control" accept="image/*,.pdf,.ai,.eps,.svg" onchange="omReadLogoFile(this)"></div>'
+    + '<div id="omlogo-preview" style="margin-top:8px;display:none"><img id="omlogo-img" style="max-height:120px;border-radius:var(--radius-sm);border:1px solid var(--ink-10)" src=""></div>'
+    + '<input type="hidden" id="omlogo-data"><input type="hidden" id="omlogo-fname"><input type="hidden" id="omlogo-ftype">'
+    + '<div class="form-group" style="margin-top:12px"><label>Notes</label><textarea id="omlogo-notes" class="form-control" rows="2" placeholder="Color instructions, version notes, etc."></textarea></div>'
+    + '</div>'
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveLogo()">Save Logo</button></div>');
+}
+function omAutofillLogo(orderId) {
+  var o = getOrders().find(function(x){return String(x.id)===String(orderId);});
+  var el = document.getElementById('omlogo-business');
+  if (el) el.value = o ? (o.customer_name||'') : '';
+}
+function omReadLogoFile(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  document.getElementById('omlogo-fname').value = file.name;
+  document.getElementById('omlogo-ftype').value = file.type || file.name.split('.').pop();
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('omlogo-data').value = e.target.result;
+    var prev = document.getElementById('omlogo-preview');
+    var img  = document.getElementById('omlogo-img');
+    if (file.type.startsWith('image/') && prev && img) { img.src = e.target.result; prev.style.display = 'block'; }
+  };
+  reader.readAsDataURL(file);
+}
+function omSaveLogo() {
+  function gv(id){var el=document.getElementById(id);return el?el.value:'';}
+  var fileName = gv('omlogo-fname').trim();
+  if (!fileName) { showToast('Please select a file.','error'); return; }
+  var logos = getLogoUploads();
+  var orderId = gv('omlogo-order');
+  var order = orderId ? getOrders().find(function(o){return String(o.id)===String(orderId);}) : null;
+  logos.push({ id:omGenId('LG'), orderId:orderId||null, orderNumber:order?order.id:null,
+    businessName:gv('omlogo-business').trim()||(order?order.customer_name:''),
+    fileName:fileName, fileType:gv('omlogo-ftype'), fileData:gv('omlogo-data'),
+    notes:gv('omlogo-notes').trim(), uploadedAt:new Date().toISOString() });
+  saveLogoUploads(logos);
+  closeModal(); showToast('Logo uploaded!','success'); _omTab='logos'; renderOrders();
+}
+function omDeleteLogo(logoId) {
+  if (!confirm('Remove this logo upload?')) return;
+  saveLogoUploads(getLogoUploads().filter(function(l){return l.id!==logoId;}));
+  showToast('Logo removed.','warning'); renderOrders();
+}
+
+// ── TAB: ORDER DETAILS ────────────────────────────────────────────────────────
+function omRenderOrdersTab() {
+  var u = getState().currentUser;
+  var orders = getOrders();
+  var sc = { pending:0, production:0, dispatch:0, completed:0, cancelled:0 };
+  orders.forEach(function(o){ if(o.status in sc) sc[o.status]++; });
+
+  var filtered = orders.filter(function(o){
+    var ms = !_omFilter || o.status === _omFilter;
+    var q  = (_omSearch||'').toLowerCase();
+    var mq = !q
+      || (o.customer_name||'').toLowerCase().indexOf(q) !== -1
+      || String(o.id).indexOf(q) !== -1
+      || (o.product_type||'').toLowerCase().indexOf(q) !== -1;
+    return ms && mq;
+  });
+
+  var rows = [...filtered].reverse().map(function(o){
+    var balance = o.balance || 0;
+    return '<tr>'
+      + '<td class="fw7 xs">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="xs">' + omDate(o.created_at) + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(o.customer_name||'\u2014') + '</div>'
+        + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
+      + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type||'') + '">' + omEsc(o.product_type||o.product_category||'\u2014') + '</td>'
+      + '<td class="center xs">' + omEsc(String(o.quantity||'\u2014')) + '</td>'
+      + '<td>' + omStatusBadge(o.status) + '</td>'
+      + '<td class="fw7 maroon xs">\u20B1' + omFmt(o.total_amount) + '</td>'
+      + '<td class="xs ' + (balance>0?'danger':'success') + '">\u20B1' + omFmt(balance) + '</td>'
+      + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
+      + '<td class="actions-cell">'
+        + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
+        + (o.status==='pending' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="To Production">' + iconSvg('printer') + '</button>' : '')
+        + (o.status==='production' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToDispatch(\'' + o.id + '\')" title="Dispatch">' + iconSvg('truck') + '</button>' : '')
+        + '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>'
+        + '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="10" class="empty-row">No orders found.</td></tr>';
+
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search order, customer, product\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<div class="form-select-wrap" style="min-width:140px;">'
+      + '<select class="form-control" onchange="_omFilter=this.value;omRefreshTab()">'
+      + '<option value="" ' + (!_omFilter?'selected':'') + '>All (' + orders.length + ')</option>'
+      + '<option value="pending" ' + (_omFilter==='pending'?'selected':'') + '>Pending (' + sc.pending + ')</option>'
+      + '<option value="production" ' + (_omFilter==='production'?'selected':'') + '>Production (' + sc.production + ')</option>'
+      + '<option value="dispatch" ' + (_omFilter==='dispatch'?'selected':'') + '>Dispatch (' + sc.dispatch + ')</option>'
+      + '<option value="completed" ' + (_omFilter==='completed'?'selected':'') + '>Completed (' + sc.completed + ')</option>'
+      + '<option value="cancelled" ' + (_omFilter==='cancelled'?'selected':'') + '>Cancelled (' + sc.cancelled + ')</option>'
+      + '</select></div>'
+      + (u.role!=='print' ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
+  )
+  + omTable(
+    '<th class="wfix80">Order #</th>'
+    + '<th class="wfix90">Date</th>'
+    + '<th class="wgrow">Customer</th>'
+    + '<th class="wgrow">Product</th>'
+    + '<th class="wfix40 center">Qty</th>'
+    + '<th class="wfix110">Status</th>'
+    + '<th class="wfix90">Total</th>'
+    + '<th class="wfix90">Balance</th>'
+    + '<th class="wfix100">Pay Status</th>'
+    + '<th class="wfix120">Actions</th>',
+    rows
+  );
+}
+
+// ── TAB: CUSTOMER RECORDS ─────────────────────────────────────────────────────
 function omRenderCustomersTab() {
   var crs = getCustomerRecords();
-  var q = (_omSearch || '').toLowerCase();
-  var filtered = crs.filter(function (c) {
-    return !q || (c.businessName || '').toLowerCase().indexOf(q) !== -1 || (c.contactPerson || '').toLowerCase().indexOf(q) !== -1 || (c.phone || '').indexOf(q) !== -1;
+  var q = (_omSearch||'').toLowerCase();
+  var filtered = crs.filter(function(c){
+    return !q
+      || (c.businessName||'').toLowerCase().indexOf(q) !== -1
+      || (c.contactPerson||'').toLowerCase().indexOf(q) !== -1
+      || (c.phone||'').indexOf(q) !== -1;
   });
 
-  var rows = filtered.map(function (c) {
+  var rows = filtered.map(function(c){
     return '<tr>'
-      + '<td class="td-mono text-xs">' + c.id + '</td>'
-      + '<td><strong>' + (c.businessName || '\u2014') + '</strong></td>'
-      + '<td>' + (c.contactPerson || '\u2014') + '</td>'
-      + '<td>' + (c.phone || '\u2014') + '</td>'
-      + '<td>' + (c.email || '\u2014') + '</td>'
-      + '<td>' + (c.address || '\u2014') + '</td>'
-      + '<td><span class="badge badge-neutral">' + (c.modeOfPayment || '\u2014') + '</span></td>'
-      + '<td><span class="badge badge-neutral">' + (c.modeOfDelivery || '\u2014') + '</span></td>'
-      + '<td>' + (c.branchStaff || '\u2014') + '</td>'
-      + '<td class="td-mono text-xs">' + omDate(c.createdAt) + '</td>'
-      + '<td><div style="display:flex;gap:4px">'
-      + '<button class="btn btn-sm btn-outline" onclick="omEditCustomerModal(\'' + c.id + '\')">Edit</button>'
-      + '<button class="btn btn-sm btn-danger" onclick="omDeleteCustomer(\'' + c.id + '\')">\u2715</button>'
-      + '</div></td></tr>';
-  }).join('') || '<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--ink-60)">No customer records yet.</td></tr>';
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(c.businessName||'\u2014') + '</div>'
+        + (c.contactPerson ? '<div class="cell-sub">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="xs">' + omEsc(c.phone||'\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(c.email||'') + '">' + omEsc(c.email||'\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(c.address||'') + '">' + omEsc(c.address||'\u2014') + '</td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment||'\u2014') + '</span></td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfDelivery||'\u2014') + '</span></td>'
+      + '<td class="xs">' + omDate(c.createdAt) + '</td>'
+      + '<td class="actions-cell">'
+        + '<button class="btn btn-sm btn-outline" onclick="omEditCustomerModal(\'' + c.id + '\')">Edit</button>'
+        + ' <button class="btn btn-sm btn-danger" onclick="omDeleteCustomer(\'' + c.id + '\')">\u2715</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="8" class="empty-row">No customer records yet.</td></tr>';
 
-  return '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">'
-    + '<div style="position:relative;flex:1;min-width:180px">'
-    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-    + '<input class="form-control" style="padding-left:34px" placeholder="Search customers\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">'
-    + '</div>'
-    + '<button class="btn btn-maroon" onclick="omNewCustomerModal()">+ New Customer</button>'
-    + '</div>'
-    + '<div class="data-card"><div class="data-card-body no-pad">'
-    + '<table class="data-table"><thead><tr><th>Customer ID</th><th>Business Name</th><th>Contact Person</th><th>Phone</th><th>Email</th><th>Address</th><th>Pay Mode</th><th>Delivery</th><th>Branch Staff</th><th>Date Added</th><th>Actions</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div></div>';
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search customers\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<button class="btn btn-maroon" onclick="omNewCustomerModal()">+ New Customer</button>'
+  )
+  + omTable(
+    '<th class="wgrow">Name / Contact</th>'
+    + '<th class="wfix100">Phone</th>'
+    + '<th class="wgrow-sm">Email</th>'
+    + '<th class="wgrow">Address</th>'
+    + '<th class="wfix90">Pay Mode</th>'
+    + '<th class="wfix80">Delivery</th>'
+    + '<th class="wfix90">Added</th>'
+    + '<th class="wfix100">Actions</th>',
+    rows
+  );
 }
 
-// TAB 3: PAYMENTS
+// ── TAB: PAYMENT (50% DP) ─────────────────────────────────────────────────────
 function omRenderPaymentsTab() {
   var payments = getPaymentRecords();
-  var q = (_omSearch || '').toLowerCase();
-  var filtered = [...payments].reverse().filter(function (p) {
-    return !q || (p.businessName || '').toLowerCase().indexOf(q) !== -1 || String(p.orderNumber || '').indexOf(q) !== -1;
+  var q = (_omSearch||'').toLowerCase();
+  var filtered = [...payments].reverse().filter(function(p){
+    return !q
+      || (p.businessName||'').toLowerCase().indexOf(q) !== -1
+      || String(p.orderNumber||'').indexOf(q) !== -1;
   });
 
-  var rows = filtered.map(function (p) {
+  var rows = filtered.map(function(p){
     var isPaid = p.paymentStatus === 'Fully Paid';
+    var bal = p.balance || 0;
     return '<tr>'
-      + '<td class="td-mono text-xs">' + omDate(p.date) + '</td>'
-      + '<td class="td-mono" style="font-weight:700">#' + String(p.orderNumber || p.orderId || '').padStart(6, '0') + '</td>'
-      + '<td class="td-mono text-xs">' + (p.customerId || '\u2014') + '</td>'
-      + '<td><strong>' + (p.businessName || '\u2014') + '</strong></td>'
-      + '<td>' + (p.contactPerson || '\u2014') + '</td>'
-      + '<td class="td-mono" style="color:var(--maroon);font-weight:700">\u20B1' + omFmt(p.totalAmount) + '</td>'
-      + '<td class="td-mono">\u20B1' + omFmt(p.downpayment) + '</td>'
-      + '<td class="td-mono" style="color:' + ((p.balance || 0) > 0 ? 'var(--danger)' : 'var(--success)') + '">\u20B1' + omFmt(p.balance) + '</td>'
-      + '<td><span class="badge badge-neutral">' + (p.modeOfPayment || '\u2014') + '</span></td>'
+      + '<td class="xs">' + omDate(p.date) + '</td>'
+      + '<td class="fw7 xs">#' + String(p.orderNumber||p.orderId||'').padStart(6,'0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName||'\u2014') + '</div>'
+        + (p.contactPerson ? '<div class="cell-sub">' + omEsc(p.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="fw7 maroon xs">\u20B1' + omFmt(p.totalAmount) + '</td>'
+      + '<td class="xs">\u20B1' + omFmt(p.downpayment) + '</td>'
+      + '<td class="xs ' + (bal>0?'danger':'success') + '">\u20B1' + omFmt(bal) + '</td>'
       + '<td>' + omPayStatusBadge(p.paymentStatus) + '</td>'
-      + '<td class="text-xs text-muted">' + (p.note || '') + '</td>'
-      + '<td><div style="display:flex;gap:4px">'
-      + (isPaid
-        ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>'
-        : '<button class="btn btn-sm btn-maroon" onclick="omUpdatePaymentModal(\'' + p.id + '\')">+ Pay</button>')
-      + '</div></td></tr>';
-  }).join('') || '<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--ink-60)">No payment records yet.</td></tr>';
+      + '<td class="truncate xs" title="' + omEsc(p.note||'') + '">' + omEsc(p.note||'\u2014') + '</td>'
+      + '<td class="actions-cell">'
+        + (isPaid
+          ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>'
+          : '<button class="btn btn-sm btn-maroon" onclick="omUpdatePaymentModal(\'' + p.id + '\')">+ Pay</button>')
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="9" class="empty-row">No payment records yet.</td></tr>';
 
-  return '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">'
-    + '<div style="position:relative;flex:1;min-width:180px">'
-    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-    + '<input class="form-control" style="padding-left:34px" placeholder="Search payments\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">'
-    + '</div>'
-    + '<button class="btn btn-maroon" onclick="omNewPaymentModal()">+ Record Payment</button>'
-    + '</div>'
-    + '<div class="data-card"><div class="data-card-body no-pad">'
-    + '<table class="data-table"><thead><tr><th>Date</th><th>Order #</th><th>Customer ID</th><th>Business Name</th><th>Contact</th><th>Total</th><th>Paid</th><th>Balance</th><th>Pay Mode</th><th>Pay Status</th><th>Note</th><th>Actions</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div></div>';
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search payments\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<button class="btn btn-maroon" onclick="omNewPaymentModal()">+ Record Payment</button>'
+  )
+  + omTable(
+    '<th class="wfix90">Date</th>'
+    + '<th class="wfix80">Order #</th>'
+    + '<th class="wgrow">Customer</th>'
+    + '<th class="wfix90">Total</th>'
+    + '<th class="wfix80">Paid</th>'
+    + '<th class="wfix80">Balance</th>'
+    + '<th class="wfix100">Pay Status</th>'
+    + '<th class="wgrow-sm">Note</th>'
+    + '<th class="wfix110">Actions</th>',
+    rows
+  );
 }
 
-// TAB 4: PRODUCTION
+// ── TAB: PRODUCTION ───────────────────────────────────────────────────────────
 function omRenderProductionTab() {
   var prods = getProductionRecords();
-  var q = (_omSearch || '').toLowerCase();
-  var filtered = [...prods].reverse().filter(function (p) {
-    return !q || (p.businessName || '').toLowerCase().indexOf(q) !== -1 || String(p.orderNumber || '').indexOf(q) !== -1;
+  var q = (_omSearch||'').toLowerCase();
+  var filtered = [...prods].reverse().filter(function(p){
+    return !q
+      || (p.businessName||'').toLowerCase().indexOf(q) !== -1
+      || String(p.orderNumber||'').indexOf(q) !== -1;
   });
 
-  var rows = filtered.map(function (p) {
+  var rows = filtered.map(function(p){
     var pct = p.progress || 0;
-    var progressColor = pct >= 100 ? 'var(--success)' : pct >= 60 ? 'var(--gold)' : 'var(--maroon)';
-    var qcBadge = p.qcResult === 'Pass' ? '<span class="badge badge-success">\u2713 Pass</span>'
-      : p.qcResult === 'Fail' ? '<span class="badge badge-danger">\u2717 Fail</span>'
-        : '<span class="badge badge-neutral">Pending</span>';
+    var pc  = pct>=100 ? 'var(--success)' : pct>=60 ? 'var(--gold)' : 'var(--maroon)';
+    var qcB = p.qcResult==='Pass' ? '<span class="badge badge-success">\u2713 Pass</span>'
+            : p.qcResult==='Fail' ? '<span class="badge badge-danger">\u2717 Fail</span>'
+            : '<span class="badge badge-neutral">Pending</span>';
     return '<tr>'
-      + '<td class="td-mono" style="font-weight:700">#' + String(p.orderNumber || '').padStart(6, '0') + '</td>'
-      + '<td><strong>' + (p.businessName || '\u2014') + '</strong><div class="text-xs text-muted">' + (p.customerId || '') + '</div></td>'
-      + '<td class="td-mono text-xs">' + omDate(p.orderDate) + '</td>'
-      + '<td><strong>' + (p.assignedTo || '\u2014') + '</strong></td>'
-      + '<td><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;background:var(--ink-10);border-radius:99px;height:8px;min-width:80px"><div style="width:' + pct + '%;background:' + progressColor + ';height:8px;border-radius:99px"></div></div><span style="font-size:12px;font-weight:700;color:' + progressColor + '">' + pct + '%</span></div></td>'
-      + '<td>' + omStatusBadge(p.status || 'pending') + '</td>'
-      + '<td class="text-xs">' + (p.materialsUsed || '\u2014') + '</td>'
-      + '<td>' + qcBadge + '</td>'
-      + '<td style="text-align:center">' + (p.checkCount || 0) + '</td>'
-      + '<td class="td-mono text-xs">' + omDate(p.completionDate) + '</td>'
-      + '<td class="text-xs text-muted">' + (p.notes || '') + '</td>'
-      + '<td><div style="display:flex;gap:4px">'
-      + '<button class="btn btn-sm btn-outline" onclick="omUpdateProductionModal(\'' + p.id + '\')">Update</button>'
-      + '<button class="btn btn-sm btn-outline" onclick="omQCModal(\'' + p.id + '\')">QC</button>'
-      + '</div></td></tr>';
-  }).join('') || '<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--ink-60)">No production records yet.</td></tr>';
+      + '<td class="fw7 xs">#' + String(p.orderNumber||'').padStart(6,'0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName||'\u2014') + '</div></td>'
+      + '<td class="xs">' + omEsc(p.assignedTo||'\u2014') + '</td>'
+      + '<td style="min-width:110px;">'
+        + '<div style="display:flex;align-items:center;gap:6px;">'
+          + '<div style="flex:1;background:var(--ink-10);border-radius:99px;height:6px;">'
+            + '<div style="width:' + pct + '%;background:' + pc + ';height:6px;border-radius:99px;"></div>'
+          + '</div>'
+          + '<span style="font-size:11px;font-weight:700;color:' + pc + ';white-space:nowrap;">' + pct + '%</span>'
+        + '</div>'
+      + '</td>'
+      + '<td>' + omStatusBadge(p.status||'pending') + '</td>'
+      + '<td>' + qcB + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(p.materialsUsed||'') + '">' + omEsc(p.materialsUsed||'\u2014') + '</td>'
+      + '<td class="xs">' + omDate(p.completionDate) + '</td>'
+      + '<td class="actions-cell">'
+        + '<button class="btn btn-sm btn-outline" onclick="omUpdateProductionModal(\'' + p.id + '\')">Update</button>'
+        + ' <button class="btn btn-sm btn-outline" onclick="omQCModal(\'' + p.id + '\')">QC</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="9" class="empty-row">No production records yet.</td></tr>';
 
-  return '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">'
-    + '<div style="position:relative;flex:1;min-width:180px">'
-    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-    + '<input class="form-control" style="padding-left:34px" placeholder="Search production\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">'
-    + '</div>'
-    + '<button class="btn btn-maroon" onclick="omNewProductionModal()">+ Assign Production</button>'
-    + '</div>'
-    + '<div class="data-card"><div class="data-card-body no-pad">'
-    + '<table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Order Date</th><th>Assigned To</th><th>Progress</th><th>Status</th><th>Materials Used</th><th>QC</th><th>Check Count</th><th>Completion Date</th><th>Notes</th><th>Actions</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div></div>';
+  var isPrintUser = (getState().currentUser || {}).role === 'print';
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search production\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    isPrintUser ? '' : '<button class="btn btn-maroon" onclick="omNewProductionModal()">+ Assign Production</button>'
+  )
+  + omTable(
+    '<th class="wfix80">Order #</th>'
+    + '<th class="wgrow">Customer</th>'
+    + '<th class="wgrow-sm">Assigned To</th>'
+    + '<th style="min-width:120px;">Progress</th>'
+    + '<th class="wfix110">Status</th>'
+    + '<th class="wfix70">QC</th>'
+    + '<th class="wgrow-sm">Materials</th>'
+    + '<th class="wfix90">Completed</th>'
+    + '<th class="wfix120">Actions</th>',
+    rows
+  );
 }
 
-// TAB 5: DAILY DISPATCH
+// ── TAB: DAILY DISPATCH ───────────────────────────────────────────────────────
 function omRenderDispatchTab() {
   var dispatches = getDispatchRecords();
-  var q = (_omSearch || '').toLowerCase();
-  var filtered = [...dispatches].reverse().filter(function (d) {
-    return !q || (d.businessName || '').toLowerCase().indexOf(q) !== -1 || String(d.orderNumber || '').indexOf(q) !== -1;
+  var q = (_omSearch||'').toLowerCase();
+  var filtered = [...dispatches].reverse().filter(function(d){
+    return !q
+      || (d.businessName||'').toLowerCase().indexOf(q) !== -1
+      || String(d.orderNumber||'').indexOf(q) !== -1;
   });
 
-  function dispStatusBadge(s) {
-    if (s === 'Delivered') return '<span class="badge badge-success">\u2713 Delivered</span>';
-    if (s === 'Dispatched') return '<span class="badge badge-info">\u2192 Dispatched</span>';
+  function dsBadge(s){
+    if (s==='Delivered') return '<span class="badge badge-success">\u2713 Delivered</span>';
+    if (s==='Dispatched') return '<span class="badge badge-info">\u2192 Dispatched</span>';
     return '<span class="badge badge-warning">Scheduled</span>';
   }
 
-  var rows = filtered.map(function (d) {
+  var rows = filtered.map(function(d){
     return '<tr>'
-      + '<td class="td-mono text-xs">' + omDate(d.date) + '</td>'
-      + '<td class="td-mono" style="font-weight:700">#' + String(d.orderNumber || '').padStart(6, '0') + '</td>'
-      + '<td class="td-mono text-xs">' + (d.customerId || '\u2014') + '</td>'
-      + '<td><strong>' + (d.businessName || '\u2014') + '</strong></td>'
-      + '<td style="text-align:center">' + (d.customerNotified ? '<span style="color:var(--success);font-weight:700">\u2713 Yes</span>' : '<span style="color:var(--danger)">\u2717 No</span>') + '</td>'
+      + '<td class="xs">' + omDate(d.date) + '</td>'
+      + '<td class="fw7 xs">#' + String(d.orderNumber||'').padStart(6,'0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(d.businessName||'\u2014') + '</div></td>'
+      + '<td class="center xs">' + (d.customerNotified
+          ? '<span class="success fw7">\u2713 Yes</span>'
+          : '<span class="danger">\u2717 No</span>') + '</td>'
       + '<td>' + omPayStatusBadge(d.paymentStatus) + '</td>'
-      + '<td><span class="badge badge-neutral">' + (d.dispatchMethod || '\u2014') + '</span></td>'
-      + '<td>' + dispStatusBadge(d.dispatchStatus) + '</td>'
-      + '<td class="text-xs text-muted">' + (d.notes || '') + '</td>'
-      + '<td><div style="display:flex;gap:4px">'
-      + '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">Update</button>'
-      + (d.paymentStatus === 'Fully Paid' ? '<button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>' : '')
-      + '</div></td></tr>';
-  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--ink-60)">No dispatch records yet.</td></tr>';
+      + '<td><span class="badge badge-neutral">' + omEsc(d.dispatchMethod||'\u2014') + '</span></td>'
+      + '<td>' + dsBadge(d.dispatchStatus) + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(d.notes||'') + '">' + omEsc(d.notes||'\u2014') + '</td>'
+      + '<td class="actions-cell">'
+        + '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">Update</button>'
+        + (d.paymentStatus==='Fully Paid'
+          ? ' <button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F</button>'
+          : '')
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="9" class="empty-row">No dispatch records yet.</td></tr>';
 
-  return '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">'
-    + '<div style="position:relative;flex:1;min-width:180px">'
-    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-    + '<input class="form-control" style="padding-left:34px" placeholder="Search dispatch\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">'
-    + '</div>'
-    + '<button class="btn btn-maroon" onclick="omNewDispatchModal()">+ Schedule Dispatch</button>'
-    + '</div>'
-    + '<div class="data-card"><div class="data-card-body no-pad">'
-    + '<table class="data-table"><thead><tr><th>Date</th><th>Order #</th><th>Customer ID</th><th>Business Name</th><th>Notified</th><th>Pay Status</th><th>Method</th><th>Dispatch Status</th><th>Notes</th><th>Actions</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div></div>';
+  var isPrintUser2 = (getState().currentUser || {}).role === 'print';
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search dispatch\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    isPrintUser2 ? '' : '<button class="btn btn-maroon" onclick="omNewDispatchModal()">+ Schedule Dispatch</button>'
+  )
+  + omTable(
+    '<th class="wfix90">Date</th>'
+    + '<th class="wfix80">Order #</th>'
+    + '<th class="wgrow">Customer</th>'
+    + '<th class="wfix70 center">Notified</th>'
+    + '<th class="wfix100">Pay Status</th>'
+    + '<th class="wfix90">Method</th>'
+    + '<th class="wfix100">Status</th>'
+    + '<th class="wgrow-sm">Notes</th>'
+    + '<th class="wfix110">Actions</th>',
+    rows
+  );
 }
 
 // ORDER MODALS
@@ -4196,60 +5108,233 @@ function omNewOrderModal() {
   var custOptions = crs.map(function (c) { return '<option value="' + c.id + '">' + c.businessName + ' (' + c.contactPerson + ')</option>'; }).join('');
   var staffOptions = staffList.map(function (u) { return '<option value="' + u.name + '">' + u.name + '</option>'; }).join('');
 
-  showModal('<div class="modal-header"><h2>' + iconSvg('box') + ' Create New Order</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
+  showModal(
+    '<div class="modal-header"><h2>' + iconSvg('box') + ' Create New Order</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
+
+    // ── Customer Info ──
     + '<div class="om-modal-section-label">\uD83D\uDC65 Customer Information</div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Select Existing Customer</label><div class="form-select-wrap"><select id="om-cust-sel" class="form-control" onchange="omAutofillCustomer(this.value)"><option value="">\u2014 New / Walk-in \u2014</option>' + custOptions + '</select></div></div>'
-    + '<div class="form-group"><label>Order Date</label><input id="om-order-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Business or company name"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="om-contact" class="form-control" placeholder="Full name"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="om-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
-    + '<div class="form-group"><label>Email</label><input id="om-email" class="form-control" placeholder="email@example.com" type="email"></div></div>'
-    + '<div class="form-group"><label>Address</label><input id="om-address" class="form-control" placeholder="Business address"></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="om-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
-    + '<div class="form-group"><label>Mode of Delivery</label><div class="form-select-wrap"><select id="om-mod" class="form-control"><option value="Pickup">Pickup</option><option value="Delivery">Delivery</option></select></div></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
-    + '<div class="form-group"><label>Due Date</label><input id="om-due-date" type="date" class="form-control"></div></div>'
-    + '<hr class="divider" style="margin:16px 0">'
-    + '<div class="om-modal-section-label">\uD83D\uDCE6 Order Details</div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Product Category</label><input id="om-prod-cat" class="form-control" placeholder="e.g. Paper Cups, Boxes"></div>'
-    + '<div class="form-group"><label>Product Type / Size <span style="color:var(--danger)">*</span></label><input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz"></div></div>'
-    + '<div class="form-row-3"><div class="form-group"><label>Quantity <span style="color:var(--danger)">*</span></label><input id="om-qty" type="number" class="form-control" min="1" value="1"></div>'
-    + '<div class="form-group"><label>Print Color</label><input id="om-print-color" class="form-control" placeholder="e.g. 1-color, Full Color"></div>'
-    + '<div class="form-group"><label>Plate Note</label><input id="om-plate-note" class="form-control" placeholder="e.g. New plate, Re-use"></div></div>'
-    + '<div class="form-group"><label>Order Notes</label><textarea id="om-notes" class="form-control" rows="2" placeholder="Special instructions\u2026"></textarea></div>'
-    + '<hr class="divider" style="margin:16px 0">'
-    + '<div class="om-modal-section-label">\uD83D\uDDBC\uFE0F Logo Upload</div>'
-    + '<div class="form-group"><label>Upload Logo File(s)</label><input id="om-logo-files" type="file" class="form-control" multiple accept="image/*,.pdf,.ai,.eps,.svg"><div class="text-xs text-muted" style="margin-top:4px">Accepted: Images, PDF, AI, EPS, SVG. Saved as references.</div></div>'
-    + '<hr class="divider" style="margin:16px 0">'
-    + '<div class="om-modal-section-label">\uD83D\uDCB3 Payment Details</div>'
-    + '<div class="form-row-3"><div class="form-group"><label>Total Amount</label><input id="om-total" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()"></div>'
-    + '<div class="form-group"><label>Downpayment</label><input id="om-downpayment" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()"></div>'
-    + '<div class="form-group"><label>Balance</label><input id="om-balance" type="number" class="form-control" readonly style="background:var(--cream)"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Payment Status</label><div class="form-select-wrap"><select id="om-pay-status" class="form-control"><option value="Pending">Pending</option><option value="30%">30% Downpayment</option><option value="Partial">Partial</option><option value="Fully Paid">Fully Paid</option></select></div></div>'
-    + '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="om-order-status" class="form-control"><option value="pending">Pending</option><option value="production">In Production</option></select></div></div></div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Select Existing Customer</label>'
+    +     '<div class="form-select-wrap"><select id="om-cust-sel" class="form-control" onchange="omAutofillCustomer(this.value)">'
+    +       '<option value="">\u2014 New Customer \u2014</option>' + custOptions
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="form-group"><label>Order Date</label><input id="om-order-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div>'
     + '</div>'
-    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmNewOrder()">Create Order \u2192</button></div>');
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Business or company name"></div>'
+    +   '<div class="form-group"><label>Contact Person</label><input id="om-contact" class="form-control" placeholder="Full name"></div>'
+    + '</div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Phone</label><input id="om-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
+    +   '<div class="form-group"><label>Email</label><input id="om-email" type="email" class="form-control" placeholder="email@example.com"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Address</label><input id="om-address" class="form-control" placeholder="Business address"></div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="om-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
+    +   '<div class="form-group"><label>Mode of Delivery</label><div class="form-select-wrap"><select id="om-mod" class="form-control"><option value="Pickup">Pickup</option><option value="Delivery">Delivery</option></select></div></div>'
+    + '</div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
+    +   '<div class="form-group"><label>Due Date</label><input id="om-due-date" type="date" class="form-control"></div>'
+    + '</div>'
+
+    + '<hr class="divider" style="margin:16px 0">'
+
+    // ── Order Details ──
+    + '<div class="om-modal-section-label">\uD83D\uDCE6 Order Details</div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Product Category</label><input id="om-prod-cat" class="form-control" placeholder="e.g. Paper Cups, Boxes"></div>'
+    +   '<div class="form-group"><label>Product Type / Size <span style="color:var(--danger)">*</span></label><input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz"></div>'
+    + '</div>'
+    + '<div class="form-row-3">'
+    +   '<div class="form-group"><label>Quantity <span style="color:var(--danger)">*</span></label><input id="om-qty" type="number" class="form-control" min="1" value="1" oninput="omCalcTotal()"></div>'
+    +   '<div class="form-group"><label>Unit Price (per pc)</label><input id="om-unit-price" type="number" class="form-control" min="0" value="0" oninput="omCalcTotal()"></div>'
+    +   '<div class="form-group"><label>Print Color</label><input id="om-print-color" class="form-control" placeholder="e.g. 1-color, Full Color"></div>'
+    + '</div>'
+
+    // ── Plate Section ──
+    + '<div class="om-modal-section-label" style="margin-top:12px">\uD83C\uDFAF Plate Charge</div>'
+    + '<div style="background:var(--cream);border:1.5px solid var(--ink-10);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">'
+    +   '<div class="form-row-3">'
+    +     '<div class="form-group" style="margin-bottom:0">'
+    +       '<label>Customer Type</label>'
+    +       '<div class="form-select-wrap"><select id="om-cust-type" class="form-control" onchange="omCalcTotal()">'
+    +         '<option value="new">New Customer</option>'
+    +         '<option value="old">Old Customer</option>'
+    +       '</select></div>'
+    +     '</div>'
+    +     '<div class="form-group" style="margin-bottom:0">'
+    +       '<label>New Logo? <span class="text-xs text-muted">(old customers)</span></label>'
+    +       '<div class="form-select-wrap"><select id="om-new-logo" class="form-control" onchange="omCalcTotal()">'
+    +         '<option value="0">No \u2014 Reuse existing</option>'
+    +         '<option value="1">Yes \u2014 New logo</option>'
+    +       '</select></div>'
+    +     '</div>'
+    +     '<div class="form-group" style="margin-bottom:0">'
+    +       '<label>Product Fee</label>'
+    +       '<input id="om-product-fee" type="number" class="form-control" min="0" value="0" placeholder="0.00" oninput="omCalcTotal()">'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="margin-top:10px;padding:10px 12px;background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--ink-10);font-size:13px">'
+    +     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+    +       '<span style="color:var(--ink-60)">Plate Charge:</span>'
+    +       '<strong id="om-plate-charge-display" style="color:var(--maroon)">\u20B10.00</strong>'
+    +     '</div>'
+    +     '<div id="om-plate-note-auto" class="text-xs text-muted"></div>'
+    +   '</div>'
+    +   '<div class="form-group" style="margin-top:10px;margin-bottom:0">'
+    +     '<label>Plate Note <span class="text-xs text-muted">(auto-filled, editable)</span></label>'
+    +     '<input id="om-plate-note" class="form-control" placeholder="e.g. New plate, Re-use">'
+    +   '</div>'
+    + '</div>'
+
+    + '<div class="form-group"><label>Order Notes</label><textarea id="om-notes" class="form-control" rows="2" placeholder="Special instructions\u2026"></textarea></div>'
+
+    + '<hr class="divider" style="margin:16px 0">'
+
+    // ── Logo Upload ──
+    + '<div class="om-modal-section-label">\uD83D\uDDBC\uFE0F Logo Upload</div>'
+    + '<div class="form-group"><label>Upload Logo File(s)</label><input id="om-logo-files" type="file" class="form-control" multiple accept="image/*,.pdf,.ai,.eps,.svg"><div class="text-xs text-muted" style="margin-top:4px">Accepted: Images, PDF, AI, EPS, SVG.</div></div>'
+
+    + '<hr class="divider" style="margin:16px 0">'
+
+    // ── Payment Details ──
+    + '<div class="om-modal-section-label">\uD83D\uDCB3 Payment Details</div>'
+    + '<div style="background:var(--cream);border:1.5px solid var(--ink-10);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
+    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Products Subtotal</div><div id="om-summary-products" style="font-weight:700;font-size:14px">\u20B10.00</div></div>'
+    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Plate Charge</div><div id="om-summary-plate" style="font-weight:700;font-size:14px;color:var(--maroon)">\u20B10.00</div></div>'
+    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Discount</div><div id="om-summary-discount" style="font-weight:700;font-size:14px;color:var(--success)">- \u20B10.00</div></div>'
+    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Total</div><div id="om-summary-total" style="font-weight:800;font-size:16px;color:var(--maroon)">\u20B10.00</div></div>'
+    +   '</div>'
+    +   '<div id="om-discount-note" class="text-xs" style="color:var(--success);margin-bottom:8px;display:none"></div>'
+    + '</div>'
+    + '<div class="form-row-3">'
+    +   '<div class="form-group"><label>Total Amount</label><input id="om-total" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()" style="font-weight:700"></div>'
+    +   '<div class="form-group"><label>Downpayment</label><input id="om-downpayment" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()"></div>'
+    +   '<div class="form-group"><label>Balance</label><input id="om-balance" type="number" class="form-control" readonly style="background:var(--cream)"></div>'
+    + '</div>'
+    + '<div class="form-row-2">'
+    +   '<div class="form-group"><label>Payment Status</label><div class="form-select-wrap"><select id="om-pay-status" class="form-control"><option value="Pending">Pending</option><option value="30%">30% Downpayment</option><option value="Partial">Partial</option><option value="Fully Paid">Fully Paid</option></select></div></div>'
+    +   '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="om-order-status" class="form-control"><option value="pending">Pending</option><option value="production">In Production</option></select></div></div>'
+    + '</div>'
+
+    + '</div>'
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmNewOrder()">Create Order \u2192</button></div>'
+  );
+
+  // Run initial calc after modal renders
+  setTimeout(omCalcTotal, 50);
+}
+
+// Pricing constants
+var OM_PLATE_PER_COLOR = 550;
+var OM_DISCOUNT_THRESHOLD = 3000;
+var OM_DISCOUNT_RATE = 0.05; // 5% — adjust as needed
+
+function omCalcTotal() {
+  function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v; }
+  function st(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+
+  var qty      = parseInt(gv('om-qty')) || 0;
+  var unitPrice = parseFloat(gv('om-unit-price')) || 0;
+  var productFee = parseFloat(gv('om-product-fee')) || 0;
+  var custType = gv('om-cust-type'); // 'new' or 'old'
+  var newLogo  = gv('om-new-logo') === '1';
+
+  // Product subtotal
+  var productsSub = qty * unitPrice;
+
+  // Plate charge logic:
+  // New customer → product fee + 550
+  // Old customer, new logo → product fee + 550
+  // Old customer, reuse logo → 0
+  var plateCharge = 0;
+  var plateNote   = '';
+  if (custType === 'new') {
+    plateCharge = productFee + OM_PLATE_PER_COLOR;
+    plateNote   = 'New customer: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
+    sv('om-plate-note', 'New plate \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge');
+  } else if (newLogo) {
+    plateCharge = productFee + OM_PLATE_PER_COLOR;
+    plateNote   = 'New logo: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
+    sv('om-plate-note', 'New logo \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge');
+  } else {
+    plateCharge = 0;
+    plateNote   = 'Old customer \u2014 no plate charge';
+    sv('om-plate-note', 'Re-use existing plate');
+  }
+
+  // Subtotal before discount
+  var subtotal = productsSub + plateCharge;
+
+  // Discount: 5% if order >= 3,000 (on product subtotal only, not plate)
+  var discountAmt = 0;
+  var discountNote = '';
+  if (productsSub >= OM_DISCOUNT_THRESHOLD) {
+    discountAmt  = Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100;
+    discountNote = '\u2714 5% discount applied \u2014 order total \u20B1' + omFmt(productsSub) + ' \u2265 \u20B1' + omFmt(OM_DISCOUNT_THRESHOLD);
+  }
+
+  var total = Math.max(0, subtotal - discountAmt);
+
+  // Update display
+  var pcd = document.getElementById('om-plate-charge-display');
+  if (pcd) pcd.textContent = '\u20B1' + omFmt(plateCharge);
+  var pna = document.getElementById('om-plate-note-auto');
+  if (pna) pna.textContent = plateNote;
+
+  var sp = document.getElementById('om-summary-products');
+  if (sp) sp.textContent = '\u20B1' + omFmt(productsSub);
+  var spl = document.getElementById('om-summary-plate');
+  if (spl) spl.textContent = '\u20B1' + omFmt(plateCharge);
+  var sd = document.getElementById('om-summary-discount');
+  if (sd) sd.textContent = '- \u20B1' + omFmt(discountAmt);
+  var st2 = document.getElementById('om-summary-total');
+  if (st2) { st2.textContent = '\u20B1' + omFmt(total); }
+
+  var dn = document.getElementById('om-discount-note');
+  if (dn) { dn.textContent = discountNote; dn.style.display = discountAmt > 0 ? 'block' : 'none'; }
+
+  var totalEl = document.getElementById('om-total');
+  if (totalEl) { totalEl.value = total.toFixed(2); }
+
+  omCalcBalance();
 }
 
 function omCalcBalance() {
   var total = parseFloat((document.getElementById('om-total') || {}).value) || 0;
-  var down = parseFloat((document.getElementById('om-downpayment') || {}).value) || 0;
+  var down  = parseFloat((document.getElementById('om-downpayment') || {}).value) || 0;
   var balEl = document.getElementById('om-balance');
   if (balEl) balEl.value = Math.max(0, total - down).toFixed(2);
 }
 
 function omAutofillCustomer(customerId) {
-  if (!customerId) return;
+  if (!customerId) {
+    // Reset to new customer
+    var ct = document.getElementById('om-cust-type');
+    if (ct) ct.value = 'new';
+    omCalcTotal();
+    return;
+  }
   var crs = getCustomerRecords();
   var c = crs.find(function (x) { return x.id === customerId; });
   if (!c) return;
   function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
-  sv('om-business', c.businessName); sv('om-contact', c.contactPerson); sv('om-phone', c.phone);
-  sv('om-email', c.email); sv('om-address', c.address);
+  sv('om-business', c.businessName);
+  sv('om-contact', c.contactPerson);
+  sv('om-phone', c.phone);
+  sv('om-email', c.email);
+  sv('om-address', c.address);
   var mopSel = document.getElementById('om-mop'); if (mopSel && c.modeOfPayment) mopSel.value = c.modeOfPayment;
   var modSel = document.getElementById('om-mod'); if (modSel && c.modeOfDelivery) modSel.value = c.modeOfDelivery;
   var staffSel = document.getElementById('om-staff'); if (staffSel && c.branchStaff) staffSel.value = c.branchStaff;
+  // Mark as old customer since they exist in records
+  var ct = document.getElementById('om-cust-type'); if (ct) ct.value = 'old';
+  omCalcTotal();
 }
 
 function omConfirmNewOrder() {
@@ -4257,41 +5342,58 @@ function omConfirmNewOrder() {
   var businessName = gv('om-business').trim();
   var qty = parseInt(gv('om-qty')) || 0;
   if (!businessName) { showToast('Business name is required.', 'error'); return; }
-  if (qty <= 0) { showToast('Quantity must be at least 1.', 'error'); return; }
+  if (qty <= 0)       { showToast('Quantity must be at least 1.', 'error'); return; }
 
-  var total = parseFloat(gv('om-total')) || 0;
-  var down = parseFloat(gv('om-downpayment')) || 0;
+  var total   = parseFloat(gv('om-total'))       || 0;
+  var down    = parseFloat(gv('om-downpayment')) || 0;
   var balance = Math.max(0, total - down);
   var customerRecordId = gv('om-cust-sel');
 
   var orders = getOrders();
-  var maxId = orders.length ? Math.max.apply(null, orders.map(function (o) { return Number(o.id) || 0; })) : 0;
+  var maxId  = orders.length ? Math.max.apply(null, orders.map(function (o) { return Number(o.id) || 0; })) : 0;
+
+  // Gather pricing breakdown for record-keeping
+  var unitPrice  = parseFloat(gv('om-unit-price')) || 0;
+  var productFee = parseFloat(gv('om-product-fee')) || 0;
+  var custType   = gv('om-cust-type');
+  var newLogo    = gv('om-new-logo') === '1';
+  var productsSub = qty * unitPrice;
+  var plateCharge = (custType === 'new' || newLogo) ? (productFee + OM_PLATE_PER_COLOR) : 0;
+  var discountAmt = productsSub >= OM_DISCOUNT_THRESHOLD ? Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100 : 0;
+
   var newOrder = {
     id: maxId + 1,
     customer_record_id: customerRecordId,
-    customer_name: businessName,
-    contact_person: gv('om-contact'),
-    phone: gv('om-phone'),
-    email: gv('om-email'),
-    address: gv('om-address'),
+    customer_name:   businessName,
+    contact_person:  gv('om-contact'),
+    phone:           gv('om-phone'),
+    email:           gv('om-email'),
+    address:         gv('om-address'),
     mode_of_payment: gv('om-mop'),
     mode_of_delivery: gv('om-mod'),
-    branch_staff: gv('om-staff'),
-    notes: gv('om-notes'),
+    branch_staff:    gv('om-staff'),
+    notes:           gv('om-notes'),
     product_category: gv('om-prod-cat'),
-    product_type: gv('om-prod-type'),
-    quantity: qty,
-    print_color: gv('om-print-color'),
-    plate_note: gv('om-plate-note'),
-    total_amount: total,
-    status: gv('om-order-status') || 'pending',
-    downpayment: down,
-    balance: balance,
-    payment_mode: gv('om-mop'),
-    payment_status: gv('om-pay-status') || 'Pending',
-    due_date: gv('om-due-date'),
-    created_at: new Date().toISOString(),
+    product_type:    gv('om-prod-type'),
+    quantity:        qty,
+    unit_price:      unitPrice,
+    product_fee:     productFee,
+    plate_charge:    plateCharge,
+    discount_amount: discountAmt,
+    customer_type:   custType,
+    print_color:     gv('om-print-color'),
+    plate_note:      gv('om-plate-note'),
+    total_amount:    total,
+    status:          gv('om-order-status') || 'pending',
+    downpayment:     down,
+    balance:         balance,
+    payment_mode:    gv('om-mop'),
+    payment_status:  gv('om-pay-status') || 'Pending',
+    due_date:        gv('om-due-date'),
+    order_date:      gv('om-order-date'),
+    created_at:      new Date().toISOString(),
   };
+
   orders.push(newOrder);
   saveOrders(orders);
   DB.saveOrder(newOrder);
@@ -4299,16 +5401,24 @@ function omConfirmNewOrder() {
   var logoInput = document.getElementById('om-logo-files');
   if (logoInput && logoInput.files && logoInput.files.length > 0) {
     var logos = getLogoUploads();
-    Array.from(logoInput.files).forEach(function (f) { logos.push({ id: omGenId('logo'), orderId: newOrder.id, customerId: customerRecordId, businessName: businessName, fileName: f.name, fileSize: f.size, uploadedAt: new Date().toISOString() }); });
+    Array.from(logoInput.files).forEach(function (f) {
+      logos.push({ id: omGenId('logo'), orderId: newOrder.id, customerId: customerRecordId, businessName: businessName, fileName: f.name, fileSize: f.size, uploadedAt: new Date().toISOString() });
+    });
     saveLogoUploads(logos);
   }
 
   var payments = getPaymentRecords();
-  payments.push({ id: omGenId('pay'), orderId: newOrder.id, orderNumber: newOrder.id, customerId: customerRecordId, businessName: businessName, contactPerson: newOrder.contact_person, totalAmount: total, downpayment: down, balance: balance, modeOfPayment: newOrder.payment_mode, paymentStatus: newOrder.payment_status, date: new Date().toISOString(), note: '' });
+  payments.push({
+    id: omGenId('pay'), orderId: newOrder.id, orderNumber: newOrder.id,
+    customerId: customerRecordId, businessName: businessName,
+    contactPerson: newOrder.contact_person, totalAmount: total,
+    downpayment: down, balance: balance, modeOfPayment: newOrder.payment_mode,
+    paymentStatus: newOrder.payment_status, date: new Date().toISOString(), note: ''
+  });
   savePaymentRecords(payments);
 
   closeModal();
-  showToast('Order created successfully!', 'success');
+  showToast('Order #' + String(newOrder.id).padStart(6,'0') + ' created!', 'success');
   _omTab = 'orders';
   renderOrders();
 }
@@ -4460,10 +5570,10 @@ function omMoveToDispatch(orderId) {
 
 // CUSTOMER RECORD MODALS
 function omNewCustomerModal() {
-  showModal('<div class="modal-header"><h2>' + iconSvg('users') + ' New Customer Record</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
+  showModal('<div class="modal-header"><h2>' + iconSvg('users') + ' New Customer Record (Print Client)</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
-    + '<div class="form-row-2"><div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="omcr-business" class="form-control"></div>'
-    + '<div class="form-group"><label>Contact Person <span style="color:var(--danger)">*</span></label><input id="omcr-contact" class="form-control"></div></div>'
+    + '<div class="form-row-2"><div class="form-group"><label>Name <span style="color:var(--danger)">*</span></label><input id="omcr-business" class="form-control" placeholder="e.g. Juan dela Cruz or ABC Corp"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="omcr-contact" class="form-control" placeholder="Person to contact"></div></div>'
     + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="omcr-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
     + '<div class="form-group"><label>Email</label><input id="omcr-email" class="form-control"></div></div>'
     + '<div class="form-group"><label>Address</label><input id="omcr-address" class="form-control"></div>'
@@ -5474,29 +6584,41 @@ document.addEventListener('click', e => {
 document.addEventListener('DOMContentLoaded', async () => {
   await window.loadStateFromServer();
   bindOverviewClickFallback();
+
+  // Restore session — check pos_currentUser first, then fall back to pos_state.currentUser
   let restoredUser = null;
   try {
-    const u = localStorage.getItem('pos_currentUser');
-    if (u) restoredUser = JSON.parse(u);
+    const raw = localStorage.getItem('pos_currentUser');
+    if (raw) restoredUser = JSON.parse(raw);
   } catch { }
-  // Fallback: if role is missing, try to infer it
+
+  // Second fallback: read from pos_state directly
+  if (!restoredUser) {
+    try {
+      const raw = localStorage.getItem('pos_state');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.currentUser) restoredUser = parsed.currentUser;
+      }
+    } catch { }
+  }
+
   if (restoredUser) {
-    if (!restoredUser.role) {
-      restoredUser.role = restoredUser.username === 'admin' ? 'admin' : 'user';
+    // Ensure role is always valid
+    if (!restoredUser.role || !['admin','staff','print'].includes(restoredUser.role)) {
+      restoredUser.role = restoredUser.username === 'admin' ? 'admin' : 'staff';
     }
-    if (restoredUser.role) {
-      const s = getState();
-      s.currentUser = restoredUser;
-      saveState(s);
-      showApp();
-    } else {
-      showOverview();
-    }
+    // Re-stamp into state and re-save pos_currentUser so it survives future reloads
+    const s = getState();
+    s.currentUser = restoredUser;
+    saveState(s);
+    localStorage.setItem('pos_currentUser', JSON.stringify(restoredUser));
+    showApp();
   } else {
     showOverview();
   }
+
   renderOverviewBranches();
-  // Apply SVG icons to the static overview page markup
   applySvgToElement(document.getElementById('overview-page'));
 });
 // SYSTEM CONFIGURATION (Admin)
@@ -6441,37 +7563,160 @@ function qcRework(orderId) {
   renderQualityControl();
 }
 
-// MATERIALS TRACKING — Printing Personnel
+// PRINTING INVENTORY — mirrors Branch Staff Inventory design
+var _printInvFilter = { search: '', status: 'all' };
+function clearPrintInvFilter() { _printInvFilter = { search: '', status: 'all' }; _renderPrintInventoryPage(); }
+
 function renderMaterialsTracking() {
-  const _mt = getState();
-  if (_mt.currentUser && _mt.currentUser.role === 'staff') { accessDenied('Materials Log'); return; }
+  _printInvFilter = { search: '', status: 'all' };
+  _renderPrintInventoryPage();
+}
+
+function _renderPrintInventoryPage() {
   const s = getState();
-  const materialsLog = s.materialsLog || [];
+  const isAdmin = s.currentUser && s.currentUser.role === 'admin';
+  if (s.currentUser && s.currentUser.role === 'staff') { accessDenied('Printing Inventory'); return; }
+
+  const allVariants = (s.printProducts || []).filter(p => p.active).flatMap(p =>
+    (p.variants || []).map(v => ({ p, v, reorderLevel: v.reorderLevel ?? 20 }))
+  );
+
+  const totalVariants = allVariants.length;
+  const lowStockCount = allVariants.filter(({ v, reorderLevel }) => v.stock > 0 && v.stock <= reorderLevel).length;
+  const outOfStockCount = allVariants.filter(({ v }) => v.stock === 0).length;
+  const healthyCount = totalVariants - lowStockCount - outOfStockCount;
+
+  const q = (_printInvFilter.search || '').toLowerCase();
+  const filtered = allVariants.filter(({ p, v, reorderLevel }) => {
+    const matchSearch = !q ||
+      p.name.toLowerCase().includes(q) ||
+      (p.materialType || '').toLowerCase().includes(q) ||
+      v.name.toLowerCase().includes(q) ||
+      (v.size || '').toLowerCase().includes(q) ||
+      (v.color || '').toLowerCase().includes(q) ||
+      (v.sku || '').toLowerCase().includes(q);
+    const lvl = v.stock === 0 ? 'out' : v.stock <= reorderLevel ? 'low' : 'ok';
+    const matchStatus =
+      _printInvFilter.status === 'all' ? true :
+        _printInvFilter.status === 'low' ? lvl === 'low' :
+          _printInvFilter.status === 'out' ? lvl === 'out' :
+            _printInvFilter.status === 'ok' ? lvl === 'ok' : true;
+    return matchSearch && matchStatus;
+  });
+
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h1 class="page-title">Materials Tracking</h1><p class="page-subtitle">Record material usage and waste per order</p></div>
-      <button class="btn btn-maroon" onclick="logMaterialUsageModal()">+ Log Usage</button>
+      <div><h1 class="page-title">Printing Inventory</h1><p class="page-subtitle">Stock monitoring for printing department materials</p></div>
     </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Variants</div><div class="kpi-icon blue">${iconSvg('box')}</div></div><div class="kpi-value">${totalVariants}</div><div class="kpi-sub">${(s.printProducts || []).filter(p => p.active).length} active materials</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Healthy Stock</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${healthyCount}</div><div class="kpi-sub">Above reorder level</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="_printInvFilter.status='low';_renderPrintInventoryPage()"><div class="kpi-header"><div class="kpi-label">Low Stock</div><div class="kpi-icon gold">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:${lowStockCount > 0 ? 'var(--warning)' : 'inherit'}">${lowStockCount}</div><div class="kpi-sub">At or below reorder level</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="_printInvFilter.status='out';_renderPrintInventoryPage()"><div class="kpi-header"><div class="kpi-label">Out of Stock</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div><div class="kpi-value" style="color:${outOfStockCount > 0 ? 'var(--danger)' : 'inherit'}">${outOfStockCount}</div><div class="kpi-sub">Zero units remaining</div></div>
+    </div>
+
+    ${(lowStockCount + outOfStockCount) > 0 ? '<div class="alert alert-error-box">' + iconSvg('warning') + ' ' + (lowStockCount + outOfStockCount) + ' material variant(s) need attention. Click the KPI cards above to filter.</div>' : ''}
+
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Material Usage Log</span></div>
+      <div class="data-card-header">
+        <span class="data-card-title">Stock Levels</span>
+        <span class="text-sm text-muted">${filtered.length} of ${totalVariants} variants</span>
+      </div>
+      <div class="data-card-body" style="padding:12px 16px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input class="form-control" style="flex:1;min-width:200px;max-width:360px"
+          placeholder="Search type, size, color, material..."
+          value="${_printInvFilter.search}"
+          oninput="_printInvFilter.search=this.value;_renderPrintInventoryPage()">
+        <select class="form-control" style="width:auto" onchange="_printInvFilter.status=this.value;_renderPrintInventoryPage()">
+          <option value="all" ${_printInvFilter.status === 'all' ? 'selected' : ''}>All Stock</option>
+          <option value="ok" ${_printInvFilter.status === 'ok' ? 'selected' : ''}>Healthy</option>
+          <option value="low" ${_printInvFilter.status === 'low' ? 'selected' : ''}>Low Stock</option>
+          <option value="out" ${_printInvFilter.status === 'out' ? 'selected' : ''}>Out of Stock</option>
+        </select>
+        ${_printInvFilter.search || _printInvFilter.status !== 'all' ? '<button class="btn btn-sm btn-outline" onclick="clearPrintInvFilter()">Clear Filter</button>' : ''}
+      </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Date</th><th>Order #</th><th>Material</th><th>Used (units)</th><th>Waste (units)</th><th>Notes</th><th>By</th></tr></thead>
-          <tbody>${[...materialsLog].reverse().slice(0, 50).map(log => {
-    const user = s.users.find(u => u.id === log.userId);
-    return `<tr>
-              <td class="td-mono">${fmtTime(log.createdAt)}</td>
-              <td class="td-mono">${log.orderId ? String(log.orderId).padStart(6, '0') : '—'}</td>
-              <td>${log.material}</td>
-              <td>${log.used}</td>
-              <td style="color:var(--warning)">${log.waste || 0}</td>
-              <td class="text-sm text-muted">${log.notes || '—'}</td>
-              <td>${user?.name || '—'}</td>
+          <thead><tr>
+            <th>Material Type</th>
+            <th>Product Size</th>
+            <th>Color</th>
+            <th>Current Stock</th>
+            <th>Reorder Point</th>
+            <th>Max Stock</th>
+            <th>Last Count Date</th>
+            <th>Adjust</th>
+          </tr></thead>
+          <tbody>${filtered.length === 0 ? `
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">
+              ${_printInvFilter.search || _printInvFilter.status !== 'all' ? 'No variants match your search.' : 'No printing materials yet. Add materials in Product Management \u2192 Printing Products.'}
+            </td></tr>` :
+    filtered.map(({ p, v, reorderLevel }) => {
+      const maxStock = v.maxStock ?? (reorderLevel * 3);
+      const stockColor = v.stock === 0 ? 'var(--danger)' : v.stock <= reorderLevel ? 'var(--warning)' : 'var(--success)';
+      const lastCount = v.lastCountDate
+        ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+        : '<span class=\\"text-muted\\">\u2014</span>';
+      const colorCell = v.color
+        ? `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:${v.colorHex || '#888'};border:1px solid var(--ink-20);flex-shrink:0"></span>${v.color}</span>`
+        : '<span class=\\"text-muted\\">\u2014</span>';
+      return `<tr>
+              <td><strong>${p.materialType || p.name}</strong><div style="font-size:11px;color:var(--ink-50)">${p.name}</div></td>
+              <td>${v.size || v.name}</td>
+              <td>${colorCell}</td>
+              <td class="td-mono" style="font-weight:700;color:${stockColor}">${v.stock}</td>
+              <td class="td-mono">${reorderLevel}</td>
+              <td class="td-mono">${maxStock}</td>
+              <td class="td-mono" style="font-size:12px">${lastCount}</td>
+              <td>${isAdmin ? '<button class="btn btn-sm btn-outline" onclick="adjustPrintStockModal(\'' + p.id + '\',\'' + v.id + '\')">' + 'Adjust</button>' : '<span class="badge badge-neutral">View Only</span>'}</td>
             </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No material logs yet.</td></tr>'}</tbody>
+    }).join('')}
+          </tbody>
         </table>
       </div>
     </div>`;
+}
+
+function adjustPrintStockModal(pid, vid) {
+  const s = getState();
+  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can adjust stock.', 'error'); return; }
+  const p = (s.printProducts || []).find(x => x.id === pid);
+  const v = p?.variants.find(x => x.id === vid);
+  if (!v) return;
+  const maxStock = v.maxStock ?? ((v.reorderLevel ?? 20) * 3);
+  showModal(`<div class="modal-header"><h2>Adjust Stock — ${p.materialType || p.name} · ${v.size || v.name}${v.color ? ' · ' + v.color : ''}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="alert alert-info">Current stock: <strong>${v.stock} units</strong>${v.lastCountDate ? ' · Last count: ' + new Date(v.lastCountDate).toLocaleDateString('en-PH', {year:'numeric',month:'short',day:'numeric'}) : ''}</div>
+      <div class="form-group"><label>Adjustment Type</label><div class="form-select-wrap"><select id="padj-type" class="form-control"><option value="add">Add Stock (+)</option><option value="remove">Remove Stock (−)</option><option value="set">Set Exact Value</option></select></div></div>
+      <div class="form-group"><label>Quantity</label><input type="number" id="padj-qty" class="form-control" placeholder="0" min="0"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Reorder Point</label><input type="number" id="padj-reorder" class="form-control" placeholder="20" min="1" value="${v.reorderLevel ?? 20}"></div>
+        <div class="form-group"><label>Max Stock</label><input type="number" id="padj-maxstock" class="form-control" placeholder="${maxStock}" min="1" value="${maxStock}"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="confirmAdjustPrintStock('${pid}','${vid}')">Apply</button></div>`);
+}
+
+function confirmAdjustPrintStock(pid, vid) {
+  const type = document.getElementById('padj-type').value;
+  const qty = parseInt(document.getElementById('padj-qty').value) || 0;
+  const reorderLevel = Math.max(1, parseInt(document.getElementById('padj-reorder').value) || 20);
+  const maxStock = Math.max(1, parseInt(document.getElementById('padj-maxstock').value) || reorderLevel * 3);
+  const s = getState();
+  const prod = (s.printProducts || []).find(x => x.id === pid);
+  const variant = prod?.variants.find(x => x.id === vid);
+  if (!variant) { showToast('Variant not found.', 'error'); return; }
+  if (type === 'add') variant.stock = (variant.stock || 0) + qty;
+  else if (type === 'remove') variant.stock = Math.max(0, (variant.stock || 0) - qty);
+  else if (type === 'set') variant.stock = Math.max(0, qty);
+  variant.reorderLevel = reorderLevel;
+  variant.maxStock = maxStock;
+  variant.lastCountDate = new Date().toISOString();
+  saveState(s);
+  closeModal();
+  showToast('Stock updated.', 'success');
+  _renderPrintInventoryPage();
 }
 
 function logMaterialUsageModal() {
@@ -6515,6 +7760,7 @@ function confirmLogMaterial() {
   showToast('Material usage logged.', 'success');
   renderMaterialsTracking();
 }
+
 
 // FULL ORDER MANAGEMENT — Advanced Admin Features
 function showReassignPersonnelModal() {
@@ -6986,6 +8232,337 @@ function scrollToDelayed() {
 }
 
 // PRINT PERSONNEL REPORTING
+// ── PRINT PERSONNEL: My Profile ───────────────────────────────────────────────
+function renderPrintPersonnel() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || me.role !== 'print') { accessDenied('Personnel Management'); return; }
+
+  const myShift = s.shifts.find(x => x.userId === me.id && x.status === 'open');
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const myShiftsThisMonth = s.shifts.filter(x => x.userId === me.id && new Date(x.openedAt) >= monthStart);
+  const myShiftsTotal = s.shifts.filter(x => x.userId === me.id);
+  const recentShifts = [...myShiftsTotal].reverse().slice(0, 30);
+  const myLeave = (s.leaveRequests || []).filter(l => l.userId === me.id);
+  const timecards = JSON.parse(localStorage.getItem('timecard_' + me.id) || '[]');
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">My Profile & Attendance</h1>
+      <p class="page-subtitle">View your profile, attendance history, leave records, and upload timecards.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:20px;margin-bottom:20px;">
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('users')} My Profile</span></div>
+        <div class="data-card-body" style="display:flex;flex-direction:column;gap:0;">
+          <div style="display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--ink-10);margin-bottom:8px;">
+            <div style="width:52px;height:52px;border-radius:50%;background:var(--maroon);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700;flex-shrink:0;">${(me.name||me.username||'?')[0].toUpperCase()}</div>
+            <div><div style="font-size:16px;font-weight:700;">${me.name||me.username}</div><div style="font-size:12px;color:var(--ink-60);">Printing Personnel · @${me.username}</div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--ink-10)"><span style="color:var(--ink-60);font-size:13px;">Status</span>${myShift?'<span class="badge badge-success">● On Shift</span>':'<span class="badge badge-neutral">Off Shift</span>'}</div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--ink-10)"><span style="color:var(--ink-60);font-size:13px;">This Month</span><strong>${myShiftsThisMonth.length} days</strong></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;"><span style="color:var(--ink-60);font-size:13px;">Total Shifts</span><strong>${myShiftsTotal.length}</strong></div>
+        </div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('calendar')} Recent Attendance</span><span class="badge badge-neutral">${myShiftsThisMonth.length} this month</span></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>In</th><th>Out</th><th>Duration</th><th>Status</th></tr></thead>
+            <tbody>${recentShifts.length ? recentShifts.map(sh => {
+              const opened = new Date(sh.openedAt);
+              const closed = sh.closedAt ? new Date(sh.closedAt) : null;
+              const dur = closed ? (Math.round((closed-opened)/360000)/10)+'h' : '—';
+              return `<tr>
+                <td>${opened.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</td>
+                <td class="td-mono">${opened.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'})}</td>
+                <td class="td-mono">${closed?closed.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
+                <td class="td-mono">${dur}</td>
+                <td>${sh.status==='open'?'<span class="badge badge-success">Open</span>':'<span class="badge badge-neutral">Closed</span>'}</td>
+              </tr>`;
+            }).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No shift records yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('calendar')} Leave Requests</span><button class="btn btn-sm btn-maroon" onclick="printPersonnelLeaveModal()">+ File Leave</button></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Filed</th><th>Type</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>${myLeave.length ? [...myLeave].reverse().map(l => `<tr>
+              <td class="xs">${new Date(l.filedAt||l.createdAt||Date.now()).toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</td>
+              <td>${l.type||'Leave'}</td>
+              <td>${l.date||'—'}</td>
+              <td>${l.status==='approved'?'<span class="badge badge-success">Approved</span>':l.status==='rejected'?'<span class="badge badge-danger">Rejected</span>':'<span class="badge badge-warning">Pending</span>'}</td>
+            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--ink-60)">No leave requests yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} Timecard Upload</span><button class="btn btn-sm btn-maroon" onclick="printPersonnelTimecardModal()">↑ Upload</button></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Uploaded</th><th>File</th><th>Period</th></tr></thead>
+            <tbody>${timecards.length ? [...timecards].reverse().map(tc => `<tr>
+              <td class="xs">${new Date(tc.uploadedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</td>
+              <td class="truncate" style="max-width:140px;" title="${tc.fileName||''}">${tc.fileName||'—'}</td>
+              <td class="xs">${tc.period||'—'}</td>
+            </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--ink-60)">No timecards uploaded yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function printPersonnelLeaveModal() {
+  showModal(`<div class="modal-header"><h2>File Leave Request</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row-2">
+        <div class="form-group"><label>Leave Type</label><div class="form-select-wrap"><select id="leave-type" class="form-control">
+          <option>Sick Leave</option><option>Vacation Leave</option><option>Emergency Leave</option><option>Others</option>
+        </select></div></div>
+        <div class="form-group"><label>Date of Leave</label><input id="leave-date" type="date" class="form-control" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div class="form-group"><label>Reason</label><textarea id="leave-reason" class="form-control" rows="3" placeholder="Brief reason for leave..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="printPersonnelSaveLeave()">Submit Request</button></div>`);
+}
+
+function printPersonnelSaveLeave() {
+  const s = getState(); const me = s.currentUser;
+  const type = document.getElementById('leave-type').value;
+  const date = document.getElementById('leave-date').value;
+  const reason = document.getElementById('leave-reason').value.trim();
+  if (!date) { showToast('Please select a date.', 'error'); return; }
+  s.leaveRequests = s.leaveRequests || [];
+  s.leaveRequests.push({ id: 'leave_'+Date.now(), userId: me.id, type, date, reason, status: 'pending', filedAt: new Date().toISOString() });
+  saveState(s); closeModal(); showToast('Leave request submitted.', 'success'); renderPrintPersonnel();
+}
+
+function printPersonnelTimecardModal() {
+  showModal(`<div class="modal-header"><h2>Upload Timecard</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Pay Period</label><input id="tc-period" class="form-control" placeholder="e.g. Feb 1–15, 2026"></div>
+      <div class="form-group"><label>Timecard File <span style="color:var(--danger)">*</span></label><input id="tc-file" type="file" class="form-control" accept="image/*,.pdf" onchange="tcReadFile(this)"></div>
+      <input type="hidden" id="tc-data"><input type="hidden" id="tc-fname">
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="printPersonnelSaveTimecard()">Upload</button></div>`);
+}
+
+function tcReadFile(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  document.getElementById('tc-fname').value = file.name;
+  var reader = new FileReader();
+  reader.onload = function(e) { document.getElementById('tc-data').value = e.target.result; };
+  reader.readAsDataURL(file);
+}
+
+function printPersonnelSaveTimecard() {
+  const me = getState().currentUser;
+  const fname = document.getElementById('tc-fname').value;
+  if (!fname) { showToast('Please select a file.', 'error'); return; }
+  const key = 'timecard_' + me.id;
+  const tcs = JSON.parse(localStorage.getItem(key) || '[]');
+  tcs.push({ id: 'tc_'+Date.now(), fileName: fname, period: document.getElementById('tc-period').value.trim(), fileData: document.getElementById('tc-data').value, uploadedAt: new Date().toISOString() });
+  localStorage.setItem(key, JSON.stringify(tcs));
+  closeModal(); showToast('Timecard uploaded!', 'success'); renderPrintPersonnel();
+}
+
+// ── PRINT PERSONNEL: My Payslip ───────────────────────────────────────────────
+function renderPrintPayslip() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || me.role !== 'print') { accessDenied('Payroll'); return; }
+
+  const DAILY_RATE = me.dailyRate || 400;
+  const now = new Date();
+  const empNum = me.employeeNumber || ('BPS-' + String(me.id||'001').replace(/\D/g,'').padStart(3,'0'));
+  const COMPANY = {
+    name: 'SOUTH PAFPS PACKAGING SUPPLIES',
+    address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
+    address2: 'Pasong Buaya 2, Imus, Cavite',
+    tel: 'Tel: (046) 436-9414',
+  };
+
+  // Build 3 months of data for history
+  const months = [0, 1, 2].map(offset => {
+    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+    const shifts = s.shifts.filter(x =>
+      x.userId === me.id && x.status !== 'open' &&
+      new Date(x.openedAt) >= d && new Date(x.openedAt) <= monthEnd
+    );
+    const basicPay = shifts.length * DAILY_RATE;
+    const gross    = basicPay;
+    const sss      = Math.round(gross * 0.045);
+    const phil     = Math.round(gross * 0.02);
+    const hdmf     = Math.min(Math.round(gross * 0.02), 100);
+    const ded      = sss + phil + hdmf;
+    const net      = Math.max(0, gross - ded);
+    // Pay period label: 1st–15th / 16th–end
+    const pLabel   = d.toLocaleDateString('en-PH',{month:'long',year:'numeric'});
+    const payDate  = new Date(d.getFullYear(), d.getMonth() + 1, 15)
+                      .toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'});
+    return { label: pLabel, payDate, days: shifts.length, basicPay, gross, sss, phil, hdmf, ded, net, isCurrent: offset===0 };
+  });
+
+  const cur = months[0];
+  // Format pay period like sample: "Month 1 - 28, Year"
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'});
+  const periodEnd = new Date(now.getFullYear(), now.getMonth()+1, 0)
+    .toLocaleDateString('en-PH',{day:'numeric',year:'numeric'});
+  const periodLabel = periodStart + ' - ' + periodEnd;
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div><h1 class="page-title">My Payslip</h1><p class="page-subtitle">${me.name} · Printing Personnel</p></div>
+      <button class="btn btn-maroon" onclick="window.print()">${iconSvg('printer')} Print</button>
+    </div>
+
+    <!-- PAYSLIP DOCUMENT -->
+    <div class="data-card" id="payslip-document" style="margin-bottom:24px;max-width:860px;">
+      <div class="data-card-body" style="padding:32px 40px;font-family:'Arial',sans-serif;font-size:12px;color:#111;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+          <div style="flex-shrink:0;width:100px;">
+            <img src="logo.png" alt="South Pafps" style="width:100px;height:auto;display:block;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div style="display:none;width:100px;height:76px;background:var(--maroon);border-radius:8px;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;text-align:center;padding:8px;box-sizing:border-box;">SOUTH<br>PAFPS<br><span style="font-size:7px;opacity:.8">PACKAGING SUPPLIES</span></div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div>
+            <div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+
+        <!-- Employee Info -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+          <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+          <tbody>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.name||'—'}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber||''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${empNum}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber||''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">Printing Personnel</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber||''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${periodLabel}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber||''}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td>
+              <td style="padding:4px 8px;border:1px solid #999;">${cur.payDate}</td>
+              <td style="padding:4px 8px;border:1px solid #999;"></td>
+              <td style="padding:4px 8px;border:1px solid #999;"></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Earnings / Deductions -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+          <colgroup>
+            <col style="width:34%"><col style="width:10%"><col style="width:14%">
+            <col style="width:3px">
+            <col style="width:auto"><col style="width:14%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(DAILY_RATE)}/day</td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${cur.days}</td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(cur.basicPay)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.sss>0?'₱'+fmt(cur.sss):''}</td>
+            </tr>
+            <tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.phil>0?'₱'+fmt(cur.phil):''}</td>
+            </tr>
+            <tr>
+              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.hdmf>0?'₱'+fmt(cur.hdmf):''}</td>
+            </tr>
+            <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+            <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:#e8e8e8;">
+              <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(cur.gross)}</td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(cur.ded)}</td>
+            </tr>
+            <tr style="font-weight:700;">
+              <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+              <td style="background:#333;width:3px;padding:0;"></td>
+              <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+              <td style="border:1px solid #999;padding:6px 8px;text-align:right;color:var(--maroon);">₱${fmt(cur.net)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div style="margin-top:28px;border-top:2px dashed #ccc;text-align:center;padding-top:4px;font-size:10px;color:#aaa;letter-spacing:2px;">
+          · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+        </div>
+      </div>
+    </div>
+
+    <!-- History table -->
+    <div class="data-card" style="max-width:860px;">
+      <div class="data-card-header"><span class="data-card-title">Payslip History</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Period</th><th>Days Worked</th><th>Gross</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+          <tbody>${months.map(m => `<tr ${m.isCurrent?'style="background:var(--cream);"':''}>
+            <td><strong>${m.label}</strong>${m.isCurrent?' <span class="badge badge-maroon" style="font-size:10px;">Current</span>':''}</td>
+            <td>${m.days}</td>
+            <td class="td-mono">₱${fmt(m.gross)}</td>
+            <td class="td-mono" style="color:var(--danger);">– ₱${fmt(m.ded)}</td>
+            <td class="td-mono" style="font-weight:700;color:var(--success);">₱${fmt(m.net)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderPrintReports() {
   const s = getState();
   const u = s.currentUser;
