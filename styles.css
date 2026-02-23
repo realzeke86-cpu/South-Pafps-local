@@ -2596,3 +2596,16 @@ td, th { text-align: left; }
   color: var(--ink);
 }
 .pscal-holiday-item:last-child { border-bottom: none; }
+
+/* ── Order Modal Inventory Suggestion Styles ── */
+#om-inv-badge {
+  transition: opacity 0.2s;
+}
+#om-prod-type {
+  padding-right: 100px; /* room for the badge */
+}
+#om-inv-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

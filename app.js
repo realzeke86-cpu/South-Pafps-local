@@ -3940,6 +3940,95 @@ function viewReceiptModal(saleId) {
   showReceiptModal(sale, s);
 }
 
+// View receipt for Order Management orders in POS receipt history
+function omViewReceiptModal(saleId) {
+  var s = getState();
+  var sale = (s.sales || []).find(function(x) { return String(x.id) === String(saleId); });
+  if (!sale) { showToast('Receipt not found.', 'error'); return; }
+  var receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
+  var date = sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' }) : '—';
+  var item = (sale.items && sale.items[0]) || {};
+  showModal(
+    '<div class="modal-header"><h2>?? Receipt ' + receiptNo + '</h2>'
+    + '<button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body" style="font-family:monospace;max-width:360px;margin:0 auto">'
+    + '<div style="text-align:center;margin-bottom:12px">'
+    +   '<strong style="font-size:16px">SOUTH PAFPS</strong><br>'
+    +   '<span style="font-size:12px;color:var(--ink-60)">Packaging Supplies</span>'
+    + '</div>'
+    + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
+    + '<div style="font-size:12px;margin-bottom:8px">'
+    +   '<div style="display:flex;justify-content:space-between"><span>Receipt #</span><strong>' + receiptNo + '</strong></div>'
+    +   '<div style="display:flex;justify-content:space-between"><span>Date</span><span>' + date + '</span></div>'
+    +   '<div style="display:flex;justify-content:space-between"><span>Order #</span><span>#' + String(sale.omOrderId || '').padStart(6,'0') + '</span></div>'
+    + '</div>'
+    + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
+    + '<div style="font-size:12px;margin-bottom:8px">'
+    +   '<div><strong>' + omEsc(sale.omCustomerName || '—') + '</strong></div>'
+    +   (sale.omContactPerson ? '<div style="color:var(--ink-60)">' + omEsc(sale.omContactPerson) + '</div>' : '')
+    +   (sale.omPhone ? '<div style="color:var(--ink-60)">' + omEsc(sale.omPhone) + '</div>' : '')
+    + '</div>'
+    + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
+    + '<table style="width:100%;font-size:12px;border-collapse:collapse">'
+    +   '<tr style="color:var(--ink-60)"><td>Item</td><td style="text-align:center">Qty</td><td style="text-align:right">Amount</td></tr>'
+    +   '<tr><td>' + omEsc((item.productName || '') + (item.variantName ? ' — ' + item.variantName : '')) + '</td>'
+    +     '<td style="text-align:center">' + (item.qty || 1) + '</td>'
+    +     '<td style="text-align:right">₱' + omFmt(item.subtotal || sale.total || 0) + '</td></tr>'
+    +   (sale.omPlateCharge > 0 ? '<tr><td style="color:var(--ink-60)">Plate Charge</td><td></td><td style="text-align:right">₱' + omFmt(sale.omPlateCharge) + '</td></tr>' : '')
+    +   (sale.discountAmount > 0 ? '<tr><td style="color:var(--success)">Discount</td><td></td><td style="text-align:right;color:var(--success)">- ₱' + omFmt(sale.discountAmount) + '</td></tr>' : '')
+    + '</table>'
+    + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
+    + '<div style="font-size:13px">'
+    +   '<div style="display:flex;justify-content:space-between"><span>Total</span><strong style="color:var(--maroon)">₱' + omFmt(sale.total) + '</strong></div>'
+    +   '<div style="display:flex;justify-content:space-between"><span>Mode</span><span>' + omEsc(sale.paymentMode || 'Cash') + '</span></div>'
+    +   (sale.omBalance > 0 ? '<div style="display:flex;justify-content:space-between;color:var(--danger)"><span>Balance</span><span>₱' + omFmt(sale.omBalance) + '</span></div>' : '<div style="display:flex;justify-content:space-between;color:var(--success)"><span>Balance</span><span>Fully Paid</span></div>')
+    + '</div>'
+    + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
+    + '<div style="text-align:center;font-size:11px;color:var(--ink-60)">'
+    +   '<div>Thank you for your business!</div>'
+    +   '<div>South Pafps Packaging Supplies</div>'
+    + '</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    +   '<button class="btn btn-outline" onclick="closeModal()">Close</button>'
+    +   '<button class="btn btn-maroon" onclick="omPrintReceiptById(\'' + saleId + '\')">Print ??️</button>'
+    + '</div>'
+  );
+}
+
+function omPrintReceiptById(saleId) {
+  var s = getState();
+  var sale = (s.sales || []).find(function(x) { return String(x.id) === String(saleId); });
+  if (!sale) return;
+  var item = (sale.items && sale.items[0]) || {};
+  var receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
+  var date = sale.createdAt ? new Date(sale.createdAt).toLocaleDateString() : new Date().toLocaleDateString();
+  var w = window.open('', '_blank', 'width=400,height=650');
+  w.document.write('<!DOCTYPE html><html><head><title>Receipt ' + receiptNo + '</title>'
+    + '<style>body{font-family:monospace;padding:20px;max-width:320px;margin:0 auto}h2,p{text-align:center;margin:4px 0}hr{border:none;border-top:1px dashed #999;margin:10px 0}table{width:100%;font-size:13px}td{padding:3px 0}.footer{text-align:center;font-size:11px;margin-top:16px}</style>'
+    + '</head><body>'
+    + '<h2>SOUTH PAFPS</h2><p>Packaging Supplies</p><hr>'
+    + '<p>Receipt # <strong>' + receiptNo + '</strong></p>'
+    + '<p>Order # <strong>#' + String(sale.omOrderId || '').padStart(6,'0') + '</strong></p>'
+    + '<p>Date: ' + date + '</p><hr>'
+    + '<p><strong>' + (sale.omCustomerName || '') + '</strong></p>'
+    + (sale.omContactPerson ? '<p>' + sale.omContactPerson + '</p>' : '')
+    + '<hr>'
+    + '<table>'
+    +   '<tr><td>' + ((item.productName || '') + (item.variantName ? ' - ' + item.variantName : '')) + '</td><td style="text-align:right">x' + (item.qty||1) + '</td><td style="text-align:right">₱' + (item.subtotal||0).toFixed(2) + '</td></tr>'
+    +   (sale.omPlateCharge > 0 ? '<tr><td>Plate Charge</td><td></td><td style="text-align:right">₱' + sale.omPlateCharge.toFixed(2) + '</td></tr>' : '')
+    +   (sale.discountAmount > 0 ? '<tr><td>Discount</td><td></td><td style="text-align:right">- ₱' + sale.discountAmount.toFixed(2) + '</td></tr>' : '')
+    + '</table><hr>'
+    + '<table><tr><td><strong>TOTAL</strong></td><td style="text-align:right"><strong>₱' + (sale.total||0).toFixed(2) + '</strong></td></tr>'
+    + '<tr><td>Mode</td><td style="text-align:right">' + (sale.paymentMode||'Cash') + '</td></tr>'
+    + '<tr><td>Balance</td><td style="text-align:right">' + (sale.omBalance > 0 ? '₱' + sale.omBalance.toFixed(2) : 'FULLY PAID') + '</td></tr>'
+    + '</table><hr>'
+    + '<div class="footer"><p>Thank you for your business!</p><p>South Pafps Packaging Supplies</p></div>'
+    + '<script>window.onload=function(){window.print()}<\/script></body></html>');
+  w.document.close();
+}
+
+
 // ─────────────────────────────────────────────────────────────
 // POS → Customer Records
 // Shows walk-in customers created through the POS terminal
@@ -4248,28 +4337,43 @@ function renderPosReceipts() {
 
 // RECEIPTS (Printing Role)
 function renderReceipts() {
-  const page = 'receipts';
-  const navId = getNavRenderId();
-  const s = getState();
-  const sales = [...(s.sales || [])].reverse().slice(0, 50);
-  setPageHtml(page, navId, `
-    <div class="page-header"><h1 class="page-title">Receipts</h1><p class="page-subtitle">Browse and reprint sale receipts</p></div>
-    <div class="data-card"><div class="data-card-body no-pad">
-      <table class="data-table"><thead><tr><th>Receipt #</th><th>Customer</th><th>Total</th><th>Time</th><th>Status</th><th>Action</th></tr></thead>
-      <tbody>${[...sales].map(sale => {
-    const cust = s.customers.find(c => c.id === sale.customerId);
-    const customer = cust ? (cust.companyName || cust.contactPerson || '-') : 'Walk-in';
-    return '<tr>' +
-      '<td class="td-mono">' + (sale.receiptNo || String(sale.id).slice(-6).toUpperCase()) + '</td>' +
-      '<td>' + customer + '</td>' +
-      '<td class="td-mono">₱' + fmt(sale.total) + '</td>' +
-      '<td class="td-mono">' + fmtTime(sale.createdAt || sale.created_at) + '</td>' +
-      '<td>' + (sale.voided || sale.status === 'voided' ? '<span class="badge badge-danger">Voided</span>' : '<span class="badge badge-success">Paid</span>') + '</td>' +
-      '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(this.dataset.id)" data-id="' + sale.id + '">View</button></td>' +
-      '</tr>';
-  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No receipts found.</td></tr>'}
-      </tbody></table>
-    </div></div>`);
+  var page = 'receipts';
+  var navId = getNavRenderId();
+  var s = getState();
+  var sales = (s.sales || []).slice().reverse().slice(0, 200);
+  var rows = sales.map(function(sale) {
+    var isOM = sale.source === 'order_management';
+    var cust = s.customers ? s.customers.find(function(c) { return c.id === sale.customerId; }) : null;
+    var customer = isOM
+      ? (sale.omCustomerName || sale.omContactPerson || 'OM Customer')
+      : (cust ? (cust.companyName || cust.contactPerson || 'Walk-in') : 'Walk-in');
+    var sourceBadge = isOM
+      ? '<span class="badge badge-info" style="font-size:10px">Order Mgmt</span>'
+      : '<span class="badge badge-neutral" style="font-size:10px">POS</span>';
+    var sid = String(sale.id).replace(/'/g, '');
+    var actionBtn = isOM
+      ? '<button class="btn btn-sm btn-outline" onclick="omViewReceiptModal(\'' + sid + '\')">View</button>'
+      : '<button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sid + '\')">View</button>';
+    var statusBadge = (sale.voided || sale.status === 'voided')
+      ? '<span class="badge badge-danger">Voided</span>'
+      : '<span class="badge badge-success">Paid</span>';
+    return '<tr>'
+      + '<td class="td-mono" style="font-weight:700">' + (sale.receiptNo || String(sale.id).slice(-6).toUpperCase()) + '</td>'
+      + '<td>' + sourceBadge + '</td>'
+      + '<td>' + customer + '</td>'
+      + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(sale.total) + '</td>'
+      + '<td class="td-mono">' + fmtTime(sale.createdAt || sale.created_at) + '</td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td>' + actionBtn + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No receipts found.</td></tr>';
+  setPageHtml(page, navId,
+    '<div class="page-header"><h1 class="page-title">Receipt History</h1><p class="page-subtitle">Browse and reprint receipts \u2014 POS sales and completed Order Management orders</p></div>'
+    + '<div class="data-card"><div class="data-card-body no-pad">'
+    + '<table class="data-table"><thead><tr><th>Receipt #</th><th>Source</th><th>Customer</th><th>Total</th><th>Date</th><th>Status</th><th>Action</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>'
+    + '</div></div>'
+  );
 }
 
 // SALES HISTORY (staff view)
@@ -5816,10 +5920,141 @@ function omRenderDispatchTab() {
 function addOrderModal() { omNewOrderModal(); }
 function confirmOrder() { omConfirmNewOrder(); }
 
+// ── OM Inventory Suggestion Helpers ──────────────────────────────────────────
+
+function omGetBranchInventory(branchId) {
+  var s = getState();
+  var items = [];
+  (s.products || []).forEach(function(p) {
+    if (!p.active) return;
+    (p.variants || []).forEach(function(v) {
+      var qty = (v.branchStocks && v.branchStocks[branchId]) || 0;
+      if (qty > 0) {
+        items.push({
+          productId: p.id,
+          variantId: v.id,
+          productName: p.name,
+          variantName: v.name,
+          category: p.category || p.name,
+          stock: qty,
+          price: v.price || 0
+        });
+      }
+    });
+  });
+  return items;
+}
+
+function omBuildProductCategoryField(branchId) {
+  var s = getState();
+  var cats = [];
+  var seen = {};
+  (s.products || []).forEach(function(p) {
+    if (!p.active) return;
+    var cat = p.category || p.name;
+    if (!seen[cat] && (p.variants || []).some(function(v) {
+      return ((v.branchStocks && v.branchStocks[branchId]) || 0) > 0;
+    })) {
+      seen[cat] = true;
+      cats.push(cat);
+    }
+  });
+  var datalist = '<datalist id="om-prod-cat-list">' + cats.map(function(c) { return '<option value="' + c + '">'; }).join('') + '</datalist>';
+  return '<div class="form-row-2">'
+    + '<div class="form-group" style="position:relative">'
+    + '<label>Product Category</label>'
+    + '<input id="om-prod-cat" class="form-control" placeholder="e.g. Paper Cups, Boxes" list="om-prod-cat-list" autocomplete="off" oninput="omOnCatInput(this.value)">'
+    + datalist
+    + '</div>'
+    + '<div class="form-group" style="position:relative">'
+    + '<label>Product Type / Size <span style="color:var(--danger)">*</span></label>'
+    + '<input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz" autocomplete="off" oninput="omOnTypeInput(this.value)">'
+    + '<datalist id="om-prod-type-list"></datalist>'
+    + '<div id="om-inv-badge" style="display:none;position:absolute;right:10px;top:38px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--success-light,#e6f9ee);color:var(--success,#1a8a4a);border:1px solid var(--success,#1a8a4a);pointer-events:none"></div>'
+    + '</div>'
+    + '</div>'
+    + '<div id="om-inv-warn" style="display:none;margin-bottom:10px;padding:8px 13px;background:#fff3cd;border:1.5px solid #f0c040;border-radius:8px;font-size:12.5px;color:#7a5c00">'
+    + '\u26A0\uFE0F <strong>Not found in branch inventory.</strong> You can still proceed, but stock won\u2019t be auto-deducted.'
+    + '</div>';
+}
+
+function omBuildProductTypeField() {
+  // Type field already built inline in omBuildProductCategoryField; this returns empty (compat shim)
+  return '';
+}
+
+// Called when category input changes — refresh the type datalist
+function omOnCatInput(catVal) {
+  var s = getState();
+  var currentUser = s.currentUser || {};
+  var branchId = getActiveBranchId(s, currentUser);
+  var items = omGetBranchInventory(branchId);
+  var q = (catVal || '').toLowerCase().trim();
+  var filtered = q ? items.filter(function(i) { return i.category.toLowerCase().indexOf(q) !== -1; }) : items;
+  var typeList = document.getElementById('om-prod-type-list');
+  if (typeList) {
+    typeList.innerHTML = filtered.map(function(i) {
+      return '<option value="' + i.variantName + '" data-stock="' + i.stock + '" data-price="' + i.price + '" data-vid="' + i.variantId + '">';
+    }).join('');
+  }
+  omOnTypeInput(document.getElementById('om-prod-type') ? document.getElementById('om-prod-type').value : '');
+}
+
+// Called when type/variant input changes — show stock badge and warn if not found
+function omOnTypeInput(typeVal) {
+  var s = getState();
+  var currentUser = s.currentUser || {};
+  var branchId = getActiveBranchId(s, currentUser);
+  var items = omGetBranchInventory(branchId);
+  var q = (typeVal || '').toLowerCase().trim();
+  var badge = document.getElementById('om-inv-badge');
+  var warn = document.getElementById('om-inv-warn');
+  if (!q) {
+    if (badge) badge.style.display = 'none';
+    if (warn) warn.style.display = 'none';
+    return;
+  }
+  var match = items.find(function(i) { return i.variantName.toLowerCase() === q; });
+  if (match) {
+    if (badge) {
+      badge.textContent = match.stock + ' in stock';
+      badge.style.display = '';
+      badge.style.background = match.stock <= 10 ? '#fff3cd' : '#e6f9ee';
+      badge.style.color = match.stock <= 10 ? '#7a5c00' : '#1a8a4a';
+      badge.style.borderColor = match.stock <= 10 ? '#f0c040' : '#1a8a4a';
+    }
+    if (warn) warn.style.display = 'none';
+    // Auto-fill unit price if empty or zero
+    var priceEl = document.getElementById('om-unit-price');
+    if (priceEl && (parseFloat(priceEl.value) || 0) === 0 && match.price > 0) {
+      priceEl.value = match.price;
+      omCalcTotal();
+    }
+    // Store matched variantId for deduction later
+    var typeEl = document.getElementById('om-prod-type');
+    if (typeEl) typeEl.dataset.variantId = match.variantId;
+  } else {
+    if (badge) badge.style.display = 'none';
+    if (warn) warn.style.display = '';
+    var typeEl2 = document.getElementById('om-prod-type');
+    if (typeEl2) delete typeEl2.dataset.variantId;
+  }
+}
+
 function omNewOrderModal() {
   var s = getState();
   var crs = getCustomerRecords();
-  var staffList = s.users.filter(function (u) { return u.role === 'staff' || u.role === 'admin'; });
+  var currentUser = s.currentUser || {};
+  var currentRole = currentUser.role || '';
+  var branchId = getActiveBranchId(s, currentUser);
+  var staffList;
+  if (currentRole === 'staff') {
+    staffList = s.users.filter(function (u) { return u.name === currentUser.name && u.role === 'staff'; });
+  } else if (currentRole === 'admin') {
+    staffList = s.users.filter(function (u) { return u.name === currentUser.name; });
+  } else {
+    staffList = s.users.filter(function (u) { return u.role === 'staff' || u.role === 'admin'; });
+  }
   var custOptions = crs.map(function (c) { return '<option value="' + c.id + '">' + c.businessName + ' (' + c.contactPerson + ')</option>'; }).join('');
   var staffOptions = staffList.map(function (u) { return '<option value="' + u.name + '">' + u.name + '</option>'; }).join('');
 
@@ -5830,15 +6065,19 @@ function omNewOrderModal() {
     // ── Customer Info ──
     + '<div class="om-modal-section-label">\uD83D\uDC65 Customer Information</div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Select Existing Customer</label>'
+    +   '<div class="form-group"><label>Select Existing Customer <span class="text-xs text-muted">(or type a new name below)</span></label>'
     +     '<div class="form-select-wrap"><select id="om-cust-sel" class="form-control" onchange="omAutofillCustomer(this.value)">'
     +       '<option value="">\u2014 New Customer \u2014</option>' + custOptions
     +     '</select></div>'
     +   '</div>'
     +   '<div class="form-group"><label>Order Date</label><input id="om-order-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div>'
     + '</div>'
+    + '<div id="om-new-customer-notice" style="display:none;margin-bottom:10px;padding:9px 13px;background:linear-gradient(135deg,#fff8e1,#fff3cd);border:1.5px solid #f0c040;border-radius:8px;font-size:12.5px;color:#7a5c00;display:flex;align-items:center;gap:8px">'
+    +   '<span style="font-size:15px">\u2728</span>'
+    +   '<span><strong>New customer detected!</strong> This customer will be automatically added to Customer Records when you create the order.</span>'
+    + '</div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Business or company name"></div>'
+    +   '<div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Type business or company name\u2026" oninput="omCheckNewCustomerNotice()"></div>'
     +   '<div class="form-group"><label>Contact Person</label><input id="om-contact" class="form-control" placeholder="Full name"></div>'
     + '</div>'
     + '<div class="form-row-2">'
@@ -5848,7 +6087,7 @@ function omNewOrderModal() {
     + '<div class="form-group"><label>Address</label><input id="om-address" class="form-control" placeholder="Business address"></div>'
     + '<div class="form-row-2">'
     +   '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="om-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
-    +   '<div class="form-group"><label>Mode of Delivery</label><div class="form-select-wrap"><select id="om-mod" class="form-control"><option value="Pickup">Pickup</option><option value="Delivery">Delivery</option></select></div></div>'
+    +   '<div class="form-group"><label>Mode of Delivery</label><input id="om-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '</div>'
     + '<div class="form-row-2">'
     +   '<div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
@@ -5859,10 +6098,8 @@ function omNewOrderModal() {
 
     // ── Order Details ──
     + '<div class="om-modal-section-label">\uD83D\uDCE6 Order Details</div>'
-    + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Product Category</label><input id="om-prod-cat" class="form-control" placeholder="e.g. Paper Cups, Boxes"></div>'
-    +   '<div class="form-group"><label>Product Type / Size <span style="color:var(--danger)">*</span></label><input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz"></div>'
-    + '</div>'
+    + omBuildProductCategoryField(branchId)
+    + omBuildProductTypeField()
     + '<div class="form-row-3">'
     +   '<div class="form-group"><label>Quantity <span style="color:var(--danger)">*</span></label><input id="om-qty" type="number" class="form-control" min="1" value="1" oninput="omCalcTotal()"></div>'
     +   '<div class="form-group"><label>Unit Price (per pc)</label><input id="om-unit-price" type="number" class="form-control" min="0" value="0" oninput="omCalcTotal()"></div>'
@@ -5934,8 +6171,16 @@ function omNewOrderModal() {
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmNewOrder()">Create Order \u2192</button></div>'
   );
 
-  // Run initial calc after modal renders
-  setTimeout(omCalcTotal, 50);
+  // Auto-select current user in staff dropdown & init inventory suggestions
+  setTimeout(function() {
+    var staffSel = document.getElementById('om-staff');
+    if (staffSel && currentUser && currentUser.name) {
+      staffSel.value = currentUser.name;
+    }
+    // Populate type datalist with all branch items initially
+    omOnCatInput('');
+    omCalcTotal();
+  }, 50);
 }
 
 // Pricing constants
@@ -6026,6 +6271,7 @@ function omAutofillCustomer(customerId) {
     // Reset to new customer
     var ct = document.getElementById('om-cust-type');
     if (ct) ct.value = 'new';
+    omCheckNewCustomerNotice();
     omCalcTotal();
     return;
   }
@@ -6039,11 +6285,37 @@ function omAutofillCustomer(customerId) {
   sv('om-email', c.email);
   sv('om-address', c.address);
   var mopSel = document.getElementById('om-mop'); if (mopSel && c.modeOfPayment) mopSel.value = c.modeOfPayment;
-  var modSel = document.getElementById('om-mod'); if (modSel && c.modeOfDelivery) modSel.value = c.modeOfDelivery;
   var staffSel = document.getElementById('om-staff'); if (staffSel && c.branchStaff) staffSel.value = c.branchStaff;
   // Mark as old customer since they exist in records
   var ct = document.getElementById('om-cust-type'); if (ct) ct.value = 'old';
+  // Hide notice since this is an existing customer
+  var noticeEl = document.getElementById('om-new-customer-notice');
+  if (noticeEl) noticeEl.style.display = 'none';
   omCalcTotal();
+}
+
+function omCheckNewCustomerNotice() {
+  var custSelEl = document.getElementById('om-cust-sel');
+  var businessEl = document.getElementById('om-business');
+  var noticeEl = document.getElementById('om-new-customer-notice');
+  if (!custSelEl || !businessEl || !noticeEl) return;
+
+  var selectedId = custSelEl.value;
+  var typedName = businessEl.value.trim().toLowerCase();
+
+  // If a customer is selected from dropdown, no notice needed
+  if (selectedId) { noticeEl.style.display = 'none'; return; }
+
+  // If no name typed yet, no notice
+  if (!typedName) { noticeEl.style.display = 'none'; return; }
+
+  // Check if typed name matches any existing customer record
+  var crs = getCustomerRecords();
+  var exists = crs.some(function(c) {
+    return (c.businessName || '').toLowerCase().trim() === typedName;
+  });
+
+  noticeEl.style.display = exists ? 'none' : 'flex';
 }
 
 function omConfirmNewOrder() {
@@ -6052,6 +6324,9 @@ function omConfirmNewOrder() {
   var qty = parseInt(gv('om-qty')) || 0;
   if (!businessName) { showToast('Business name is required.', 'error'); return; }
   if (qty <= 0)       { showToast('Quantity must be at least 1.', 'error'); return; }
+  // Capture the matched inventory variantId (if user selected from suggestions)
+  var prodTypeEl = document.getElementById('om-prod-type');
+  var linkedVariantId = (prodTypeEl && prodTypeEl.dataset && prodTypeEl.dataset.variantId) ? prodTypeEl.dataset.variantId : null;
 
   var total   = parseFloat(gv('om-total'))       || 0;
   var down    = parseFloat(gv('om-downpayment')) || 0;
@@ -6101,6 +6376,9 @@ function omConfirmNewOrder() {
     due_date:        gv('om-due-date'),
     order_date:      gv('om-order-date'),
     created_at:      new Date().toISOString(),
+    linked_variant_id: linkedVariantId || null,
+    linked_branch_id:  linkedVariantId ? getActiveBranchId(getState(), getState().currentUser) : null,
+    stock_deducted:    false,
   };
 
   // Save to DB first to get the real MySQL AUTO_INCREMENT id back
@@ -6115,17 +6393,90 @@ function omConfirmNewOrder() {
   orders.push(newOrder);
   saveOrders(orders);
 
+  // ── Auto-add new customer to Customer Records if not already there ──
+  var crs = getCustomerRecords();
+  var alreadyExists = customerRecordId
+    ? crs.some(function(c) { return c.id === customerRecordId; })
+    : crs.some(function(c) { return (c.businessName || '').toLowerCase().trim() === businessName.toLowerCase().trim(); });
+
+  if (!alreadyExists) {
+    var newCR = {
+      id: omGenId('CR'),
+      businessName: businessName,
+      contactPerson: gv('om-contact') || '',
+      phone: gv('om-phone') || '',
+      email: gv('om-email') || '',
+      address: gv('om-address') || '',
+      modeOfPayment: gv('om-mop') || '',
+      modeOfDelivery: gv('om-mod') || '',
+      branchStaff: gv('om-staff') || '',
+      notes: '',
+      createdAt: new Date().toISOString()
+    };
+    crs.push(newCR);
+    saveCustomerRecords(crs);
+    newOrder.customer_record_id = newCR.id;
+    // Update order with new customer record id
+    var oIdx = orders.findIndex(function(o) { return o.id === newOrder.id; });
+    if (oIdx !== -1) orders[oIdx].customer_record_id = newCR.id;
+    saveOrders(orders);
+    showToast('\u2728 New customer \u201c' + businessName + '\u201d added to Customer Records!', 'info');
+  }
+
   // Logo upload removed
 
+  // ── Auto-create Payment record ──
   var payments = getPaymentRecords();
   payments.push({
     id: omGenId('pay'), orderId: newOrder.id, orderNumber: newOrder.id,
-    customerId: customerRecordId, businessName: businessName,
+    customerId: newOrder.customer_record_id || customerRecordId, businessName: businessName,
     contactPerson: newOrder.contact_person, totalAmount: total,
     downpayment: down, balance: balance, modeOfPayment: newOrder.payment_mode,
     paymentStatus: newOrder.payment_status, date: new Date().toISOString(), note: ''
   });
   savePaymentRecords(payments);
+
+  // ── Auto-create Production record (Pending status) ──
+  var prods = getProductionRecords();
+  prods.push({
+    id: omGenId('prod'),
+    orderId: newOrder.id,
+    orderNumber: newOrder.id,
+    customerId: newOrder.customer_record_id || customerRecordId,
+    businessName: businessName,
+    orderDate: newOrder.created_at,
+    assignedTo: gv('om-staff') || '',
+    progress: 0,
+    status: 'pending',
+    materialsUsed: '',
+    notes: gv('om-notes') || '',
+    qcResult: 'Pending',
+    checkCount: 0,
+    completionDate: gv('om-due-date') || null,
+    createdAt: new Date().toISOString()
+  });
+  saveProductionRecords(prods);
+
+  // ── Auto-create Dispatch record (Scheduled status) ──
+  var dispatches = getDispatchRecords();
+  dispatches.push({
+    id: omGenId('disp'),
+    orderId: newOrder.id,
+    orderNumber: newOrder.id,
+    customerId: newOrder.customer_record_id || customerRecordId,
+    businessName: businessName,
+    date: new Date().toISOString(),
+    customerNotified: false,
+    paymentStatus: newOrder.payment_status || 'Pending',
+    dispatchMethod: gv('om-mod') || 'Pickup',
+    dispatchStatus: 'Scheduled',
+    notes: '',
+    createdAt: new Date().toISOString()
+  });
+  saveDispatchRecords(dispatches);
+
+  // Push to POS receipt history if created as fully paid and completed
+  omPushToReceiptHistory(newOrder.id);
 
   closeModal();
   showToast('Order #' + String(newOrder.id).padStart(6,'0') + ' created!', 'success');
@@ -6287,7 +6638,7 @@ function omNewCustomerModal() {
     + '<div class="form-group"><label>Email</label><input id="omcr-email" class="form-control"></div></div>'
     + '<div class="form-group"><label>Address</label><input id="omcr-address" class="form-control"></div>'
     + '<div class="form-row-2"><div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omcr-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
-    + '<div class="form-group"><label>Mode of Delivery</label><div class="form-select-wrap"><select id="omcr-mod" class="form-control"><option value="Pickup">Pickup</option><option value="Delivery">Delivery</option></select></div></div></div>'
+    + '<div class="form-group"><label>Mode of Delivery</label><input id="omcr-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div></div>'
     + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omcr-staff" class="form-control"></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="omcr-notes" class="form-control" rows="2"></textarea></div>'
     + '</div>'
@@ -6339,9 +6690,7 @@ function omEditCustomerModal(customerId) {
     + '<option value="Cash+GCash" ' + (c.modeOfPayment === 'Cash+GCash' ? 'selected' : '') + '>Cash + GCash</option>'
     + '<option value="Bank Transfer" ' + (c.modeOfPayment === 'Bank Transfer' ? 'selected' : '') + '>Bank Transfer</option>'
     + '</select></div></div>'
-    + '<div class="form-group"><label>Mode of Delivery</label><div class="form-select-wrap"><select id="omce-mod" class="form-control">'
-    + '<option value="Pickup" ' + (c.modeOfDelivery === 'Pickup' ? 'selected' : '') + '>Pickup</option>'
-    + '<option value="Delivery" ' + (c.modeOfDelivery === 'Delivery' ? 'selected' : '') + '>Delivery</option>'
+    + '<div class="form-group"><label>Mode of Delivery</label><input id="omce-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)">'
     + '</select></div></div></div>'
     + '<div class="form-group"><label>Branch Staff</label><input id="omce-staff" class="form-control" value="' + (c.branchStaff || '') + '"></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="omce-notes" class="form-control" rows="2">' + (c.notes || '') + '</textarea></div>'
@@ -6463,6 +6812,8 @@ function omConfirmUpdatePayment(orderId, paymentId) {
   var payments = getPaymentRecords();
   payments.push({ id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: (document.getElementById('omupdpay-note') || { value: '' }).value });
   savePaymentRecords(payments);
+  // Push to receipt history if order is now fully paid and completed
+  omPushToReceiptHistory(o.id);
   closeModal(); showToast('Payment updated!', 'success'); renderOrders();
 }
 
@@ -6580,6 +6931,77 @@ function omQCModal(prodId) {
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>');
 }
 
+// Auto-deduct branch stock when an order is completed
+// Push completed+paid OM order into POS Receipt History
+function omPushToReceiptHistory(orderId) {
+  var orders = getOrders();
+  var o = orders.find(function(x) { return String(x.id) === String(orderId); });
+  if (!o) return;
+  if (o.status !== 'completed') return;
+  if (o.payment_status !== 'Fully Paid') return;
+  var s = getState();
+  var saleKey = 'om_order_' + o.id;
+  if ((s.sales || []).some(function(x) { return x.id === saleKey; })) return;
+  var receiptNo = 'OM-' + String(o.id).padStart(6, '0');
+  var sale = {
+    id: saleKey,
+    source: 'order_management',
+    branchId: o.linked_branch_id || (s.currentUser && s.currentUser.branchId) || (s.branches && s.branches[0] && s.branches[0].id) || 'b1',
+    userId: s.currentUser && s.currentUser.id,
+    customerId: o.customer_record_id || null,
+    receiptNo: receiptNo,
+    items: [{
+      productName: o.product_category || 'Order',
+      variantName: o.product_type || ('#' + String(o.id).padStart(6, '0')),
+      qty: o.quantity || 1,
+      price: o.unit_price || 0,
+      subtotal: o.total_amount || 0
+    }],
+    payments: [{ method: o.payment_mode || 'Cash', amount: o.total_amount || 0 }],
+    subtotal: o.total_amount || 0,
+    discountAmount: o.discount_amount || 0,
+    total: o.total_amount || 0,
+    paymentMode: o.payment_mode || 'Cash',
+    voided: false,
+    voidReason: null,
+    omOrderId: o.id,
+    omCustomerName: o.customer_name || '',
+    omContactPerson: o.contact_person || '',
+    omPhone: o.phone || '',
+    omProductCategory: o.product_category || '',
+    omProductType: o.product_type || '',
+    omPlateCharge: o.plate_charge || 0,
+    omBalance: o.balance || 0,
+    createdAt: o.created_at || new Date().toISOString()
+  };
+  s.sales = s.sales || [];
+  s.sales.push(sale);
+  saveState(s);
+  showToast('Receipt #' + receiptNo + ' added to POS Receipt History!', 'success');
+}
+
+function omDeductOrderStock(orderId) {
+  var orders = getOrders();
+  var o = orders.find(function(x) { return String(x.id) === String(orderId); });
+  if (!o || o.stock_deducted || !o.linked_variant_id || !o.linked_branch_id) return;
+  var s = getState();
+  var found = findProductAndVariantByVariantId(s, o.linked_variant_id);
+  if (!found) return;
+  var available = (found.variant.branchStocks && found.variant.branchStocks[o.linked_branch_id]) || 0;
+  var deductQty = Math.min(o.quantity || 1, available);
+  if (deductQty <= 0) {
+    showToast('\u26A0\uFE0F No stock to deduct for this order (already 0).', 'warning');
+    return;
+  }
+  adjustVariantBranchStock(found.variant, o.linked_branch_id, -deductQty);
+  saveState(s);
+  o.stock_deducted = true;
+  o.stock_deducted_qty = deductQty;
+  o.stock_deducted_at = new Date().toISOString();
+  saveOrders(orders);
+  showToast('\uD83D\uDCE6 Stock deducted: ' + deductQty + 'x ' + found.variant.name + ' from branch inventory.', 'info');
+}
+
 function omSaveQC(prodId, result) {
   var prods = getProductionRecords();
   var p = prods.find(function (x) { return x.id === prodId; });
@@ -6587,7 +7009,13 @@ function omSaveQC(prodId, result) {
   p.qcResult = result; p.checkCount = (p.checkCount || 0) + 1;
   p.qcNotes = (document.getElementById('omqc-notes') || { value: '' }).value;
   p.qcDate = new Date().toISOString();
-  if (result === 'Pass') p.status = 'completed';
+  if (result === 'Pass') {
+    p.status = 'completed';
+    // Auto-deduct branch stock on QC pass
+    omDeductOrderStock(p.orderId);
+    // Push to receipt history if fully paid
+    omPushToReceiptHistory(p.orderId);
+  }
   saveProductionRecords(prods); closeModal();
   showToast('QC ' + result + ' recorded.', result === 'Pass' ? 'success' : 'error'); renderOrders();
 }
@@ -6602,7 +7030,7 @@ function omNewDispatchModal() {
     + '<div class="form-row-2"><div class="form-group"><label>Select Order <span style="color:var(--danger)">*</span></label><div class="form-select-wrap"><select id="omdisp-order" class="form-control" onchange="omAutofillDispatch(this.value)"><option value="">\u2014 Select Order \u2014</option>' + orderOptions + '</select></div></div>'
     + '<div class="form-group"><label>Date</label><input id="omdisp-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div></div>'
     + '<div id="omdisp-cust-info" style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;display:none;font-size:13px"><strong id="omdisp-cust-name">\u2014</strong> \u00B7 <span id="omdisp-pay-status-info">\u2014</span><div style="margin-top:4px;font-weight:700" id="omdisp-balance-info"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Dispatch Method</label><div class="form-select-wrap"><select id="omdisp-method" class="form-control"><option value="Pickup">Pickup</option><option value="Delivery">Delivery</option></select></div></div>'
+    + '<div class="form-row-2"><div class="form-group"><label>Dispatch Method</label><input id="omdisp-method" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '<div class="form-group"><label>Dispatch Status</label><div class="form-select-wrap"><select id="omdisp-status" class="form-control"><option value="Scheduled">Scheduled</option><option value="Dispatched">Dispatched</option><option value="Delivered">Delivered</option></select></div></div></div>'
     + '<div class="form-group"><label>Customer Notified?</label><div style="display:flex;gap:12px;margin-top:8px">'
     + '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="omdisp-notified" id="omdisp-notified-yes" value="1"> Yes</label>'
@@ -6630,8 +7058,11 @@ function omSaveDispatch() {
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
   var dispStatus = gv('omdisp-status');
-  if (dispStatus === 'Delivered') { o.status = 'completed'; saveOrders(orders); }
-  else if (dispStatus === 'Dispatched') { o.status = 'dispatch'; saveOrders(orders); }
+  if (dispStatus === 'Delivered') {
+    o.status = 'completed'; saveOrders(orders);
+    omDeductOrderStock(o.id);
+    omPushToReceiptHistory(o.id);
+  } else if (dispStatus === 'Dispatched') { o.status = 'dispatch'; saveOrders(orders); }
 
   var dispatches = getDispatchRecords();
   dispatches.push({ id: omGenId('disp'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, date: new Date().toISOString(), customerNotified: !!(document.getElementById('omdisp-notified-yes') || {}).checked, paymentStatus: o.payment_status || 'Pending', dispatchMethod: gv('omdisp-method'), dispatchStatus: dispStatus, notes: gv('omdisp-notes'), createdAt: new Date().toISOString() });
@@ -6645,10 +7076,7 @@ function omUpdateDispatchModal(dispId) {
   showModal('<div class="modal-header"><h2>' + iconSvg('truck') + ' Update Dispatch</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
     + '<div class="alert alert-info">Order #' + String(d.orderNumber || '').padStart(6, '0') + ' \u00B7 <strong>' + d.businessName + '</strong></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Dispatch Method</label><div class="form-select-wrap"><select id="omuddisp-method" class="form-control">'
-    + '<option value="Pickup" ' + (d.dispatchMethod === 'Pickup' ? 'selected' : '') + '>Pickup</option>'
-    + '<option value="Delivery" ' + (d.dispatchMethod === 'Delivery' ? 'selected' : '') + '>Delivery</option>'
-    + '</select></div></div>'
+    + '<div class="form-row-2"><div class="form-group"><label>Dispatch Method</label><input id="omuddisp-method" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '<div class="form-group"><label>Dispatch Status</label><div class="form-select-wrap"><select id="omuddisp-status" class="form-control">'
     + '<option value="Scheduled" ' + (d.dispatchStatus === 'Scheduled' ? 'selected' : '') + '>Scheduled</option>'
     + '<option value="Dispatched" ' + (d.dispatchStatus === 'Dispatched' ? 'selected' : '') + '>Dispatched</option>'
@@ -6673,7 +7101,7 @@ function omConfirmUpdateDispatch(dispId) {
   d.customerNotified = !!(document.getElementById('omuddisp-notified-yes') || {}).checked;
   d.notes = gv('omuddisp-notes'); d.updatedAt = new Date().toISOString();
   saveDispatchRecords(dispatches);
-  if (dispStatus === 'Delivered') { var orders = getOrders(); var o = orders.find(function (x) { return String(x.id) === String(d.orderId); }); if (o) { o.status = 'completed'; saveOrders(orders); } }
+  if (dispStatus === 'Delivered') { var orders = getOrders(); var o = orders.find(function (x) { return String(x.id) === String(d.orderId); }); if (o) { o.status = 'completed'; saveOrders(orders); omDeductOrderStock(o.id); omPushToReceiptHistory(o.id); } }
   closeModal(); showToast('Dispatch updated!', 'success'); renderOrders();
 }
 
@@ -9612,43 +10040,62 @@ function renderCategories() {
 }
 
 // ── EMPLOYEE RECORDS ──────────────────────────────────────────────
+function getEmployees() {
+  const s = getState();
+  if (!s.employees) s.employees = [];
+  return s.employees;
+}
+
+function saveEmployees(employees) {
+  const s = getState();
+  s.employees = employees;
+  saveState(s);
+}
+
 function renderEmployeeRecords() {
   const s = getState();
   if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Employee Records'); return; }
-  const users = s.users || [];
+  const employees = getEmployees();
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-      <div><h1 class="page-title">Employee Records</h1><p class="page-subtitle">All staff across branches</p></div>
+      <div><h1 class="page-title">Employee Records</h1><p class="page-subtitle">HR records — separate from system login accounts</p></div>
+      <button class="btn btn-maroon" onclick="showAddEmployeeModal()">+ Add Employee</button>
     </div>
     <div class="data-card">
       <div class="data-card-header">
-        <input type="text" class="form-control" id="emp-search" placeholder="Search by name or username…" style="max-width:320px;" oninput="filterEmployeeRecords(this.value)">
-        <button class="btn btn-maroon" onclick="showAddEmployeeModal()">+ Add Employee</button>
+        <input type="text" class="form-control" id="emp-search" placeholder="Search by name, position, or branch…" style="max-width:320px;" oninput="filterEmployeeRecords(this.value)">
       </div>
       <div class="data-card-body no-pad" id="emp-records-body">
-        ${renderEmployeeRows(users, '')}
+        ${renderEmployeeRows(employees, '')}
       </div>
     </div>`;
 }
 
-function renderEmployeeRows(users, query) {
+function renderEmployeeRows(employees, query) {
   const s = getState();
-  const filtered = query ? users.filter(u => (u.name||'').toLowerCase().includes(query.toLowerCase()) || (u.username||'').toLowerCase().includes(query.toLowerCase())) : users;
-  if (!filtered.length) return '<div style="text-align:center;color:var(--ink-40);padding:40px">No employees found.</div>';
+  const filtered = query
+    ? employees.filter(e =>
+        (e.name||'').toLowerCase().includes(query.toLowerCase()) ||
+        (e.position||'').toLowerCase().includes(query.toLowerCase()) ||
+        (e.branchName||'').toLowerCase().includes(query.toLowerCase()))
+    : employees;
+  if (!filtered.length) return '<div style="text-align:center;color:var(--ink-40);padding:40px">No employee records yet. Click "+ Add Employee" to get started.</div>';
   return `<table class="data-table">
-    <thead><tr><th>Name</th><th>Username</th><th>Branch</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+    <thead><tr><th>Name</th><th>Position</th><th>Branch</th><th>Employment Status</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>
-      ${filtered.map(u => {
-        const b = (s.branches||[]).find(b => b.id === u.branchId);
-        const roleLabel = {admin:'Administrator',staff:'Branch Staff',print:'Printing Personnel'}[u.role] || u.role;
+      ${filtered.map(e => {
+        const b = (s.branches||[]).find(b => b.id === e.branchId);
         return `<tr>
-          <td><strong>${u.name||'—'}</strong></td>
-          <td>${u.username}</td>
-          <td>${b ? b.name : (u.role==='admin'?'All Branches':'Unassigned')}</td>
-          <td>${roleLabel}</td>
-          <td><span class="badge ${u.active!==false?'badge-success':'badge-danger'}">${u.active!==false?'Active':'Inactive'}</span></td>
-          <td><button class="btn btn-sm btn-outline" onclick="showEmployeeDetail('${u.id}')">View</button></td>
+          <td><strong>${e.name||'—'}</strong>${e.email ? `<div style="font-size:11px;color:var(--ink-50)">${e.email}</div>` : ''}</td>
+          <td>${e.position||'—'}</td>
+          <td>${b ? b.name : (e.branchId ? e.branchId : '—')}</td>
+          <td>${e.employmentStatus||'—'}</td>
+          <td><span class="badge ${e.active!==false?'badge-success':'badge-danger'}">${e.active!==false?'Active':'Inactive'}</span></td>
+          <td>
+            <button class="btn btn-sm btn-outline" onclick="showEmployeeDetail('${e.id}')">View</button>
+            <button class="btn btn-sm btn-outline" onclick="editEmployeeModal('${e.id}')">Edit</button>
+          </td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -9656,61 +10103,223 @@ function renderEmployeeRows(users, query) {
 }
 
 function filterEmployeeRecords(query) {
-  const s = getState();
   const el = document.getElementById('emp-records-body');
-  if (el) el.innerHTML = renderEmployeeRows(s.users||[], query);
+  if (el) el.innerHTML = renderEmployeeRows(getEmployees(), query);
 }
 
-function showEmployeeDetail(userId) {
+function showEmployeeDetail(empId) {
   const s = getState();
-  const u = s.users.find(x => x.id === userId);
+  const u = getEmployees().find(x => x.id === empId);
   if (!u) return;
   const b = (s.branches||[]).find(b => b.id === u.branchId);
-  const roleLabel = {admin:'Administrator',staff:'Branch Staff',print:'Printing Personnel'}[u.role] || u.role;
-  const field = (label, val) => `<div><div style="color:var(--ink-40);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">${label}</div><strong>${val||'—'}</strong></div>`;
-  const section = (title) => `<div style="grid-column:1/-1;font-weight:700;color:var(--maroon);padding:8px 0 4px;border-bottom:1px solid var(--border);margin-top:8px;font-size:13px">${title}</div>`;
-  showModal(`<div style="max-width:560px">
-    <h3 style="margin:0 0 16px">Employee Profile</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:14px;">
-      ${section('Personal Information')}
-      ${field('Full Name', u.name)}
-      ${field('Email', u.email)}
-      ${field('Birth Date', u.birthdate)}
-      ${field('Gender', u.gender)}
-      ${field('Emergency Contact', u.emergencyContact)}
-      <div style="grid-column:1/-1">${field('Address', u.address)}</div>
-      ${section('Employment Details')}
-      ${field('Username', u.username)}
-      ${field('Position', u.position)}
-      ${field('Role', roleLabel)}
-      ${field('Branch', b ? b.name : (u.role==='admin' ? 'All Branches' : 'Unassigned'))}
-      ${field('Date Hired', u.dateHired)}
-      ${field('Employment Status', u.employmentStatus)}
-      <div style="grid-column:1/-1">${field('Account Status', `<span class="badge ${u.active!==false?'badge-success':'badge-danger'}">${u.active!==false?'Active':'Inactive'}</span>`)}</div>
-      ${section('Government Numbers')}
-      ${field('SSS', u.sss)}
-      ${field('PhilHealth', u.philhealth)}
-      ${field('Pag-IBIG', u.pagibig)}
-      ${field('TIN', u.tin)}
+
+  const field = (label, val) =>
+    `<div style="background:var(--cream);border-radius:var(--radius-sm);padding:10px 14px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--ink-40);margin-bottom:4px">${label}</div>
+      <div style="font-size:14px;font-weight:600;color:var(--ink)">${val || '<span style=\'color:var(--ink-40)\'>—</span>'}</div>
+    </div>`;
+
+  const sectionHead = (icon, title) =>
+    `<div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-top:16px;margin-bottom:4px;padding-bottom:8px;border-bottom:2px solid var(--maroon);">
+      <span style="font-size:15px">${icon}</span>
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--maroon)">${title}</span>
+    </div>`;
+
+  const initials = (u.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('users')} Employee Profile</h2>
+      <button class="btn-close-modal" onclick="closeModal()">&#x2715;</button>
     </div>
-    <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end">
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,var(--maroon),#a0263e);border-radius:var(--radius);padding:20px 24px;margin-bottom:20px;color:white;">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0;">${initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:20px;font-weight:700;line-height:1.2">${u.name||'—'}</div>
+          <div style="font-size:13px;opacity:0.85;margin-top:3px">${u.position||'—'} &nbsp;·&nbsp; ${b?b.name:'—'}</div>
+        </div>
+        <div>${u.active!==false
+          ? '<span style="background:rgba(255,255,255,0.2);color:white;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">ACTIVE</span>'
+          : '<span style="background:rgba(0,0,0,0.3);color:#fca5a5;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">INACTIVE</span>'
+        }</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${sectionHead('👤', 'Personal Information')}
+        ${field('Full Name', u.name)}
+        ${field('Email', u.email)}
+        ${field('Birth Date', u.birthdate ? new Date(u.birthdate).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : null)}
+        ${field('Gender', u.gender)}
+        ${field('Emergency Contact', u.emergencyContact)}
+        <div style="grid-column:1/-1">${field('Home Address', u.address)}</div>
+
+        ${sectionHead('💼', 'Employment Details')}
+        ${field('Position / Title', u.position)}
+        ${field('Branch', b ? b.name : '—')}
+        ${field('Date Hired', u.dateHired ? new Date(u.dateHired).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : null)}
+        ${field('Employment Status', u.employmentStatus)}
+        <div style="grid-column:1/-1">${field('Account Status', u.active!==false ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>')}</div>
+
+        ${sectionHead('🏛️', 'Government Numbers')}
+        ${field('SSS Number', u.sss)}
+        ${field('PhilHealth', u.philhealth)}
+        ${field('Pag-IBIG (HDMF)', u.pagibig)}
+        ${field('TIN', u.tin)}
+      </div>
+    </div>
+    <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="closeModal();editEmployeeModal('${empId}')">&#9998; Edit Record</button>
     </div>
-  </div>`);
+  `, 'modal-lg');
+}
+
+function editEmployeeModal(empId) {
+  const s = getState();
+  const e = getEmployees().find(x => x.id === empId);
+  if (!e) return;
+  const branches = s.branches || [];
+  const branchOpts = branches.map(b => `<option value="${b.id}" ${b.id===e.branchId?'selected':''}>${b.name}</option>`).join('');
+  const secHead = (title) => `<div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">${title}</div>`;
+
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('users')} Edit Employee — ${e.name||''}</h2>
+      <button class="btn-close-modal" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+      ${secHead('Personal Information')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Full Name <span style="color:var(--danger)">*</span></label>
+          <input class="form-control" id="ee-name" value="${e.name||''}">
+        </div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input class="form-control" id="ee-email" type="email" value="${e.email||''}">
+        </div>
+        <div class="form-group">
+          <label>Birth Date</label>
+          <input class="form-control" type="date" id="ee-bday" value="${e.birthdate||''}">
+        </div>
+        <div class="form-group">
+          <label>Gender</label>
+          <div class="form-select-wrap"><select class="form-control" id="ee-gender">
+            <option value="">Select gender</option>
+            <option ${e.gender==='Male'?'selected':''}>Male</option>
+            <option ${e.gender==='Female'?'selected':''}>Female</option>
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Emergency Contact</label>
+          <input class="form-control" id="ee-emerg" value="${e.emergencyContact||''}">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Home Address</label>
+          <input class="form-control" id="ee-addr" value="${e.address||''}">
+        </div>
+      </div>
+
+      ${secHead('Employment Details')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>Position / Job Title</label>
+          <input class="form-control" id="ee-pos" value="${e.position||''}">
+        </div>
+        <div class="form-group">
+          <label>Branch</label>
+          <div class="form-select-wrap"><select class="form-control" id="ee-branch">
+            <option value="">Select branch…</option>
+            ${branchOpts}
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Date Hired</label>
+          <input class="form-control" type="date" id="ee-hired" value="${e.dateHired||''}">
+        </div>
+        <div class="form-group">
+          <label>Employment Status</label>
+          <div class="form-select-wrap"><select class="form-control" id="ee-empstatus">
+            <option ${e.employmentStatus==='Regular'?'selected':''}>Regular</option>
+            <option ${e.employmentStatus==='Probationary'?'selected':''}>Probationary</option>
+            <option ${e.employmentStatus==='Contractual'?'selected':''}>Contractual</option>
+          </select></div>
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Active Status</label>
+          <div class="form-select-wrap"><select class="form-control" id="ee-active">
+            <option value="1" ${e.active!==false?'selected':''}>Active</option>
+            <option value="0" ${e.active===false?'selected':''}>Inactive</option>
+          </select></div>
+        </div>
+      </div>
+
+      ${secHead('Government Numbers')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group"><label>SSS Number</label><input class="form-control" id="ee-sss" value="${e.sss||''}"></div>
+        <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ee-phil" value="${e.philhealth||''}"></div>
+        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ee-pagibig" value="${e.pagibig||''}"></div>
+        <div class="form-group"><label>TIN</label><input class="form-control" id="ee-tin" value="${e.tin||''}"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="deleteEmployee('${empId}')" style="margin-right:auto">Delete Record</button>
+      <button class="btn btn-maroon" onclick="saveEditEmployee('${empId}')">Save Changes</button>
+    </div>
+  `, 'modal-lg');
+}
+
+function saveEditEmployee(empId) {
+  const employees = getEmployees();
+  const e = employees.find(x => x.id === empId);
+  if (!e) return;
+  const name = document.getElementById('ee-name')?.value.trim();
+  if (!name) { showToast('Full Name is required.', 'error'); return; }
+  e.name             = name;
+  e.email            = document.getElementById('ee-email')?.value.trim()||'';
+  e.birthdate        = document.getElementById('ee-bday')?.value||'';
+  e.gender           = document.getElementById('ee-gender')?.value||'';
+  e.emergencyContact = document.getElementById('ee-emerg')?.value.trim()||'';
+  e.address          = document.getElementById('ee-addr')?.value.trim()||'';
+  e.position         = document.getElementById('ee-pos')?.value.trim()||'';
+  e.branchId         = document.getElementById('ee-branch')?.value||'';
+  e.dateHired        = document.getElementById('ee-hired')?.value||'';
+  e.employmentStatus = document.getElementById('ee-empstatus')?.value||'';
+  e.active           = document.getElementById('ee-active')?.value === '1';
+  e.sss              = document.getElementById('ee-sss')?.value.trim()||'';
+  e.philhealth       = document.getElementById('ee-phil')?.value.trim()||'';
+  e.pagibig          = document.getElementById('ee-pagibig')?.value.trim()||'';
+  e.tin              = document.getElementById('ee-tin')?.value.trim()||'';
+  e.updatedAt        = new Date().toISOString();
+  saveEmployees(employees);
+  closeModal();
+  showToast('Employee record updated!', 'success');
+  renderEmployeeRecords();
+}
+
+function deleteEmployee(empId) {
+  if (!confirm('Delete this employee record? This cannot be undone.')) return;
+  const employees = getEmployees().filter(x => x.id !== empId);
+  saveEmployees(employees);
+  closeModal();
+  showToast('Employee record deleted.', 'warning');
+  renderEmployeeRecords();
 }
 
 function showAddEmployeeModal() {
   const s = getState();
   const branches = s.branches || [];
+  const secHead = (title) => `<div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">${title}</div>`;
+
   showModal(`
     <div class="modal-header">
       <h2>${iconSvg('users')} Add New Employee</h2>
-      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+      <button class="btn-close-modal" onclick="closeModal()">&#x2715;</button>
     </div>
-    <div class="modal-body" style="max-height:70vh;overflow-y:auto;padding:0 24px 8px;">
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
 
-      <!-- Personal Information -->
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;">Personal Information</div>
+      ${secHead('Personal Information')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group" style="grid-column:1/-1;">
           <label>Full Name <span style="color:var(--danger)">*</span></label>
@@ -9742,19 +10351,14 @@ function showAddEmployeeModal() {
         </div>
       </div>
 
-      <!-- Employment Details -->
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">Employment Details</div>
+      ${secHead('Employment Details')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group">
-          <label>Username <span style="color:var(--danger)">*</span></label>
-          <input class="form-control" id="ae-user" placeholder="juandelacruz">
-        </div>
         <div class="form-group">
           <label>Position / Job Title</label>
           <input class="form-control" id="ae-pos" placeholder="e.g. Cashier, Staff">
         </div>
         <div class="form-group">
-          <label>Branch <span style="color:var(--danger)">*</span></label>
+          <label>Branch</label>
           <div class="form-select-wrap"><select class="form-control" id="ae-branch">
             <option value="">Select branch…</option>
             ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
@@ -9764,7 +10368,7 @@ function showAddEmployeeModal() {
           <label>Date Hired</label>
           <input class="form-control" type="date" id="ae-hired">
         </div>
-        <div class="form-group" style="grid-column:1/-1;">
+        <div class="form-group">
           <label>Employment Status</label>
           <div class="form-select-wrap"><select class="form-control" id="ae-empstatus">
             <option>Regular</option>
@@ -9774,53 +10378,12 @@ function showAddEmployeeModal() {
         </div>
       </div>
 
-      <!-- Government IDs -->
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">Government Numbers</div>
+      ${secHead('Government Numbers')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group">
-          <label>SSS Number</label>
-          <input class="form-control" id="ae-sss" placeholder="XX-XXXXXXX-X">
-        </div>
-        <div class="form-group">
-          <label>PhilHealth</label>
-          <input class="form-control" id="ae-phil" placeholder="XXXX-XXXXX-X">
-        </div>
-        <div class="form-group">
-          <label>Pag-IBIG (HDMF)</label>
-          <input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX">
-        </div>
-        <div class="form-group">
-          <label>TIN</label>
-          <input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX">
-        </div>
-      </div>
-
-      <!-- System Access -->
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">System Access</div>
-      <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:0;">
-          <input type="checkbox" id="ae-create-account" onchange="document.getElementById('ae-access-wrap').style.display=this.checked?'grid':'none'" style="width:16px;height:16px;cursor:pointer;">
-          <span style="font-weight:600;font-size:14px;">Create a system login account for this employee</span>
-        </label>
-        <div id="ae-access-wrap" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
-          <div class="form-group">
-            <label>Password <span style="color:var(--danger)">*</span></label>
-            <div class="pw-wrap">
-              <input class="form-control" type="password" id="ae-pass" placeholder="Set a password">
-              <button type="button" class="pw-eye" onclick="togglePwVisibility('ae-pass',this)" tabindex="-1">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Role <span style="color:var(--danger)">*</span></label>
-            <div class="form-select-wrap"><select class="form-control" id="ae-role">
-              <option value="staff">Branch Staff</option>
-              <option value="print">Printing Personnel</option>
-              <option value="admin">Administrator</option>
-            </select></div>
-          </div>
-        </div>
+        <div class="form-group"><label>SSS Number</label><input class="form-control" id="ae-sss" placeholder="XX-XXXXXXX-X"></div>
+        <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ae-phil" placeholder="XXXX-XXXXX-X"></div>
+        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX"></div>
+        <div class="form-group"><label>TIN</label><input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX"></div>
       </div>
 
     </div>
@@ -9830,47 +10393,35 @@ function showAddEmployeeModal() {
     </div>
   `, 'modal-lg');
 }
+
 function saveNewEmployee() {
   const s = getState();
   const name = document.getElementById('ae-name')?.value.trim();
-  const username = document.getElementById('ae-user')?.value.trim();
-  const branchId = document.getElementById('ae-branch')?.value;
-  const createAcc = document.getElementById('ae-create-account')?.checked;
-  const role = document.getElementById('ae-role')?.value || 'staff';
-  const password = document.getElementById('ae-pass')?.value;
-
   if (!name) { showToast('Full Name is required.', 'error'); return; }
-  if (!username) { showToast('Username is required.', 'error'); return; }
-  if (createAcc && !password) { showToast('Password is required to create account.', 'error'); return; }
 
-  const existing = (s.users||[]).find(u => u.username === username);
-  if (existing) { showToast('Username already exists.', 'error'); return; }
-
-  const newUser = {
-    id: 'u' + Date.now(),
+  const newEmployee = {
+    id: 'emp_' + Date.now(),
     name,
-    username,
-    password: createAcc ? password : undefined,
-    role: createAcc ? role : 'staff',
-    branchId: branchId || null,
-    active: true,
-    email: document.getElementById('ae-email')?.value.trim()||'',
-    birthdate: document.getElementById('ae-bday')?.value||'',
-    gender: document.getElementById('ae-gender')?.value||'',
-    address: document.getElementById('ae-addr')?.value.trim()||'',
+    email:            document.getElementById('ae-email')?.value.trim()||'',
+    birthdate:        document.getElementById('ae-bday')?.value||'',
+    gender:           document.getElementById('ae-gender')?.value||'',
     emergencyContact: document.getElementById('ae-emerg')?.value.trim()||'',
-    position: document.getElementById('ae-pos')?.value.trim()||'',
-    dateHired: document.getElementById('ae-hired')?.value||'',
+    address:          document.getElementById('ae-addr')?.value.trim()||'',
+    position:         document.getElementById('ae-pos')?.value.trim()||'',
+    branchId:         document.getElementById('ae-branch')?.value||'',
+    dateHired:        document.getElementById('ae-hired')?.value||'',
     employmentStatus: document.getElementById('ae-empstatus')?.value||'',
-    sss: document.getElementById('ae-sss')?.value.trim()||'',
-    philhealth: document.getElementById('ae-phil')?.value.trim()||'',
-    pagibig: document.getElementById('ae-pagibig')?.value.trim()||'',
-    tin: document.getElementById('ae-tin')?.value.trim()||'',
+    sss:              document.getElementById('ae-sss')?.value.trim()||'',
+    philhealth:       document.getElementById('ae-phil')?.value.trim()||'',
+    pagibig:          document.getElementById('ae-pagibig')?.value.trim()||'',
+    tin:              document.getElementById('ae-tin')?.value.trim()||'',
+    active:           true,
+    createdAt:        new Date().toISOString(),
   };
 
-  s.users.push(newUser);
-  saveState(s);
-  if (typeof DB !== 'undefined') DB.saveUser(newUser);
+  const employees = getEmployees();
+  employees.push(newEmployee);
+  saveEmployees(employees);
   closeModal();
   showToast(`Employee "${name}" added successfully.`, 'success');
   renderEmployeeRecords();
