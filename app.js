@@ -10,8 +10,17 @@ function smoothScroll(sectionId) {
 // sidebar, topbar, modal overlays, and action buttons.
 function printContent(html, title) {
   title = title || 'South Pafps — Print';
-  const w = window.open('', '_blank', 'width=820,height=700');
-  w.document.write(`<!DOCTYPE html><html><head>
+  // Use hidden iframe to avoid popup blockers
+  let iframe = document.getElementById('__print_iframe__');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = '__print_iframe__';
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none;';
+    document.body.appendChild(iframe);
+  }
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head>
     <meta charset="utf-8">
     <title>${title}</title>
     <style>
@@ -30,8 +39,9 @@ function printContent(html, title) {
       .no-print{display:none!important}
       @media print{body{padding:0}@page{margin:1.5cm}}
     </style>
-  </head><body>${html}<script>window.onload=function(){window.print();}<\/script></body></html>`);
-  w.document.close();
+  </head><body>${html}</body></html>`);
+  doc.close();
+  setTimeout(function() { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 300);
 }
 
 function getOrders() {
@@ -65,11 +75,22 @@ function setPageHtml(page, navId, html) {
 function setPageError(page, navId, html) {
   return setPageHtml(page, navId, html);
 }
-// showOverview
+// showOverview — overview page removed; redirect to login
 function showOverview() {
-  document.getElementById('overview-page').classList.remove('hidden');
-  document.getElementById('login-page').classList.add('hidden');
-  document.getElementById('app-page').classList.add('hidden');
+  showLogin();
+}
+
+// showForgotPassword
+function showForgotPassword(e) {
+  if (e) e.preventDefault();
+  showModal(`<div style="text-align:center;padding:12px 0 8px;">
+    <div style="font-size:52px;margin-bottom:16px;">🔐</div>
+    <h3 style="font-family:var(--font-head);font-size:20px;color:var(--ink);font-weight:700;margin-bottom:10px;">Forgot Password?</h3>
+    <p style="color:var(--ink-60);font-size:14px;line-height:1.7;max-width:300px;margin:0 auto 24px;">
+      Please contact your <strong>system administrator</strong> or <strong>branch manager</strong> to reset your password.
+    </p>
+    <button class="btn-primary" style="max-width:200px;margin:0 auto;" onclick="closeModal()">Got it</button>
+  </div>`);
 }
 
 // Toggle password field visibility (eye icon)
@@ -123,6 +144,7 @@ function bindOverviewClickFallback() { }
 // Show login page/modal when Access System button is clicked
 function showLogin() {
   document.getElementById('overview-page').classList.add('hidden');
+  document.getElementById('app-page').classList.add('hidden');
   document.getElementById('login-page').classList.remove('hidden');
   // Clear fields and reset password visibility to prevent browser autofill display
   const uEl = document.getElementById('login-username');
@@ -513,7 +535,7 @@ function doLogout() {
   s.currentUser = null;
   saveState(s);
   localStorage.removeItem('pos_currentUser');
-  showOverview();
+  showLogin();
 }
 
 function toggleAccountMenu(event) {
@@ -539,42 +561,27 @@ function getNavItems() {
   if (u.role === 'admin') return [
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
 
-    {
-      type: 'group', id: 'branch-mgmt', icon: 'pin', label: 'Branch Management', page: 'branches', children: [
-        { id: 'pos-overview',    icon: 'cart',      label: 'POS Overview',             page: 'pos-overview' },
-        { id: 'branch-inv-ov',  icon: 'chart',     label: 'Branch Inventory Overview', page: 'branch-inv-overview' },
-        { id: 'branch-reports', icon: 'clipboard', label: 'Branch Reports',            page: 'branch-reports' },
-      ]
-    },
+    { type: 'item', id: 'branch-inv-ov', icon: 'chart', label: 'Branch Inventory Overview', page: 'branch-inv-overview' },
 
-    {
-      type: 'group', id: 'products', icon: 'box', label: 'Product Management', page: 'product-mgmt', children: [
-        { id: 'product-catalog',    icon: 'box',      label: 'Product Catalog',     page: 'product-catalog' },
-        { id: 'categories',         icon: 'tag',      label: 'Categories',          page: 'categories' },
-        { id: 'inventory',          icon: 'chart',    label: 'Branch Inventory',    page: 'inventory' },
-        { id: 'print-materials',    icon: 'printer',  label: 'Printing Inventory',  page: 'print-materials' },
-      ]
-    },
+    { type: 'item', id: 'product-catalog', icon: 'box', label: 'Product Catalog', page: 'product-catalog' },
 
     { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'orders' },
 
     {
       type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
         { id: 'employee-records', icon: 'users',    label: 'Employee Records',  page: 'employee-records' },
-        { id: 'schedule',         icon: 'calendar', label: 'Schedule',          page: 'shift-schedule' },
-        { id: 'timecards',        icon: 'clock',    label: 'Time Cards',        page: 'timecards' },
-        { id: 'leave-mgmt',       icon: 'receipt',  label: 'Leave Management',  page: 'leave-management' },
-        { id: 'payroll',          icon: 'money',    label: 'Payroll',           page: 'payroll' },
+        { id: 'schedule',         icon: 'calendar', label: 'Scheduling',        page: 'shift-schedule' },
+        {
+          type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
+            { id: 'timecards',        icon: 'clock',    label: 'Time Cards',        page: 'timecards' },
+            { id: 'leave-mgmt',       icon: 'receipt',  label: 'Leave Management',  page: 'leave-management' },
+            { id: 'admin-payslip-gen',icon: 'money',    label: 'Payslip Generation', page: 'admin-payslip-gen' },
+          ]
+        },
       ]
     },
 
-    {
-      type: 'group', id: 'reports', icon: 'chart', label: 'Reports', page: 'reports', children: [
-        { id: 'sales-reports',     icon: 'money',    label: 'Sales Reports',     page: 'sales-reports' },
-        { id: 'inventory-reports', icon: 'box',      label: 'Inventory Reports', page: 'inventory-reports' },
-        { id: 'custom-reports',    icon: 'clipboard',label: 'Custom Report',     page: 'custom-reports' },
-      ]
-    },
+    { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'admin-reports' },
 
     {
       type: 'group', id: 'settings', icon: 'key', label: 'Settings', page: 'users', children: [
@@ -590,28 +597,22 @@ function getNavItems() {
 
     {
       type: 'group', id: 'pos-group', icon: 'cart', label: 'POS', page: 'pos', children: [
-        { id: 'inventory',   icon: 'box',       label: 'Inventory',       page: 'inventory' },
-        { id: 'pos-receipts',icon: 'clipboard', label: 'Receipt History', page: 'pos-receipts' },
-        { id: 'shift',       icon: 'clock',     label: 'Shift',           page: 'shift' },
+        { id: 'inventory',    icon: 'box',       label: 'Inventory',       page: 'inventory' },
+        { id: 'pos-receipts', icon: 'clipboard', label: 'Receipt History', page: 'pos-receipts' },
+        { id: 'cash-movement',icon: 'money',     label: 'Cash Movement',   page: 'shift' },
       ]
     },
 
-    {
-      type: 'group', id: 'orders-group', icon: 'clipboard', label: 'Order Management', page: 'orders', children: [
-        { id: 'orders',      icon: 'users',    label: 'Customer & Orders', page: 'orders' },
-        { id: 'production',  icon: 'printer',  label: 'Production',        page: 'production' },
-      ]
-    },
+    { type: 'item', id: 'orders-group', icon: 'clipboard', label: 'Order Management', page: 'orders' },
 
     {
       type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
         { id: 'schedule',    icon: 'calendar', label: 'Schedule',         page: 'shift-schedule' },
-        { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
-        { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Management', page: 'leave-management' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'payslip',         icon: 'money', label: 'Payslips',        page: 'payslip' },
-            { id: 'payslip-history', icon: 'chart', label: 'Payslip History', page: 'payslip-history' },
+            { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
+            { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Application', page: 'leave-management' },
+            { id: 'payslip',     icon: 'money',    label: 'Payslip',          page: 'payslip' },
           ]
         },
       ]
@@ -624,38 +625,31 @@ function getNavItems() {
   if (u.role === 'print') return [
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
 
-    {
-      type: 'group', id: 'orders-group', icon: 'clipboard', label: 'Order Management', page: 'orders', children: [
-        { id: 'print-orders', icon: 'users',    label: 'Customer Records', page: 'print-orders' },
-        { id: 'pickup',       icon: 'truck',    label: 'Order Details',    page: 'pickup' },
-        { id: 'print-qc',     icon: 'money',    label: 'Payment',          page: 'print-qc' },
-        { id: 'logo-upload',  icon: 'printer',  label: 'Logo Upload',      page: 'logo-upload' },
-        { id: 'production',   icon: 'box',      label: 'Production',       page: 'production' },
-        { id: 'dispatch',     icon: 'truck',    label: 'Daily Dispatch',   page: 'dispatch' },
-      ]
-    },
+    { type: 'item', id: 'print-order-details', icon: 'clipboard', label: 'Order Details', page: 'orders' },
 
     {
-      type: 'group', id: 'print-inv', icon: 'box', label: 'Printing Inventory', page: 'print-materials', children: [
-        { id: 'print-materials', icon: 'box', label: 'Stock & Materials', page: 'print-materials' },
+      type: 'group', id: 'production-group', icon: 'printer', label: 'Production', page: 'production', children: [
+        { id: 'production',      icon: 'box',      label: 'Production Queue',           page: 'production' },
+        { id: 'job-management',  icon: 'clipboard',label: 'Job Management',             page: 'print-job-management' },
+        { id: 'quality-control', icon: 'check',    label: 'Quality Control',            page: 'print-qc' },
+        { id: 'print-materials', icon: 'box',      label: 'Printing Materials Inventory', page: 'print-materials' },
       ]
     },
 
     {
       type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
-        { id: 'schedule',    icon: 'calendar', label: 'Schedule',         page: 'shift-schedule' },
-        { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
-        { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Management', page: 'leave-management' },
+        { id: 'schedule',    icon: 'calendar', label: 'Schedule',          page: 'shift-schedule' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'payslip',         icon: 'money', label: 'Payslip',         page: 'print-payslip' },
-            { id: 'payslip-history', icon: 'chart', label: 'Payslip History', page: 'payslip-history' },
+            { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
+            { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Application', page: 'leave-management' },
+            { id: 'payslip',     icon: 'money',    label: 'Payslip',          page: 'print-payslip' },
           ]
         },
       ]
     },
 
-    { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'reports' },
+    { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'print-reports' },
   ];
 
   return [];
@@ -761,7 +755,7 @@ var PAGE_PERMISSIONS = {
   'orders':             ['admin', 'staff', 'print'],
   'pickup':             ['admin', 'staff', 'print'],
   'production':         ['admin', 'staff', 'print'],
-  'dispatch':           ['admin', 'print'],
+  'dispatch':           ['admin', 'staff', 'print'],
   'logo-upload':        ['admin', 'print'],
   'product-mgmt':       ['admin'],
   'product-catalog':    ['admin'],
@@ -776,6 +770,7 @@ var PAGE_PERMISSIONS = {
   'payroll':            ['admin', 'staff', 'print'],
   'reconcile':          ['admin'],
   'reports':            ['admin', 'staff', 'print'],
+  'admin-reports':      ['admin'],
   'sales-reports':      ['admin'],
   'inventory-reports':  ['admin'],
   'custom-reports':     ['admin'],
@@ -787,12 +782,21 @@ var PAGE_PERMISSIONS = {
   'sales':              ['admin', 'staff'],
   'staff-reports':      ['admin', 'staff'],
 
+  // Order Management pages
+  'om-customer-records':['admin', 'staff'],
+  'om-payment':         ['admin', 'staff'],
+
+  // Admin payslip generation
+  'admin-payslip-gen':  ['admin'],
+
   // Print
   'print-orders':       ['admin', 'print'],
   'print-qc':           ['admin', 'print'],
+  'print-job-management':['admin', 'print'],
   'print-personnel':    ['print'],
-  'print-payslip':      ['print'],
+  'print-payslip':      ['admin', 'staff', 'print'],
   'print-materials':    ['admin', 'print'],
+  'print-reports':      ['admin', 'print'],
 };
 
 function canAccess(page) {
@@ -849,7 +853,7 @@ function navigateTo(page) {
       'reports': 'Reports & Analytics', 'audit': 'Audit Log', 'transfers': 'Branch Transfers',
       'users': 'User Management', 'branches': 'Branch Management', 'sales': 'Sales History',
       'staff-reports': 'My Reports', 'print-orders': 'Job Queue', 'print-qc': 'Quality Control', 'print-personnel': 'My Profile', 'print-payslip': 'My Payslip',
-      'print-materials': 'Materials Log', 'shift': 'Shift Management', 'receipts': 'Receipts', 'dashboard': 'Dashboard',
+      'print-materials': 'Materials Log', 'shift': 'Cash Movement', 'receipts': 'Receipts', 'dashboard': 'Dashboard',
       'payslip': 'My Payroll',
     };
     accessDenied(pageTitleMap[page] || page);
@@ -914,6 +918,12 @@ function navigateTo(page) {
     'system-config': renderSystemConfig,
     'logo-upload': renderLogoUpload,
     'dispatch': renderDispatch,
+    'om-customer-records': renderOmCustomerRecords,
+    'om-payment': renderOmPaymentPage,
+    'admin-reports': renderAdminReports,
+    'print-reports': renderPrintReports,
+    'admin-payslip-gen': renderAdminPayslipGen,
+    'print-job-management': renderPrintJobManagement,
   };
   const pageTitles = {
     'dashboard': 'Dashboard',
@@ -926,7 +936,7 @@ function navigateTo(page) {
     'pickup': 'Ready for Pickup',
     'dispatch': 'Daily Dispatch',
     'logo-upload': 'Logo Upload',
-    'shift': 'Shift Management',
+    'shift': 'Cash Movement',
     'sales': 'Sales History',
     'product-mgmt': 'Product Management',
     'product-catalog': 'Product Catalog',
@@ -958,9 +968,15 @@ function navigateTo(page) {
     'staff-reports': 'My Reports',
     'print-orders': 'Production Queue',
     'print-qc': 'Quality Control',
+    'print-job-management': 'Job Management',
     'print-materials': 'Printing Inventory',
     'print-personnel': 'My Profile',
     'print-payslip': 'My Payslip',
+    'print-reports': 'Reports',
+    'om-customer-records': 'Customer Records',
+    'om-payment': 'Payment',
+    'admin-reports': 'Reports',
+    'admin-payslip-gen': 'Payslip Generation',
   };
   document.getElementById('topbar-page').textContent = pageTitles[page] || page;
   document.getElementById('topbar-sub').textContent = '';
@@ -1167,7 +1183,7 @@ function renderDashboard() {
       </div>
     </div>
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Recent Sales — All Branches</span><button class="btn btn-sm btn-outline" onclick="navigateTo('reports')">View Reports →</button></div>
+      <div class="data-card-header"><span class="data-card-title">Recent Sales — All Branches</span><button class="btn btn-sm btn-outline" onclick="navigateTo('admin-reports')">View Reports →</button></div>
       <div class="data-card-body no-pad">
         <table class="data-table">
           <thead><tr><th>Receipt #</th><th>Branch</th><th>Staff</th><th>Items</th><th>Total</th><th>Payment</th><th>Time</th><th>Status</th></tr></thead>
@@ -1811,7 +1827,7 @@ function renderShift() {
   const activeShifts = s.shifts.filter(x => x.status === 'open');
   const latestHandover = !isAdmin ? [...s.handoverNotes].reverse().find(n => n.branchId === (u.branchId || 'b1')) : null;
 
-  let html = `<div class="page-header"><h1 class="page-title">${isAdmin ? 'Shift Management' : 'My Shift'}</h1><p class="page-subtitle">${isAdmin ? 'View and manage all branch shifts' : 'Manage your shift and cash drawer'}</p></div>`;
+  let html = `<div class="page-header"><h1 class="page-title">${isAdmin ? 'Shift Management' : 'Cash Movement'}</h1><p class="page-subtitle">${isAdmin ? 'View and manage all branch shifts' : 'Manage your shift and cash drawer'}</p></div>`;
 
   if (isAdmin) {
     html += `<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
@@ -2121,7 +2137,7 @@ function renderProductMgmt() {
 }
 
 function _renderProductMgmtPage() {
-  const page = 'product-mgmt';
+  const page = currentPage || 'product-mgmt';
   const navId = getNavRenderId();
   const s = getState();
 
@@ -2175,7 +2191,7 @@ function _renderProductMgmtPage() {
 
   setPageHtml(page, navId,
     '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">' +
-    '<div><h1 class="page-title">Product Management</h1><p class="page-subtitle">' +
+    '<div><h1 class="page-title">' + (page === 'product-catalog' ? 'Product Catalog' : 'Product Management') + '</h1><p class="page-subtitle">' +
       (isBranch ? products.length + ' branch products \u00b7 ' + totalVariants + ' variants' : printProducts.length + ' printing materials \u00b7 ' + totalPrintVariants + ' variants') +
     '</p></div>' +
     (isBranch
@@ -2867,96 +2883,274 @@ function renderPersonnelMgmt() {
 }
 
 // SHIFT SCHEDULE
+// ── PH PUBLIC HOLIDAYS ────────────────────────────────────────────
+const PH_HOLIDAYS = {
+  '2025-01-01':"New Year's Day",'2025-04-09':'Araw ng Kagitingan',
+  '2025-04-17':'Maundy Thursday','2025-04-18':'Good Friday','2025-04-19':'Black Saturday',
+  '2025-05-01':'Labor Day','2025-06-12':'Independence Day','2025-08-25':'National Heroes Day',
+  '2025-11-01':"All Saints' Day",'2025-11-30':'Bonifacio Day',
+  '2025-12-08':'Immaculate Conception','2025-12-25':'Christmas Day','2025-12-30':'Rizal Day',
+  '2026-01-01':"New Year's Day",'2026-04-02':'Maundy Thursday','2026-04-03':'Good Friday',
+  '2026-04-04':'Black Saturday','2026-04-09':'Araw ng Kagitingan',
+  '2026-05-01':'Labor Day','2026-06-12':'Independence Day','2026-08-31':'National Heroes Day',
+  '2026-11-01':"All Saints' Day",'2026-11-02':"All Souls' Day",'2026-11-30':'Bonifacio Day',
+  '2026-12-08':'Immaculate Conception','2026-12-25':'Christmas Day',
+  '2026-12-30':'Rizal Day','2026-12-31':"New Year's Eve",
+};
+
+// ── DAY STATUS HELPERS ────────────────────────────────────────────
+// status values stored in shiftSchedules: 'Work' | 'Off' | 'Leave' | 'Holiday' | 'Rest Day'
+const SCHED_STATUSES = ['Work','Off','Rest Day','Leave','Holiday'];
+const SCHED_COLORS   = { Work:'#16a34a', Off:'#6b7280', 'Rest Day':'#7c3aed', Leave:'#d97706', Holiday:'#dc2626' };
+const SCHED_BADGES   = {
+  Work:     `<span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">WORK</span>`,
+  Off:      `<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">OFF</span>`,
+  'Rest Day':`<span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">REST</span>`,
+  Leave:    `<span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">LEAVE</span>`,
+  Holiday:  `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">HOLIDAY</span>`,
+};
+
+function getSchedStatus(s, uid, dateStr) {
+  // Holiday takes priority if admin hasn't overridden
+  const stored = (s.shiftSchedules || {})[`${uid}_${dateStr}`];
+  if (stored) return stored;
+  if (PH_HOLIDAYS[dateStr]) return 'Holiday';
+  return 'Off';
+}
+
+function saveSchedDay(uid, dateStr, val) {
+  const s = getState();
+  if (!s.shiftSchedules) s.shiftSchedules = {};
+  s.shiftSchedules[`${uid}_${dateStr}`] = val;
+  saveState(s);
+  if (typeof DB !== 'undefined') DB.saveShiftSchedule(uid, dateStr, val);
+}
+
+// ── ADMIN SCHEDULING PAGE ─────────────────────────────────────────
 function renderShiftSchedule() {
   const s = getState();
-  if (!s.currentUser) { accessDenied('Shift Schedule'); return; }
+  if (!s.currentUser) { accessDenied('Scheduling'); return; }
+  if (s.currentUser.role !== 'admin') { renderPersonalSchedule(); return; }
 
-  // ── STAFF / PRINT: Personal Monthly Calendar ──────────────────────
-  if (s.currentUser.role !== 'admin') {
-    renderPersonalSchedule();
-    return;
-  }
-
-  // Always weekly view
-  if (!s.scheduleWeekStart) {
-    s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
-    saveState(s);
-  }
-
+  // Week navigation state
+  if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
   const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
   const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d;
+    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
   });
-  const weekLabel = `${days[0].toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const weekLabel = `${days[0].toLocaleDateString('en-PH',{month:'short',day:'numeric'})} – ${days[6].toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}`;
+  const todayStr  = toLocalDateString(new Date());
 
-  const branchCards = s.branches.map((b, i) => {
-    // Find which staff member is assigned this week
-    const branchStaff = s.users.filter(u => u.branchId === b.id && u.role === 'staff');
-    const assignedStaff = branchStaff.find(u =>
-      days.some(d => {
-        const key = `${u.id}_${toLocalDateString(d)}`;
-        return s.shiftSchedules[key] === 'On';
-      })
-    );
-    return `<div class="branch-card-mini b${i + 1}"><strong>${iconSvg('store')} ${b.name}</strong><span>${branchStaff.length} staff · ${assignedStaff ? assignedStaff.name + ' on duty this week' : 'No one assigned'}</span></div>`;
-  }).join('');
+  // Filter: which branch to show (default all)
+  const filterBranch = window._schedBranchFilter || 'all';
+  const allBranches  = s.branches || [];
+  const branchOpts   = [`<option value="all" ${filterBranch==='all'?'selected':''}>All Branches</option>`,
+    ...allBranches.map(b => `<option value="${b.id}" ${filterBranch===b.id?'selected':''}>${b.name}</option>`)
+  ].join('');
 
-  const tableHtml = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-      <div class="schedule-nav">
-        <button class="btn btn-sm btn-outline" onclick="shiftWeek(-1)">← Prev Week</button>
-        <span class="schedule-date-label">${weekLabel}</span>
-        <button class="btn btn-sm btn-outline" onclick="shiftWeek(1)">Next Week →</button>
-      </div>
-      <button class="btn btn-sm btn-outline" onclick="goToday()">This Week</button>
-    </div>
-    <div class="data-card">
-      ${s.branches.map((branch) => {
-    const branchStaff = s.users.filter(u => u.branchId === branch.id && u.role === 'staff');
-    return `<div class="branch-section-header"><h3>${iconSvg('store')} ${branch.name}</h3><span>${branch.address} · One staff on duty per week</span></div>
-        <table class="data-table schedule-table" style="font-size:12.5px">
-          <thead><tr><th>Staff</th>${days.map(d => `<th style="text-align:center">${d.toLocaleDateString('en-PH', { weekday: 'short' })}<br><span style="font-weight:400;color:var(--ink-60)">${d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</span></th>`).join('')}<th>Status</th></tr></thead>
-          <tbody>${branchStaff.map(u => {
-      const vals = days.map(d => {
-        const key = `${u.id}_${toLocalDateString(d)}`;
-        return s.shiftSchedules[key] || 'Off';
-      });
-      const isOnDuty = vals.some(v => v === 'On');
-      return `<tr style="${isOnDuty ? 'background:var(--success-l,#f0fdf4)' : ''}">
-              <td><strong>${u.name}</strong><div class="text-xs text-muted">${u.username}</div></td>
-              ${days.map((d) => {
-        const dateStr = toLocalDateString(d);
-        const key = `${u.id}_${dateStr}`;
-        const val = s.shiftSchedules[key] || 'Off';
-        const color = val === 'On' ? 'var(--success)' : 'var(--ink-60)';
-        return `<td style="text-align:center">
-                  <select class="shift-select" style="color:${color};font-size:11.5px;padding:4px 22px 4px 8px" data-uid="${u.id}" data-date="${dateStr}" data-branchid="${branch.id}" onchange="saveSchedule(this)">
-                    <option ${val === 'Off' ? 'selected' : ''}>Off</option>
-                    <option ${val === 'On' ? 'selected' : ''}>On</option>
-                  </select>
-                </td>`;
-      }).join('')}
-              <td><span class="badge ${isOnDuty ? 'badge-success' : ''}" style="font-size:11px">${isOnDuty ? 'On Duty' : 'Off'}</span></td>
-            </tr>`;
-    }).join('') || `<tr><td colspan="${days.length + 2}" style="text-align:center;padding:20px;color:var(--ink-60)">No staff in this branch.</td></tr>`}
-          </tbody>
-        </table>`;
-  }).join('')}
-    </div>`;
+  // Build summary badges for top bar
+  const allStaff = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  let totalWork = 0, totalOff = 0, totalLeave = 0;
+  allStaff.forEach(u => {
+    days.forEach(d => {
+      const st = getSchedStatus(s, u.id, toLocalDateString(d));
+      if (st === 'Work') totalWork++;
+      else if (st === 'Leave') totalLeave++;
+      else totalOff++;
+    });
+  });
+
+  // Build sections per branch + print dept
+  const sections = [];
+
+  // Branch staff sections
+  allBranches.forEach(branch => {
+    if (filterBranch !== 'all' && filterBranch !== branch.id) return;
+    const staff = (s.users||[]).filter(u => u.role === 'staff' && u.branchId === branch.id);
+    sections.push(buildSchedSection(s, branch.name, '🏪', staff, days, todayStr));
+  });
+
+  // Print dept section
+  if (filterBranch === 'all') {
+    const printStaff = (s.users||[]).filter(u => u.role === 'print');
+    if (printStaff.length) sections.push(buildSchedSection(s, 'Printing Department', '🖨️', printStaff, days, todayStr));
+  }
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div><h1 class="page-title">Shift Schedule</h1><p class="page-subtitle">One staff member on duty per week per branch</p></div>
-      <button class="btn btn-sm btn-outline" onclick="autoAssignWeek()">Auto-Assign Week</button>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 class="page-title">Weekly Schedule</h1>
+        <p class="page-subtitle">Assign work days for each employee — weekly view</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="form-select-wrap" style="min-width:180px">
+          <select class="form-control" onchange="window._schedBranchFilter=this.value;renderShiftSchedule()">${branchOpts}</select>
+        </div>
+        <button class="btn btn-outline" onclick="schedClearWeek()">Clear Week</button>
+        <button class="btn btn-maroon" onclick="schedAutoFillWeek()">Auto-Fill Week</button>
+      </div>
     </div>
-    <div style="display:flex;gap:12px;margin-bottom:20px">${branchCards}</div>
-    ${tableHtml}`;
+
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div class="kpi-card" style="flex:1;min-width:140px">
+        <div class="kpi-header"><div class="kpi-label">Working This Week</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+        <div class="kpi-value" style="color:var(--success)">${totalWork}</div>
+      </div>
+      <div class="kpi-card" style="flex:1;min-width:140px">
+        <div class="kpi-header"><div class="kpi-label">On Leave</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
+        <div class="kpi-value" style="color:var(--warning)">${totalLeave}</div>
+      </div>
+      <div class="kpi-card" style="flex:1;min-width:140px">
+        <div class="kpi-header"><div class="kpi-label">Off / Rest</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
+        <div class="kpi-value" style="color:var(--ink-60)">${totalOff}</div>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-sm btn-outline" onclick="shiftWeek(-1)">← Prev</button>
+          <span style="font-weight:700;font-size:15px">${weekLabel}</span>
+          <button class="btn btn-sm btn-outline" onclick="shiftWeek(1)">Next →</button>
+          <button class="btn btn-sm btn-outline" onclick="goToday()">Today</button>
+        </div>
+        <div style="display:flex;gap:8px;font-size:12px;align-items:center;flex-wrap:wrap">
+          ${Object.entries(SCHED_BADGES).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px">${v}<span style="color:var(--ink-60)">${k}</span></div>`).join('')}
+        </div>
+      </div>
+      <div class="data-card-body no-pad">
+        ${sections.length ? sections.join('') : '<div style="text-align:center;padding:40px;color:var(--ink-40)">No employees found.</div>'}
+      </div>
+    </div>`;
 
   applySvgToElement(document.getElementById('page-content'));
 }
 
+function buildSchedSection(s, sectionName, icon, staff, days, todayStr) {
+  if (!staff.length) return `
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-weight:700;font-size:13px;color:var(--ink-60);margin-bottom:2px">${icon} ${sectionName}</div>
+      <div style="font-size:12px;color:var(--ink-40)">No employees assigned.</div>
+    </div>`;
+
+  const dayHeaders = days.map(d => {
+    const ds = toLocalDateString(d);
+    const isToday = ds === todayStr;
+    const isHol   = !!PH_HOLIDAYS[ds];
+    return `<th style="text-align:center;min-width:90px;${isToday?'background:var(--maroon-10,#fdf2f2)':''}">
+      <div style="font-weight:700;font-size:12px;${isToday?'color:var(--maroon)':''}">${d.toLocaleDateString('en-PH',{weekday:'short'})}</div>
+      <div style="font-weight:400;font-size:11px;color:var(--ink-50)">${d.toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</div>
+      ${isHol ? `<div style="font-size:10px;color:var(--danger);font-weight:600">Holiday</div>` : ''}
+    </th>`;
+  }).join('');
+
+  const rows = staff.map(u => {
+    const dayStatuses = days.map(d => {
+      const ds  = toLocalDateString(d);
+      const val = getSchedStatus(s, u.id, ds);
+      const isToday = ds === todayStr;
+      const color = SCHED_COLORS[val] || '#6b7280';
+      const opts = SCHED_STATUSES.map(st => `<option value="${st}" ${val===st?'selected':''}>${st}</option>`).join('');
+      return `<td style="text-align:center;padding:6px;${isToday?'background:var(--maroon-10,#fdf2f2)':''}">
+        <div class="form-select-wrap" style="min-width:80px">
+          <select class="form-control" style="font-size:11px;padding:4px 20px 4px 6px;color:${color};font-weight:600"
+            onchange="saveSchedDay('${u.id}','${ds}',this.value);renderShiftSchedule()">
+            ${opts}
+          </select>
+        </div>
+      </td>`;
+    }).join('');
+
+    // Count work days this week
+    const workDays = days.filter(d => getSchedStatus(s, u.id, toLocalDateString(d)) === 'Work').length;
+
+    return `<tr>
+      <td style="padding:10px 16px;min-width:160px;border-right:1px solid var(--border)">
+        <div style="font-weight:700;font-size:13px">${u.name}</div>
+        <div style="font-size:11px;color:var(--ink-50)">${u.username}</div>
+        <div style="margin-top:4px;font-size:11px;color:${workDays>0?'var(--success)':'var(--ink-40)'};font-weight:600">${workDays} day${workDays!==1?'s':''} this week</div>
+      </td>
+      ${dayStatuses}
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="padding:12px 20px 4px;border-bottom:1px solid var(--border);background:var(--cream)">
+      <span style="font-weight:700;font-size:13px">${icon} ${sectionName}</span>
+      <span style="font-size:12px;color:var(--ink-50);margin-left:8px">${staff.length} employee${staff.length!==1?'s':''}</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" style="font-size:12.5px;min-width:700px">
+        <thead><tr>
+          <th style="min-width:160px;border-right:1px solid var(--border)">Employee</th>
+          ${dayHeaders}
+          <th style="text-align:center;min-width:80px">Days Worked</th>
+        </tr></thead>
+        <tbody>
+          ${rows.replace(/<\/tr>/g, () => {
+            // inject total work days column at end of each row
+            return '</tr>';
+          })}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function shiftWeek(delta) {
+  const s = getState();
+  if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
+  const d = new Date(s.scheduleWeekStart + 'T00:00:00');
+  d.setDate(d.getDate() + delta * 7);
+  s.scheduleWeekStart = toLocalDateString(d);
+  saveState(s);
+  renderShiftSchedule();
+}
+
+function goToday() {
+  const s = getState();
+  s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
+  saveState(s);
+  renderShiftSchedule();
+}
+
+function schedAutoFillWeek() {
+  const s = getState();
+  if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
+  const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
+  const days = Array.from({length:7},(_,i)=>{ const d=new Date(weekStart); d.setDate(weekStart.getDate()+i); return d; });
+  if (!confirm(`Auto-fill this week for all employees?\n• Mon–Fri → Work\n• Sat–Sun → Rest Day\n• Holidays → Holiday\n\nThis will overwrite current assignments.`)) return;
+  const allEmp = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  allEmp.forEach(u => {
+    days.forEach(d => {
+      const ds = toLocalDateString(d);
+      let val = 'Work';
+      if (PH_HOLIDAYS[ds]) val = 'Holiday';
+      else if (d.getDay() === 0 || d.getDay() === 6) val = 'Rest Day';
+      saveSchedDay(u.id, ds, val);
+    });
+  });
+  showToast('Week auto-filled: Mon–Fri Work, weekends Rest Day.', 'success');
+  renderShiftSchedule();
+}
+
+function schedClearWeek() {
+  const s = getState();
+  if (!s.scheduleWeekStart) return;
+  if (!confirm('Clear all schedule assignments for this week? This cannot be undone.')) return;
+  const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
+  const days = Array.from({length:7},(_,i)=>{ const d=new Date(weekStart); d.setDate(weekStart.getDate()+i); return d; });
+  const allEmp = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  allEmp.forEach(u => {
+    days.forEach(d => {
+      const ds = toLocalDateString(d);
+      delete s.shiftSchedules[`${u.id}_${ds}`];
+      if (typeof DB !== 'undefined') DB.saveShiftSchedule(u.id, ds, null);
+    });
+  });
+  saveState(s);
+  showToast('Week cleared.', 'success');
+  renderShiftSchedule();
+}
 
 // ── PERSONAL SCHEDULE (Staff / Print view) ────────────────────────
 function renderPersonalSchedule() {
@@ -2964,359 +3158,119 @@ function renderPersonalSchedule() {
   const u = s.currentUser;
   const br = (s.branches||[]).find(b => b.id === u.branchId);
 
-  // Which month/year is being viewed
-  if (!window._schedCalYear || !window._schedCalMonth) {
-    const now = new Date();
-    window._schedCalYear  = now.getFullYear();
-    window._schedCalMonth = now.getMonth(); // 0-based
-  }
+  if (!window._schedCalYear) { window._schedCalYear = new Date().getFullYear(); window._schedCalMonth = new Date().getMonth(); }
   const year  = window._schedCalYear;
   const month = window._schedCalMonth;
+  const monthLabel = new Date(year,month,1).toLocaleDateString('en-PH',{month:'long',year:'numeric'});
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const firstDay    = new Date(year, month, 1).getDay();
+  const todayStr    = toLocalDateString(new Date());
 
-  const monthLabel = new Date(year, month, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  window._schedPrev = () => { if(window._schedCalMonth===0){window._schedCalYear--;window._schedCalMonth=11;}else{window._schedCalMonth--;} renderPersonalSchedule(); };
+  window._schedNext = () => { if(window._schedCalMonth===11){window._schedCalYear++;window._schedCalMonth=0;}else{window._schedCalMonth++;} renderPersonalSchedule(); };
 
-  // Navigate helpers
-  function prevMonth() {
-    if (window._schedCalMonth === 0) { window._schedCalYear--; window._schedCalMonth = 11; }
-    else { window._schedCalMonth--; }
-    renderPersonalSchedule();
-  }
-  function nextMonth() {
-    if (window._schedCalMonth === 11) { window._schedCalYear++; window._schedCalMonth = 0; }
-    else { window._schedCalMonth++; }
-    renderPersonalSchedule();
-  }
-  window._schedPrev = prevMonth;
-  window._schedNext = nextMonth;
-
-  // Build calendar grid
-  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  // Get approved leaves for this user
-  const leaves = (s.leaves||[]).filter(l => l.userId === u.id && l.status === 'approved');
-  function isLeaveDay(dateStr) { return leaves.some(l => l.date === dateStr); }
-
-  // Get shift assignments for this user (shiftSchedules keys = uid_YYYY-MM-DD)
-  function getShift(day) {
-    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    return s.shiftSchedules[`${u.id}_${dateStr}`] || null;
-  }
-  function toDateStr(day) {
-    return `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  // Count this month's stats
+  let workCount=0, offCount=0, leaveCount=0, restCount=0;
+  for (let d=1; d<=daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const st = getSchedStatus(s, u.id, ds);
+    if (st==='Work') workCount++;
+    else if (st==='Leave') leaveCount++;
+    else if (st==='Rest Day') restCount++;
+    else offCount++;
   }
 
-  // PH public holidays
-  const PH_HOLIDAYS = {
-    '2026-01-01': "New Year's Day",
-    '2026-04-09': 'Araw ng Kagitingan',
-    '2026-04-02': 'Maundy Thursday',
-    '2026-04-03': 'Good Friday',
-    '2026-04-04': 'Black Saturday',
-    '2026-05-01': 'Labor Day',
-    '2026-06-12': 'Independence Day',
-    '2026-08-31': 'National Heroes Day',
-    '2026-11-01': "All Saints' Day",
-    '2026-11-02': "All Souls' Day",
-    '2026-11-30': 'Bonifacio Day',
-    '2026-12-08': 'Immaculate Conception',
-    '2026-12-25': 'Christmas Day',
-    '2026-12-30': 'Rizal Day',
-    '2026-12-31': "New Year's Eve",
-    '2025-01-01': "New Year's Day",
-    '2025-04-17': 'Maundy Thursday',
-    '2025-04-18': 'Good Friday',
-    '2025-04-19': 'Black Saturday',
-    '2025-05-01': 'Labor Day',
-    '2025-06-12': 'Independence Day',
-    '2025-08-25': 'National Heroes Day',
-    '2025-11-01': "All Saints' Day",
-    '2025-11-30': 'Bonifacio Day',
-    '2025-12-08': 'Immaculate Conception',
-    '2025-12-25': 'Christmas Day',
-    '2025-12-30': 'Rizal Day',
-  };
-
-  // Upcoming holidays this month
-  const upcomingHolidays = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds = toDateStr(d);
-    if (PH_HOLIDAYS[ds]) upcomingHolidays.push({ date: ds, name: PH_HOLIDAYS[ds], day: d });
+  // Holidays this month
+  const monthHolidays = [];
+  for (let d=1; d<=daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if (PH_HOLIDAYS[ds]) monthHolidays.push({ds, name:PH_HOLIDAYS[ds], d});
   }
 
-  // Branch staff sorted for alternating rotation
-  const branchStaff = (s.users||[]).filter(x => x.role === 'staff' && x.branchId === u.branchId).sort((a, b) => a.id.localeCompare(b.id));
-  const myStaffIndex = branchStaff.findIndex(x => x.id === u.id);
-  const totalStaff = branchStaff.length;
+  // Calendar grid
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let cells = DOW.map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--ink-50);padding:6px 0">${d}</div>`).join('');
+  for (let i=0; i<firstDay; i++) cells += '<div></div>';
 
-  // For weeks with no admin assignment yet, compute rotation automatically
-  // (same logic as autoAssignWeek — alternates week by week)
-  const epochMonday = new Date('2024-01-01');
-  function isMyRotationWeek(day) {
-    const d = new Date(year, month, day);
-    const mon = getMonday(d);
-    const weeksSinceEpoch = Math.floor((mon - epochMonday) / (7 * 24 * 60 * 60 * 1000));
-    if (totalStaff <= 1) return true;
-    return (weeksSinceEpoch % totalStaff) === myStaffIndex;
-  }
-
-  // Get the assignment for any day — admin-set takes priority, then rotation
-  function getDayStatus(day) {
-    const ds = toDateStr(day);
-    const explicit = s.shiftSchedules[`${u.id}_${ds}`];
-    if (explicit === 'On') return 'on';
-    if (explicit === 'Off') return 'off';
-    // No explicit assignment — fall back to rotation
-    return isMyRotationWeek(day) ? 'on' : 'off';
-  }
-
-  const scheduleInfoText = totalStaff > 1
-    ? `Weekly alternating rotation — you work every other week`
-    : 'You are the sole staff member — working every week';
-
-  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-  // Build calendar cells
-  let cells = '';
-  for (let i = 0; i < firstDay; i++) {
-    cells += '<div class="pscal-cell pscal-empty"></div>';
-  }
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds = toDateStr(d);
-    const status = getDayStatus(d);
-    const isLeave = isLeaveDay(ds);
-    const isHoliday = !!PH_HOLIDAYS[ds];
+  for (let d=1; d<=daysInMonth; d++) {
+    const ds  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const st  = getSchedStatus(s, u.id, ds);
     const isToday = ds === todayStr;
-
-    let cellClass = 'pscal-cell';
-    let label = '';
-    let labelClass = '';
-
-    if (isLeave) {
-      cellClass += ' pscal-leave';
-      label = 'LEAVE';
-      labelClass = 'pscal-lbl pscal-lbl-leave';
-    } else if (status === 'on') {
-      cellClass += ' pscal-opening';
-      label = 'ON DUTY';
-      labelClass = 'pscal-lbl pscal-lbl-open';
-    } else {
-      cellClass += ' pscal-rest';
-      label = 'OFF';
-      labelClass = 'pscal-lbl pscal-lbl-rest';
-    }
-    if (isToday) cellClass += ' pscal-today';
-    if (isHoliday) cellClass += ' pscal-holiday';
-
-    cells += `<div class="${cellClass}">
-      <div class="pscal-day-num">${d}${isHoliday ? ' 🎌' : ''}</div>
-      ${label ? `<span class="${labelClass}">${label}</span>` : ''}
-    </div>`;
+    const isHol   = !!PH_HOLIDAYS[ds];
+    const color   = SCHED_COLORS[st] || '#6b7280';
+    const bgMap   = { Work:'#f0fdf4', 'Rest Day':'#f5f3ff', Leave:'#fefce8', Holiday:'#fef2f2', Off:'#f9fafb' };
+    const bg      = isToday ? '#fdf2f2' : (bgMap[st]||'#f9fafb');
+    cells += `
+      <div style="border-radius:8px;background:${bg};border:${isToday?'2px solid var(--maroon)':'1px solid #e5e7eb'};padding:8px 6px;min-height:72px;position:relative">
+        <div style="font-weight:${isToday?'800':'600'};font-size:13px;color:${isToday?'var(--maroon)':'var(--ink)'};margin-bottom:4px">${d}${isHol?' 🎌':''}</div>
+        <div style="font-size:10px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px">${st}</div>
+        ${isHol?`<div style="font-size:9px;color:var(--danger);margin-top:2px;line-height:1.2">${PH_HOLIDAYS[ds]}</div>`:''}
+      </div>`;
   }
-
-  // Holidays section
-  const holidayHtml = upcomingHolidays.length
-    ? upcomingHolidays.map(h => `<div class="pscal-holiday-item">🎌 <strong>${new Date(h.date+'T00:00:00').toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</strong>: ${h.name} <span style="color:var(--success);font-size:11px;font-weight:600">(Double Pay)</span></div>`).join('')
-    : '<div style="color:var(--ink-40);font-size:13px">No public holidays this month.</div>';
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
         <h1 class="page-title">My Schedule</h1>
-        <p class="page-subtitle">${u.name} &nbsp;·&nbsp; ${br ? br.name : 'Unassigned'}</p>
+        <p class="page-subtitle">${u.name} · ${br?.name||'Printing Department'}</p>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-outline" onclick="navigateTo('leave-management')">📋 Request Leave</button>
-        <button class="btn btn-outline" onclick="window.print()">🖨 Print Schedule</button>
-      </div>
+      <button class="btn btn-outline" onclick="navigateTo('leave-management')">+ Request Leave</button>
     </div>
 
-    <div class="data-card" style="margin-bottom:16px;">
-      <div class="data-card-body" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
-        <div><span style="font-size:12px;color:var(--ink-60);text-transform:uppercase;letter-spacing:1px;">Schedule Type</span><div style="font-weight:700;font-size:15px;margin-top:2px;">Weekly Rotation</div></div>
-        <div><span style="font-size:12px;color:var(--ink-60);text-transform:uppercase;letter-spacing:1px;">Pattern</span><div style="font-weight:700;font-size:15px;margin-top:2px;">${scheduleInfoText}</div></div>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div class="kpi-card" style="flex:1;min-width:120px">
+        <div class="kpi-header"><div class="kpi-label">Work Days</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+        <div class="kpi-value" style="color:var(--success)">${workCount}</div>
+      </div>
+      <div class="kpi-card" style="flex:1;min-width:120px">
+        <div class="kpi-header"><div class="kpi-label">Rest Days</div><div class="kpi-icon" style="background:#ede9fe">${iconSvg('home')}</div></div>
+        <div class="kpi-value" style="color:#7c3aed">${restCount}</div>
+      </div>
+      <div class="kpi-card" style="flex:1;min-width:120px">
+        <div class="kpi-header"><div class="kpi-label">On Leave</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
+        <div class="kpi-value" style="color:var(--warning)">${leaveCount}</div>
+      </div>
+      <div class="kpi-card" style="flex:1;min-width:120px">
+        <div class="kpi-header"><div class="kpi-label">Off</div><div class="kpi-icon">${iconSvg('error')}</div></div>
+        <div class="kpi-value" style="color:var(--ink-40)">${offCount}</div>
       </div>
     </div>
 
     <div class="data-card">
-      <div class="data-card-header" style="display:flex;align-items:center;justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:12px;">
+      <div class="data-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
           <button class="btn btn-sm btn-outline" onclick="window._schedPrev()">← Prev</button>
-          <span style="font-weight:700;font-size:16px;">${monthLabel}</span>
+          <span style="font-weight:700;font-size:16px">${monthLabel}</span>
           <button class="btn btn-sm btn-outline" onclick="window._schedNext()">Next →</button>
         </div>
-        <div style="display:flex;gap:8px;font-size:12px;align-items:center;flex-wrap:wrap;">
-          <span class="pscal-legend pscal-lbl-open">ON DUTY</span>
-          <span class="pscal-legend pscal-lbl-rest">OFF</span>
-          <span class="pscal-legend pscal-lbl-leave">LEAVE</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${Object.entries(SCHED_BADGES).map(([k,v])=>`<div style="display:flex;align-items:center;gap:3px">${v}</div>`).join('')}
         </div>
       </div>
-      <div class="data-card-body" style="padding:0 16px 16px;">
-        <div class="pscal-grid-header">
-          ${dayNames.map(d=>`<div class="pscal-dow">${d}</div>`).join('')}
-        </div>
-        <div class="pscal-grid">
+      <div class="data-card-body" style="padding:16px">
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
           ${cells}
         </div>
       </div>
     </div>
 
-    ${upcomingHolidays.length ? `<div class="data-card" style="margin-top:16px;">
+    ${monthHolidays.length ? `
+    <div class="data-card" style="margin-top:16px">
       <div class="data-card-header"><span class="data-card-title">🎌 Holidays This Month</span></div>
-      <div class="data-card-body" style="display:flex;flex-direction:column;gap:8px;">${holidayHtml}</div>
+      <div class="data-card-body" style="display:flex;flex-direction:column;gap:8px">
+        ${monthHolidays.map(h=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--cream);border-radius:var(--radius)">
+            <div><strong>${new Date(h.ds+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'})}</strong> — ${h.name}</div>
+            <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700">Holiday Pay</span>
+          </div>`).join('')}
+      </div>
     </div>` : ''}`;
 }
 
-function saveSchedule(selectEl) {
-  const s = getState();
-  const uid = selectEl.dataset.uid;
-  const date = selectEl.dataset.date;
-  const val = selectEl.value;
-  const branchId = selectEl.dataset.branchid;
-  const allowed = ['Off', 'On'];
-  const staffUser = s.users.find(u => u.id === uid && u.role === 'staff');
-  if (!staffUser) { showToast('Invalid staff selected.', 'error'); return; }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) { showToast('Invalid schedule date.', 'error'); return; }
-  if (!allowed.includes(val)) { showToast('Invalid shift value.', 'error'); return; }
-
-  // Build the full week of days around the selected date
-  const weekMonday = getMonday(new Date(date + 'T00:00:00'));
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekMonday);
-    d.setDate(weekMonday.getDate() + i);
-    return toLocalDateString(d);
-  });
-
-  const branchStaff = s.users.filter(u => u.role === 'staff' && u.branchId === branchId);
-  const isSoleStaff = branchStaff.length === 1;
-
-  // Debug — remove after confirming saves work
-  console.log('[saveSchedule] uid=%s date=%s val=%s branchId=%s branchStaff=%d isSoleStaff=%s',
-    uid, date, val, branchId, branchStaff.length, isSoleStaff);
-  console.log('[saveSchedule] all staff branchIds:', s.users.filter(u=>u.role==='staff').map(u=>u.id+':'+u.branchId));
-
-  if (val === 'On' && isSoleStaff) {
-    // Sole staff in branch — set the entire week to On so explicit Off rows
-    // from previous auto-assigns don't leave stale Off values in the DB
-    weekDays.forEach(dayStr => {
-      s.shiftSchedules[`${uid}_${dayStr}`] = 'On';
-      DB.saveShiftSchedule(uid, dayStr, 'On');
-    });
-  } else {
-    // Save just the selected day
-    s.shiftSchedules[`${uid}_${date}`] = val;
-    DB.saveShiftSchedule(uid, date, val);
-
-    if (val === 'On') {
-      // Enforce one staff per week: write Off for ALL other branch staff for the
-      // entire week — unconditionally (old code skipped staff with no prior key,
-      // so On was never persisted and only the cleanup Off survived in the DB)
-      const otherStaff = branchStaff.filter(u => u.id !== uid);
-      otherStaff.forEach(u => {
-        weekDays.forEach(dayStr => {
-          s.shiftSchedules[`${u.id}_${dayStr}`] = 'Off';
-          DB.saveShiftSchedule(u.id, dayStr, 'Off');
-        });
-      });
-    }
-  }
-
-  saveState(s);
-  showToast(`Saved: ${date} → ${val}`, 'success');
-  renderShiftSchedule();
-}
-
-function setScheduleView(v) {
-  const s = getState();
-  s.scheduleView = v;
-  saveState(s);
-  renderShiftSchedule();
-}
-function shiftDay(delta) {
-  const s = getState();
-  const d = new Date(s.scheduleDate + 'T00:00:00');
-  d.setDate(d.getDate() + delta);
-  s.scheduleDate = toLocalDateString(d);
-  saveState(s);
-  renderShiftSchedule();
-}
-function shiftWeek(delta) {
-  const s = getState();
-  const d = new Date(s.scheduleWeekStart + 'T00:00:00');
-  d.setDate(d.getDate() + delta * 7);
-  s.scheduleWeekStart = toLocalDateString(d);
-  saveState(s);
-  renderShiftSchedule();
-}
-function goToday() {
-  const s = getState();
-  s.scheduleDate = toLocalDateString(new Date());
-  s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
-  saveState(s);
-  renderShiftSchedule();
-}
-
-function autoAssignWeek() {
-  const s = getState();
-  const weekAnchor = s.scheduleView === 'weekly'
-    ? new Date((s.scheduleWeekStart || toLocalDateString(getMonday(new Date()))) + 'T00:00:00')
-    : getMonday(new Date((s.scheduleDate || toLocalDateString(new Date())) + 'T00:00:00'));
-
-  if (!confirm('Auto-assign whole-week rotation for this week? One staff works the full week, the other is off. This will overwrite existing assignments.')) return;
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekAnchor);
-    d.setDate(weekAnchor.getDate() + i);
-    return d;
-  });
-
-  // Calculate which week number since epoch Monday (determines who is on/off)
-  const epochMonday = new Date('2024-01-01'); // fixed reference Monday
-  const weeksSinceEpoch = Math.floor((weekAnchor - epochMonday) / (7 * 24 * 60 * 60 * 1000));
-
-  const branches = s.branches || [];
-  let assignedCount = 0;
-
-  branches.forEach(branch => {
-    const staff = (s.users || []).filter(u => u.role === 'staff' && u.branchId === branch.id).sort((a, b) => a.id.localeCompare(b.id));
-    if (!staff.length) return;
-
-    if (staff.length === 1) {
-      // Only one staff — they work every day
-      days.forEach(day => {
-        const dateStr = toLocalDateString(day);
-        s.shiftSchedules[`${staff[0].id}_${dateStr}`] = 'On';
-        DB.saveShiftSchedule(staff[0].id, dateStr, 'On'); // persist to DB
-        assignedCount++;
-      });
-      return;
-    }
-
-    // Whole-week rotation: determine which staff is ON this week
-    // Even week number → staff[0] works, staff[1] off
-    // Odd week number  → staff[1] works, staff[0] off
-    const onIndex  = weeksSinceEpoch % staff.length;
-
-    staff.forEach((u, idx) => {
-      days.forEach(day => {
-        const dateStr = toLocalDateString(day);
-        const assignment = (idx === onIndex) ? 'On' : 'Off';
-        s.shiftSchedules[`${u.id}_${dateStr}`] = assignment;
-        DB.saveShiftSchedule(u.id, dateStr, assignment); // persist to DB
-      });
-    });
-
-    assignedCount += days.length;
-  });
-
-  s.scheduleWeekStart = toLocalDateString(getMonday(weekAnchor));
-  saveState(s);
-  renderShiftSchedule();
-  showToast(`Auto-assigned week rotation: one staff ON for the full week, others OFF.`, 'success');
-}
+// legacy alias
+function setScheduleView(v) { renderShiftSchedule(); }
+function shiftDay(delta) { renderShiftSchedule(); }
+function autoAssignWeek() { schedAutoFillWeek(); }
 
 // PAYROLL
 function renderPayroll() {
@@ -3823,20 +3777,8 @@ function renderPayslip() {
 
 function printPayslip() {
   const doc = document.getElementById('payslip-document');
-  if (!doc) return;
-  const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Payslip - South Pafps</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Times New Roman',serif;font-size:12px;padding:30px}
-    table{width:100%;border-collapse:collapse}
-    td,th{padding:5px 10px}
-    @media print{body{padding:15px}}
-  </style></head><body>
-  ${doc.innerHTML}
-  <script>window.onload=function(){window.print();window.close()}<\/script>
-  </body></html>`);
-  win.document.close();
+  if (!doc) { showToast('Payslip not found. Please wait for it to load.', 'error'); return; }
+  printContent(doc.outerHTML, 'Payslip — South Pafps');
 }
 
 function downloadPayslip() {
@@ -5369,10 +5311,11 @@ function renderOrders(filterStatus, searchQuery) {
   // PRINT: all 6 tabs — Customer Records, Order Details, Payment = view-only
   //                     Logo Upload, Production, Daily Dispatch = full access
 
-  // Guard: if somehow on a tab that doesn't exist for a role, reset to default
-  var allTabIds = ['customers','orders','logos','payment','production','dispatch'];
+  // Default to 'orders' (Order Details) tab; persist via sessionStorage
+  var allTabIds = ['customers','orders','payment','production','dispatch'];
   if (!_omTab || !allTabIds.includes(_omTab)) {
-    _omTab = 'orders';
+    var storedTab = sessionStorage.getItem('omTab');
+    _omTab = (storedTab && allTabIds.includes(storedTab)) ? storedTab : 'orders';
   }
 
   if (filterStatus !== undefined) _omFilter = filterStatus;
@@ -5395,7 +5338,6 @@ function renderOrders(filterStatus, searchQuery) {
   var tabs = [
     { id: 'customers',  label: '\uD83D\uDC65 Customer Records',   count: crs.length },
     { id: 'orders',     label: '\uD83D\uDCCB Order Details',      count: orders.length },
-    { id: 'logos',      label: '\uD83D\uDDBC\uFE0F Logo Upload',  count: logos.length },
     { id: 'payment',    label: '\uD83D\uDCB3 Payment (50% DP)',   count: payments.length },
     { id: 'production', label: '\uD83D\uDDA8\uFE0F Production',   count: prods.length },
     { id: 'dispatch',   label: '\uD83D\uDE9A Daily Dispatch',      count: dispatches.length },
@@ -5406,9 +5348,9 @@ function renderOrders(filterStatus, searchQuery) {
   }).join('');
 
   var tabContent = '';
+  if (_omTab === 'logos') _omTab = 'orders'; // logos tab removed
   if (_omTab === 'orders') tabContent = omRenderOrdersTab();
   else if (_omTab === 'customers') tabContent = omRenderCustomersTab();
-  else if (_omTab === 'logos') tabContent = omRenderLogoTab();
   else if (_omTab === 'payment') tabContent = omRenderPaymentsTab();
   else if (_omTab === 'production') tabContent = omRenderProductionTab();
   else if (_omTab === 'dispatch') tabContent = omRenderDispatchTab();
@@ -5419,17 +5361,23 @@ function renderOrders(filterStatus, searchQuery) {
       ? 'Full access to orders, payments & customers. Production is view only.'
       : 'Full order lifecycle \u2014 from customer records to dispatch.';
 
+  // KPI strip: Admin=all 5, Print=In Production/Dispatch/Completed only, Staff=none
+  var kpiHtml = '';
+  if (!isStaff) {
+    kpiHtml += '<div class="om-kpi-strip">';
+    if (!isPrint) kpiHtml += '<div class="om-kpi"><div class="om-kpi-val">' + pending + '</div><div class="om-kpi-lbl">Pending</div></div>';
+    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--info)">' + inProd + '</div><div class="om-kpi-lbl">In Production</div></div>';
+    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--gold)">' + dispCount + '</div><div class="om-kpi-lbl">In Dispatch</div></div>';
+    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--success)">' + done + '</div><div class="om-kpi-lbl">Completed</div></div>';
+    if (!isPrint) kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Balance Due</div></div>';
+    kpiHtml += '</div>';
+  }
+
   var html = '<div class="page-header" style="margin-bottom:16px">'
     + '<h1 class="page-title">Order Management</h1>'
     + '<p class="page-subtitle">' + subtitle + '</p>'
     + '</div>'
-    + '<div class="om-kpi-strip">'
-    + '<div class="om-kpi"><div class="om-kpi-val">' + pending + '</div><div class="om-kpi-lbl">Pending</div></div>'
-    + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--info)">' + inProd + '</div><div class="om-kpi-lbl">In Production</div></div>'
-    + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--gold)">' + dispCount + '</div><div class="om-kpi-lbl">In Dispatch</div></div>'
-    + '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--success)">' + done + '</div><div class="om-kpi-lbl">Completed</div></div>'
-    + (!isPrint ? '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Balance Due</div></div>' : '')
-    + '</div>'
+    + kpiHtml
     + '<div class="om-tabs">' + tabsHtml + '</div>'
     + '<div id="om-tab-content">' + tabContent + '</div>';
 
@@ -5441,6 +5389,7 @@ function renderOrders(filterStatus, searchQuery) {
 function omSwitchTab(tab) {
   _omTab = tab;
   _omSearch = '';
+  sessionStorage.setItem('omTab', tab);
   renderOrders();
 }
 
@@ -5449,7 +5398,6 @@ function omRefreshTab() {
   if (!el) return;
   if (_omTab === 'orders') el.innerHTML = omRenderOrdersTab();
   else if (_omTab === 'customers') el.innerHTML = omRenderCustomersTab();
-  else if (_omTab === 'logos') el.innerHTML = omRenderLogoTab();
   else if (_omTab === 'payment') el.innerHTML = omRenderPaymentsTab();
   else if (_omTab === 'production') el.innerHTML = omRenderProductionTab();
   else if (_omTab === 'dispatch') el.innerHTML = omRenderDispatchTab();
@@ -5961,12 +5909,6 @@ function omNewOrderModal() {
 
     + '<hr class="divider" style="margin:16px 0">'
 
-    // ── Logo Upload ──
-    + '<div class="om-modal-section-label">\uD83D\uDDBC\uFE0F Logo Upload</div>'
-    + '<div class="form-group"><label>Upload Logo File(s)</label><input id="om-logo-files" type="file" class="form-control" multiple accept="image/*,.pdf,.ai,.eps,.svg"><div class="text-xs text-muted" style="margin-top:4px">Accepted: Images, PDF, AI, EPS, SVG.</div></div>'
-
-    + '<hr class="divider" style="margin:16px 0">'
-
     // ── Payment Details ──
     + '<div class="om-modal-section-label">\uD83D\uDCB3 Payment Details</div>'
     + '<div style="background:var(--cream);border:1.5px solid var(--ink-10);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">'
@@ -6173,14 +6115,7 @@ function omConfirmNewOrder() {
   orders.push(newOrder);
   saveOrders(orders);
 
-  var logoInput = document.getElementById('om-logo-files');
-  if (logoInput && logoInput.files && logoInput.files.length > 0) {
-    var logos = getLogoUploads();
-    Array.from(logoInput.files).forEach(function (f) {
-      logos.push({ id: omGenId('logo'), orderId: newOrder.id, customerId: customerRecordId, businessName: businessName, fileName: f.name, fileSize: f.size, uploadedAt: new Date().toISOString() });
-    });
-    saveLogoUploads(logos);
-  }
+  // Logo upload removed
 
   var payments = getPaymentRecords();
   payments.push({
@@ -6318,10 +6253,9 @@ function omSaveEditOrder(orderId) {
   saveOrders(orders);
   DB.updateOrder(o.id, o);
 
-  var logoInput = document.getElementById('ome-logo-files');
-  if (logoInput && logoInput.files && logoInput.files.length > 0) {
-    var logos = getLogoUploads();
-    Array.from(logoInput.files).forEach(function (f) { logos.push({ id: omGenId('logo'), orderId: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, fileName: f.name, fileSize: f.size, uploadedAt: new Date().toISOString() }); });
+  // Logo upload removed
+  if (false) {
+    var logos = [];
     saveLogoUploads(logos);
   }
   closeModal(); showToast('Order updated!', 'success'); renderOrders();
@@ -6370,15 +6304,18 @@ function omSaveCustomerRecord() {
   saveCustomerRecords(crs);
   var s = getState();
   var u = s.currentUser;
-  DB.saveCustomer({
+  // Save to dedicated OM customers endpoint (independent from POS customers)
+  DB.saveOMCustomer({
     id: newCR.id,
-    companyName: newCR.businessName,
+    businessName: newCR.businessName,
     contactPerson: newCR.contactPerson || '',
     phone: newCR.phone || '',
     email: newCR.email || '',
     address: newCR.address || '',
+    modeOfPayment: newCR.modeOfPayment || '',
+    modeOfDelivery: newCR.modeOfDelivery || '',
+    branchStaff: newCR.branchStaff || '',
     notes: newCR.notes || '',
-    source: 'manual',
     branchId: (u && u.role !== 'admin') ? (u.branchId || null) : null,
     createdAt: newCR.createdAt,
   });
@@ -6427,7 +6364,7 @@ function omConfirmEditCustomer(customerId) {
 function omDeleteCustomer(customerId) {
   if (!confirm('Delete this customer record? Their orders will be unaffected.')) return;
   saveCustomerRecords(getCustomerRecords().filter(function (c) { return c.id !== customerId; }));
-  DB.deleteCustomer(customerId);
+  DB.deleteOMCustomer(customerId);
   showToast('Customer deleted.', 'warning'); renderOrders();
 }
 
@@ -9015,7 +8952,7 @@ function renderStaffReports() {
   const s = getState();
   const u = s.currentUser;
   // Print personnel should use their own production reports page
-  if (u && u.role === 'print') { navigateTo('reports'); return; }
+  if (u && u.role === 'print') { navigateTo('print-reports'); return; }
   const now = new Date();
   const todayStr = now.toDateString();
   const weekStart = getMonday(now);
@@ -9037,8 +8974,8 @@ function renderStaffReports() {
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">My Reports</h1>
-      <p class="page-subtitle">${u.role === 'admin' ? 'All branches' : 'Your personal performance'}</p>
+      <h1 class="page-title">Reports</h1>
+      <p class="page-subtitle">${u.role === 'admin' ? 'All branches' : 'Your performance & reports'}</p>
     </div>
     <div class="kpi-grid">
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Today's Revenue</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value">₱${fmt(dailyRev)}</div><div style="font-size:12px;color:var(--ink-60);margin-top:4px">${dailySales.length} transactions</div></div>
@@ -9047,6 +8984,7 @@ function renderStaffReports() {
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Balance Due</div><div class="kpi-icon maroon">${iconSvg('receipt')}</div></div><div class="kpi-value" style="color:var(--danger)">₱${fmt(balanceDue)}</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Discounts Given</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value" style="color:var(--warning)">₱${fmt(discountTotal)}</div></div>
     </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div class="data-card">
         <div class="data-card-header"><span class="data-card-title">Payment Collection</span></div>
@@ -9077,6 +9015,38 @@ function renderStaffReports() {
         </div>
       </div>
     </div>
+
+    <!-- Report Generation & Submission to Admin -->
+    <div class="data-card" style="margin-bottom:16px">
+      <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} Generate &amp; Send Reports to Admin</span></div>
+      <div class="data-card-body">
+        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select the reports you want to generate and send to the Administrator:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="rpt-sales" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Sales Report</div><div style="font-size:12px;color:var(--ink-60)">Daily transactions & revenue</div></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="rpt-inventory" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Inventory Report</div><div style="font-size:12px;color:var(--ink-60)">Current stock levels</div></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="rpt-orders" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Orders Report</div><div style="font-size:12px;color:var(--ink-60)">Order status & balances</div></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="rpt-payroll" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Payroll Report</div><div style="font-size:12px;color:var(--ink-60)">Staff hours & earnings</div></div>
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Note to Admin (optional)</label>
+          <textarea id="rpt-note" class="form-control" rows="2" placeholder="Add any remarks or context for the admin..."></textarea>
+        </div>
+        <button class="btn btn-maroon" onclick="submitStaffReportsToAdmin()">Submit Selected Reports to Admin</button>
+      </div>
+    </div>
+
     <div class="data-card">
       <div class="data-card-header"><span class="data-card-title">Today's Transactions</span></div>
       <div class="data-card-body no-pad">
@@ -9098,6 +9068,35 @@ function renderStaffReports() {
         </table>
       </div>
     </div>`;
+}
+
+function submitStaffReportsToAdmin() {
+  const s = getState();
+  const u = s.currentUser;
+  const selected = [];
+  if (document.getElementById('rpt-sales')?.checked) selected.push('Sales Report');
+  if (document.getElementById('rpt-inventory')?.checked) selected.push('Inventory Report');
+  if (document.getElementById('rpt-orders')?.checked) selected.push('Orders Report');
+  if (document.getElementById('rpt-payroll')?.checked) selected.push('Payroll Report');
+  if (!selected.length) { showToast('Please select at least one report to submit.', 'error'); return; }
+  const note = document.getElementById('rpt-note')?.value?.trim() || '';
+  const entry = {
+    id: 'rpt_' + Date.now(),
+    submittedBy: u.id,
+    submitterName: u.name || u.username,
+    role: u.role,
+    branchId: u.branchId || null,
+    reports: selected,
+    note,
+    submittedAt: new Date().toISOString(),
+    type: 'branch_staff',
+  };
+  const existing = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  existing.push(entry);
+  localStorage.setItem('submitted_reports', JSON.stringify(existing));
+  recordAudit(s, { action: 'reports_submitted', message: `${u.name} submitted reports to admin: ${selected.join(', ')}`, userId: u.id });
+  saveState(s);
+  showToast('Reports submitted to Admin successfully!', 'success');
 }
 
 // ADMIN DASHBOARD ENHANCEMENTS
@@ -9702,53 +9701,135 @@ function showEmployeeDetail(userId) {
 
 function showAddEmployeeModal() {
   const s = getState();
-  const branches = s.branches||[];
-  showModal(`<div style="max-width:560px">
-    <h3 style="margin:0 0 20px">Add Employee</h3>
-    <div style="display:grid;gap:14px;">
-      <div style="font-weight:600;color:var(--maroon);padding-bottom:4px;border-bottom:1px solid var(--border)">Personal Information</div>
+  const branches = s.branches || [];
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('users')} Add New Employee</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto;padding:0 24px 8px;">
+
+      <!-- Personal Information -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;">Personal Information</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group"><label>Full Name *</label><input class="form-control" id="ae-name" placeholder="Juan Dela Cruz"></div>
-        <div class="form-group"><label>Email Address</label><input class="form-control" id="ae-email" placeholder="juan@email.com"></div>
-        <div class="form-group"><label>Birth Date</label><input class="form-control" type="date" id="ae-bday"></div>
-        <div class="form-group"><label>Gender</label><select class="form-control" id="ae-gender"><option value="">Select</option><option>Male</option><option>Female</option></select></div>
-        <div class="form-group" style="grid-column:1/-1"><label>Address</label><input class="form-control" id="ae-addr" placeholder="Street, City, Province"></div>
-        <div class="form-group"><label>Emergency Contact</label><input class="form-control" id="ae-emerg" placeholder="Name / Number"></div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Full Name <span style="color:var(--danger)">*</span></label>
+          <input class="form-control" id="ae-name" placeholder="e.g. Juan Dela Cruz">
+        </div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input class="form-control" id="ae-email" type="email" placeholder="juan@email.com">
+        </div>
+        <div class="form-group">
+          <label>Birth Date</label>
+          <input class="form-control" type="date" id="ae-bday">
+        </div>
+        <div class="form-group">
+          <label>Gender</label>
+          <div class="form-select-wrap"><select class="form-control" id="ae-gender">
+            <option value="">Select gender</option>
+            <option>Male</option>
+            <option>Female</option>
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Emergency Contact</label>
+          <input class="form-control" id="ae-emerg" placeholder="Name / Number">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Home Address</label>
+          <input class="form-control" id="ae-addr" placeholder="Street, City, Province">
+        </div>
       </div>
-      <div style="font-weight:600;color:var(--maroon);padding-bottom:4px;border-bottom:1px solid var(--border);margin-top:4px">Employment Details</div>
+
+      <!-- Employment Details -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">Employment Details</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group"><label>Username *</label><input class="form-control" id="ae-user" placeholder="juandelacruz"></div>
-        <div class="form-group"><label>Position</label><input class="form-control" id="ae-pos" placeholder="Cashier / Staff"></div>
-        <div class="form-group"><label>Branch *</label><select class="form-control" id="ae-branch"><option value="">Select Branch</option>${branches.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}</select></div>
-        <div class="form-group"><label>Date Hired</label><input class="form-control" type="date" id="ae-hired"></div>
-        <div class="form-group"><label>Employment Status</label><select class="form-control" id="ae-empstatus"><option>Regular</option><option>Probationary</option><option>Contractual</option></select></div>
+        <div class="form-group">
+          <label>Username <span style="color:var(--danger)">*</span></label>
+          <input class="form-control" id="ae-user" placeholder="juandelacruz">
+        </div>
+        <div class="form-group">
+          <label>Position / Job Title</label>
+          <input class="form-control" id="ae-pos" placeholder="e.g. Cashier, Staff">
+        </div>
+        <div class="form-group">
+          <label>Branch <span style="color:var(--danger)">*</span></label>
+          <div class="form-select-wrap"><select class="form-control" id="ae-branch">
+            <option value="">Select branch…</option>
+            ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Date Hired</label>
+          <input class="form-control" type="date" id="ae-hired">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Employment Status</label>
+          <div class="form-select-wrap"><select class="form-control" id="ae-empstatus">
+            <option>Regular</option>
+            <option>Probationary</option>
+            <option>Contractual</option>
+          </select></div>
+        </div>
       </div>
-      <div style="font-weight:600;color:var(--maroon);padding-bottom:4px;border-bottom:1px solid var(--border);margin-top:4px">Government Numbers</div>
+
+      <!-- Government IDs -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">Government Numbers</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group"><label>SSS</label><input class="form-control" id="ae-sss" placeholder="XX-XXXXXXX-X"></div>
-        <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ae-phil" placeholder="XXXX-XXXXX-X"></div>
-        <div class="form-group"><label>Pag-IBIG</label><input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX"></div>
-        <div class="form-group"><label>TIN</label><input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX"></div>
+        <div class="form-group">
+          <label>SSS Number</label>
+          <input class="form-control" id="ae-sss" placeholder="XX-XXXXXXX-X">
+        </div>
+        <div class="form-group">
+          <label>PhilHealth</label>
+          <input class="form-control" id="ae-phil" placeholder="XXXX-XXXXX-X">
+        </div>
+        <div class="form-group">
+          <label>Pag-IBIG (HDMF)</label>
+          <input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX">
+        </div>
+        <div class="form-group">
+          <label>TIN</label>
+          <input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX">
+        </div>
       </div>
-      <div style="font-weight:600;color:var(--maroon);padding-bottom:4px;border-bottom:1px solid var(--border);margin-top:4px">System Access</div>
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:center;">
-        <input type="checkbox" id="ae-create-account" onchange="document.getElementById('ae-role-wrap').style.display=this.checked?'':'none'">
-        <label for="ae-create-account">Create system account for this employee</label>
-        <div id="ae-role-wrap" style="display:none;grid-column:1/-1">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div class="form-group"><label>Password *</label><input class="form-control" type="password" id="ae-pass" placeholder="Set password"></div>
-            <div class="form-group"><label>Role *</label><select class="form-control" id="ae-role"><option value="staff">Branch Staff</option><option value="print">Printing Personnel</option><option value="admin">Administrator</option></select></div>
+
+      <!-- System Access -->
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">System Access</div>
+      <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:0;">
+          <input type="checkbox" id="ae-create-account" onchange="document.getElementById('ae-access-wrap').style.display=this.checked?'grid':'none'" style="width:16px;height:16px;cursor:pointer;">
+          <span style="font-weight:600;font-size:14px;">Create a system login account for this employee</span>
+        </label>
+        <div id="ae-access-wrap" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
+          <div class="form-group">
+            <label>Password <span style="color:var(--danger)">*</span></label>
+            <div class="pw-wrap">
+              <input class="form-control" type="password" id="ae-pass" placeholder="Set a password">
+              <button type="button" class="pw-eye" onclick="togglePwVisibility('ae-pass',this)" tabindex="-1">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Role <span style="color:var(--danger)">*</span></label>
+            <div class="form-select-wrap"><select class="form-control" id="ae-role">
+              <option value="staff">Branch Staff</option>
+              <option value="print">Printing Personnel</option>
+              <option value="admin">Administrator</option>
+            </select></div>
           </div>
         </div>
       </div>
-    </div>
-    <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-maroon" onclick="saveNewEmployee()">Save Employee</button>
-    </div>
-  </div>`);
-}
 
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="saveNewEmployee()">${iconSvg('check')} Save Employee</button>
+    </div>
+  `, 'modal-lg');
+}
 function saveNewEmployee() {
   const s = getState();
   const name = document.getElementById('ae-name')?.value.trim();
@@ -9974,53 +10055,187 @@ function rejectTimecard(id) {
 function renderLeaveManagement() {
   const s = getState();
   const u = s.currentUser;
-  const isAdmin = u && u.role === 'admin';
-  const leaves = s.leaves || [];
-  const myLeaves = isAdmin ? leaves : leaves.filter(l => l.userId === u.id);
-  const [activeFilter, setActiveFilter] = [
-    window._leaveFilter || 'all',
-    v => { window._leaveFilter = v; }
-  ];
+  if (!u) return;
 
-  const filterBtns = ['pending','approved','rejected','all'].map(f =>
+  // ── ADMIN VIEW: Approval Center ────────────────────────────────────────────
+  if (u.role === 'admin') {
+    const leaves = s.leaves || [];
+    const activeFilter = window._leaveFilter || 'pending';
+
+    const pending   = leaves.filter(l => l.status === 'pending');
+    const approved  = leaves.filter(l => l.status === 'approved');
+    const rejected  = leaves.filter(l => l.status === 'rejected');
+
+    const filtered = activeFilter === 'all' ? leaves
+      : leaves.filter(l => l.status === activeFilter);
+
+    // Sort: newest first
+    const sorted = [...filtered].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+
+    const filterBtns = [
+      { id: 'pending',  label: `Pending`,  count: pending.length,  cls: 'badge-gold' },
+      { id: 'approved', label: `Approved`, count: approved.length, cls: 'badge-success' },
+      { id: 'rejected', label: `Rejected`, count: rejected.length, cls: 'badge-danger' },
+      { id: 'all',      label: `All`,      count: leaves.length,   cls: 'badge-neutral' },
+    ].map(f => `
+      <button class="btn btn-sm ${activeFilter === f.id ? 'btn-maroon' : 'btn-outline'}"
+        onclick="window._leaveFilter='${f.id}';renderLeaveManagement()">
+        ${f.label} <span class="badge ${f.cls}" style="margin-left:4px;font-size:10px">${f.count}</span>
+      </button>`).join('');
+
+    const rows = sorted.length ? sorted.map(l => {
+      const emp = (s.users || []).find(x => x.id === l.userId);
+      const br  = (s.branches || []).find(b => b.id === (emp?.branchId));
+      const roleLabel = { staff: 'Branch Staff', print: 'Print Dept', admin: 'Admin' }[emp?.role] || '—';
+      const statusCls = { pending: 'badge-gold', approved: 'badge-success', rejected: 'badge-danger' }[l.status || 'pending'] || 'badge-neutral';
+      const reviewedBy = l.reviewedBy ? (s.users || []).find(x => x.id === l.reviewedBy)?.name || '—' : '—';
+      const reviewedAt = l.reviewedAt ? new Date(l.reviewedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+
+      return `<tr>
+        <td>
+          <div style="font-weight:600">${emp?.name || '—'}</div>
+          <div style="font-size:11px;color:var(--ink-50)">${emp?.username || ''}</div>
+        </td>
+        <td>
+          <div>${br?.name || '<span style="color:var(--ink-40)">—</span>'}</div>
+          <div style="font-size:11px;color:var(--ink-50)">${roleLabel}</div>
+        </td>
+        <td>${l.type || '—'}</td>
+        <td class="td-mono">${l.date || '—'}</td>
+        <td style="max-width:200px;font-size:12px;color:var(--ink-60)">${l.notes || '<span style="color:var(--ink-30)">No reason given</span>'}</td>
+        <td><span class="badge ${statusCls}" style="text-transform:capitalize">${l.status || 'pending'}</span></td>
+        <td style="font-size:12px;color:var(--ink-50)">${l.status !== 'pending' ? `<div>${reviewedBy}</div><div>${reviewedAt}</div>` : '—'}</td>
+        <td>
+          ${l.status === 'pending' ? `
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-maroon" onclick="approveLeave('${l.id}')">✓ Approve</button>
+              <button class="btn btn-sm btn-danger" onclick="rejectLeaveWithReason('${l.id}')">✕ Reject</button>
+            </div>` : `
+            <button class="btn btn-sm btn-outline" onclick="revertLeave('${l.id}')">Revert to Pending</button>`}
+        </td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--ink-40)">
+        ${activeFilter === 'pending' ? 'No pending leave applications.' : 'No leave records found.'}
+      </td></tr>`;
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">Leave Management</h1>
+        <p class="page-subtitle">Review and approve leave applications from Branch Staff and Printing Department</p>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='pending'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='pending';renderLeaveManagement()">
+          <div class="kpi-header"><div class="kpi-label">Pending Approval</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
+          <div class="kpi-value" style="color:${pending.length>0?'var(--warning)':'inherit'}">${pending.length}</div>
+          <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Awaiting your decision</div>
+        </div>
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='approved'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='approved';renderLeaveManagement()">
+          <div class="kpi-header"><div class="kpi-label">Approved</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+          <div class="kpi-value" style="color:var(--success)">${approved.length}</div>
+          <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Total approved this period</div>
+        </div>
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='rejected'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='rejected';renderLeaveManagement()">
+          <div class="kpi-header"><div class="kpi-label">Rejected</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
+          <div class="kpi-value" style="color:var(--danger)">${rejected.length}</div>
+          <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Total rejected this period</div>
+        </div>
+      </div>
+
+      ${pending.length > 0 ? `<div class="alert alert-warning" style="margin-bottom:16px">${iconSvg('warning')} <strong>${pending.length}</strong> leave application${pending.length>1?'s':''} waiting for your review.</div>` : ''}
+
+      <div class="data-card">
+        <div class="data-card-header">
+          <span class="data-card-title">Leave Applications</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${filterBtns}</div>
+        </div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Branch / Dept</th>
+                <th>Leave Type</th>
+                <th>Date</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Reviewed By</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // ── STAFF / PRINT VIEW: My Leave Applications ──────────────────────────────
+  const leaves     = s.leaves || [];
+  const myLeaves   = leaves.filter(l => l.userId === u.id);
+  const activeFilter = window._leaveFilter || 'all';
+  const filtered   = activeFilter === 'all' ? myLeaves : myLeaves.filter(l => l.status === activeFilter);
+  const sorted     = [...filtered].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+
+  const pending  = myLeaves.filter(l => l.status === 'pending').length;
+  const approved = myLeaves.filter(l => l.status === 'approved').length;
+  const rejected = myLeaves.filter(l => l.status === 'rejected').length;
+
+  const filterBtns = ['all','pending','approved','rejected'].map(f =>
     `<button class="btn btn-sm ${activeFilter===f?'btn-maroon':'btn-outline'}" onclick="window._leaveFilter='${f}';renderLeaveManagement()">${f.charAt(0).toUpperCase()+f.slice(1)}</button>`
   ).join('');
 
-  const filtered = activeFilter === 'all' ? myLeaves : myLeaves.filter(l => l.status === activeFilter);
+  const branch = (s.branches || []).find(b => b.id === u.branchId);
+  const roleLabel = { staff: 'Branch Staff', print: 'Printing Personnel' }[u.role] || u.role;
+
+  const rows = sorted.length ? sorted.map(l => {
+    const statusCls = { pending: 'badge-gold', approved: 'badge-success', rejected: 'badge-danger' }[l.status || 'pending'] || 'badge-neutral';
+    const reviewedBy = l.reviewedBy ? (s.users || []).find(x => x.id === l.reviewedBy)?.name || 'Admin' : null;
+    return `<tr>
+      <td class="td-mono">${l.date || '—'}</td>
+      <td>${l.type || '—'}</td>
+      <td style="font-size:12px;color:var(--ink-60);max-width:200px">${l.notes || '<span style="color:var(--ink-30)">—</span>'}</td>
+      <td><span class="badge ${statusCls}" style="text-transform:capitalize">${l.status || 'pending'}</span></td>
+      <td style="font-size:12px;color:var(--ink-50)">${reviewedBy ? `<div>${reviewedBy}</div><div>${l.reviewedAt ? new Date(l.reviewedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>` : '—'}</td>
+      <td>${l.status === 'pending' ? `<button class="btn btn-sm btn-danger" onclick="cancelLeave('${l.id}')">Cancel</button>` : '—'}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--ink-40)">No leave applications yet.</td></tr>`;
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-      <div><h1 class="page-title">${isAdmin ? 'Leave Management' : 'My Leaves'}</h1>
-      ${!isAdmin ? `<p class="page-subtitle">${u.name} — ${(s.branches||[]).find(b=>b.id===u.branchId)?.name||''}</p>` : ''}</div>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 class="page-title">Leave Application</h1>
+        <p class="page-subtitle">${u.name} · ${branch?.name || roleLabel}</p>
+      </div>
       <button class="btn btn-maroon" onclick="showApplyLeaveModal()">+ Apply for Leave</button>
     </div>
+
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Pending</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
+        <div class="kpi-value" style="color:${pending>0?'var(--warning)':'inherit'}">${pending}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Approved</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
+        <div class="kpi-value" style="color:var(--success)">${approved}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><div class="kpi-label">Rejected</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
+        <div class="kpi-value" style="color:var(--danger)">${rejected}</div>
+      </div>
+    </div>
+
     <div class="data-card">
       <div class="data-card-header">
-        <div style="display:flex;gap:8px;">${filterBtns}</div>
+        <span class="data-card-title">My Applications</span>
+        <div style="display:flex;gap:6px">${filterBtns}</div>
       </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr>${isAdmin?'<th>Full Name</th>':''}<th>Username</th><th>Branch</th><th>Position</th><th>Date</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
-          <tbody>
-            ${filtered.length ? filtered.map(l => {
-              const emp = (s.users||[]).find(x => x.id === l.userId);
-              const br = (s.branches||[]).find(b => b.id === (emp?.branchId));
-              const statusCls = {pending:'badge-neutral',approved:'badge-success',rejected:'badge-danger'}[l.status||'pending']||'badge-neutral';
-              return `<tr>
-                ${isAdmin ? `<td>${emp?.name||'—'}</td>` : ''}
-                <td>${emp?.username||'—'}</td>
-                <td>${br?.name||'—'}</td>
-                <td>${emp?.position||l.position||'—'}</td>
-                <td>${l.date||'—'}</td>
-                <td>${l.type||'—'}</td>
-                <td><span class="badge ${statusCls}">${l.status||'pending'}</span></td>
-                <td>${isAdmin && l.status==='pending' ? `
-                  <button class="btn btn-sm btn-outline" onclick="approveLeave('${l.id}')">Approve</button>
-                  <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="rejectLeave('${l.id}')">Reject</button>
-                ` : '—'}</td>
-              </tr>`;
-            }).join('') : `<tr><td colspan="${isAdmin?8:7}" style="text-align:center;color:var(--ink-40);padding:32px">No leave records found.</td></tr>`}
-          </tbody>
+          <thead>
+            <tr><th>Date</th><th>Leave Type</th><th>Reason</th><th>Status</th><th>Reviewed By</th><th>Action</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
         </table>
       </div>
     </div>`;
@@ -10099,30 +10314,82 @@ function submitLeave() {
 
 function approveLeave(id) {
   const s = getState();
-  const l = (s.leaves||[]).find(x => x.id === id);
-  if (l) {
-    l.status = 'approved';
-    l.reviewedAt = new Date().toISOString();
-    l.reviewedBy = s.currentUser?.id || null;
-    saveState(s);
-    if (typeof DB !== 'undefined') DB.reviewLeave(id, 'approved', l.reviewedBy);
-    showToast('Leave approved.', 'success');
-    renderLeaveManagement();
-  }
+  const l = (s.leaves || []).find(x => x.id === id);
+  if (!l) return;
+  l.status = 'approved';
+  l.reviewedAt = new Date().toISOString();
+  l.reviewedBy = s.currentUser?.id || null;
+  saveState(s);
+  if (typeof DB !== 'undefined') DB.reviewLeave(id, 'approved', l.reviewedBy);
+  recordAudit(s, { action: 'leave_approved', message: `Leave approved for user ${l.userId}`, userId: s.currentUser?.id });
+  showToast('Leave application approved.', 'success');
+  renderLeaveManagement();
+}
+
+function rejectLeaveWithReason(id) {
+  showModal(`
+    <div class="modal-header"><h2>${iconSvg('error')} Reject Leave Application</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Please provide a reason for rejecting this leave application. The employee will be able to see this.</p>
+      <div class="form-group">
+        <label>Reason for Rejection <span style="color:var(--danger)">*</span></label>
+        <textarea class="form-control" id="reject-reason" rows="3" placeholder="e.g. Insufficient staff coverage, peak season, etc."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmRejectLeave('${id}')">Reject Application</button>
+    </div>`);
+}
+
+function confirmRejectLeave(id) {
+  const reason = document.getElementById('reject-reason')?.value?.trim();
+  if (!reason) { showToast('Please provide a reason for rejection.', 'error'); return; }
+  const s = getState();
+  const l = (s.leaves || []).find(x => x.id === id);
+  if (!l) return;
+  l.status = 'rejected';
+  l.rejectReason = reason;
+  l.reviewedAt = new Date().toISOString();
+  l.reviewedBy = s.currentUser?.id || null;
+  saveState(s);
+  if (typeof DB !== 'undefined') DB.reviewLeave(id, 'rejected', l.reviewedBy);
+  recordAudit(s, { action: 'leave_rejected', message: `Leave rejected for user ${l.userId}. Reason: ${reason}`, userId: s.currentUser?.id });
+  closeModal();
+  showToast('Leave application rejected.', 'error');
+  renderLeaveManagement();
 }
 
 function rejectLeave(id) {
+  // Legacy alias — now opens reason modal
+  rejectLeaveWithReason(id);
+}
+
+function revertLeave(id) {
   const s = getState();
-  const l = (s.leaves||[]).find(x => x.id === id);
-  if (l) {
-    l.status = 'rejected';
-    l.reviewedAt = new Date().toISOString();
-    l.reviewedBy = s.currentUser?.id || null;
-    saveState(s);
-    if (typeof DB !== 'undefined') DB.reviewLeave(id, 'rejected', l.reviewedBy);
-    showToast('Leave rejected.', 'error');
-    renderLeaveManagement();
-  }
+  const l = (s.leaves || []).find(x => x.id === id);
+  if (!l) return;
+  if (!confirm('Revert this leave back to Pending status?')) return;
+  l.status = 'pending';
+  l.reviewedAt = null;
+  l.reviewedBy = null;
+  l.rejectReason = null;
+  saveState(s);
+  if (typeof DB !== 'undefined') DB.reviewLeave(id, 'pending', null);
+  showToast('Leave reverted to Pending.', 'success');
+  renderLeaveManagement();
+}
+
+function cancelLeave(id) {
+  const s = getState();
+  const l = (s.leaves || []).find(x => x.id === id);
+  if (!l || l.status !== 'pending') return;
+  if (!confirm('Cancel this leave application?')) return;
+  s.leaves = s.leaves.filter(x => x.id !== id);
+  saveState(s);
+  if (typeof DB !== 'undefined') DB.deleteLeave(id);
+  showToast('Leave application cancelled.', 'success');
+  renderLeaveManagement();
 }
 
 // ── PAYSLIP HISTORY ───────────────────────────────────────────────
@@ -10250,23 +10517,153 @@ function renderInventoryReports() {
 
 // ── CUSTOM REPORTS ────────────────────────────────────────────────
 function renderCustomReports() {
+  const s = getState();
+  const branches = s.branches || [];
+  const branchOptions = branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header"><h1 class="page-title">Custom Report</h1><p class="page-subtitle">Build a report by choosing filters below</p></div>
-    <div class="data-card" style="max-width:600px">
+    <div class="page-header"><h1 class="page-title">Custom Report</h1><p class="page-subtitle">Select a report type and branch, then click Generate.</p></div>
+    <div class="data-card" style="max-width:640px">
       <div class="data-card-body" style="display:grid;gap:14px;">
         <div class="form-group"><label>Report Type</label>
-          <select class="form-control"><option>Sales by Date Range</option><option>Inventory Summary</option><option>Payroll Summary</option><option>Orders Summary</option></select>
+          <div class="form-select-wrap"><select class="form-control" id="cr-type">
+            <option value="sales">Sales Report</option>
+            <option value="inventory">Inventory Report</option>
+            <option value="orders">Orders Report</option>
+            <option value="payroll">Payroll Summary</option>
+          </select></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div class="form-group"><label>From</label><input class="form-control" type="date"></div>
-          <div class="form-group"><label>To</label><input class="form-control" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+          <div class="form-group"><label>From</label><input class="form-control" type="date" id="cr-from"></div>
+          <div class="form-group"><label>To</label><input class="form-control" type="date" id="cr-to" value="${new Date().toISOString().split('T')[0]}"></div>
         </div>
         <div class="form-group"><label>Branch</label>
-          <select class="form-control"><option value="">All Branches</option></select>
+          <div class="form-select-wrap"><select class="form-control" id="cr-branch">
+            <option value="">All Branches</option>
+            ${branchOptions}
+          </select></div>
         </div>
-        <button class="btn btn-maroon" style="width:fit-content">Generate Report</button>
+        <button class="btn btn-maroon" style="width:fit-content" onclick="generateCustomReport()">Generate Report</button>
       </div>
-    </div>`;
+    </div>
+    <div id="cr-result"></div>`;
+}
+
+function generateCustomReport() {
+  const s = getState();
+  const type = document.getElementById('cr-type')?.value;
+  const from = document.getElementById('cr-from')?.value;
+  const to   = document.getElementById('cr-to')?.value;
+  const branchId = document.getElementById('cr-branch')?.value;
+  const branch = branchId ? (s.branches||[]).find(b=>b.id===branchId) : null;
+  const branchLabel = branch ? branch.name : 'All Branches';
+
+  const fromDate = from ? new Date(from + 'T00:00:00') : null;
+  const toDate   = to   ? new Date(to + 'T23:59:59')   : null;
+
+  function inRange(dateStr) {
+    if (!dateStr) return true;
+    const d = new Date(dateStr);
+    if (fromDate && d < fromDate) return false;
+    if (toDate   && d > toDate)   return false;
+    return true;
+  }
+
+  function matchBranch(item) {
+    if (!branchId) return true;
+    return item.branchId === branchId || item.branch_id === branchId;
+  }
+
+  let html = '';
+  const title = { sales: 'Sales Report', inventory: 'Inventory Report', orders: 'Orders Report', payroll: 'Payroll Summary' }[type] || 'Report';
+  const rangeLabel = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Time';
+
+  html += `<div class="data-card" style="margin-top:20px">
+    <div class="data-card-header">
+      <span class="data-card-title">${iconSvg('clipboard')} ${title} — ${branchLabel}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="text-sm text-muted">${rangeLabel}</span>
+        <button class="btn btn-sm btn-outline" onclick="printContent(document.getElementById('cr-report-body').innerHTML,'${title} — South Pafps')">${iconSvg('printer')} Print</button>
+      </div>
+    </div>
+    <div class="data-card-body" id="cr-report-body">`;
+
+  if (type === 'sales') {
+    const sales = (s.sales || []).filter(sale => !sale.voided && inRange(sale.createdAt) && matchBranch(sale));
+    const total = sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
+    const cash  = sales.reduce((sum, sale) => sum + (sale.cashReceived || sale.total || 0), 0);
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Transactions</div></div><div class="kpi-value">${sales.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div></div><div class="kpi-value">₱${fmt(total)}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Cash Collected</div></div><div class="kpi-value">₱${fmt(cash)}</div></div>
+    </div>
+    <table class="data-table"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th></tr></thead><tbody>
+    ${sales.length ? sales.map(sale => `<tr>
+      <td class="td-mono">${new Date(sale.createdAt).toLocaleString('en-PH')}</td>
+      <td class="td-mono">${sale.receiptNumber||sale.id||'—'}</td>
+      <td>${sale.customerName||'Walk-in'}</td>
+      <td>${(sale.items||[]).length}</td>
+      <td class="td-mono">₱${fmt(sale.total||0)}</td>
+      <td>${sale.paymentMode||'Cash'}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found for the selected filters.</td></tr>'}</tbody></table>`;
+
+  } else if (type === 'inventory') {
+    const products = (s.products || []).filter(p => !branchId || p.branchId === branchId);
+    const lowStock = products.filter(p => (p.stock||0) <= (p.lowStockThreshold||5));
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Products</div></div><div class="kpi-value">${products.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div></div><div class="kpi-value" style="color:var(--danger)">${lowStock.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Value</div></div><div class="kpi-value">₱${fmt(products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0))}</div></div>
+    </div>
+    <table class="data-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>
+    ${products.length ? products.map(p => `<tr>
+      <td><strong>${p.name||'—'}</strong></td>
+      <td>${p.category||'—'}</td>
+      <td class="td-mono">₱${fmt(p.price||0)}</td>
+      <td class="td-mono ${(p.stock||0)<=(p.lowStockThreshold||5)?'style="color:var(--danger);font-weight:700"':''}">${p.stock||0}</td>
+      <td>${(p.stock||0)<=(p.lowStockThreshold||5)?'<span class="badge badge-danger">Low Stock</span>':'<span class="badge badge-success">OK</span>'}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No products found.</td></tr>'}</tbody></table>`;
+
+  } else if (type === 'orders') {
+    const orders = (s.orders || []).filter(o => inRange(o.created_at) && matchBranch(o));
+    const totalRev = orders.reduce((sum,o)=>sum+(o.total_amount||0),0);
+    const totalBal = orders.reduce((sum,o)=>sum+(o.balance||0),0);
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Orders</div></div><div class="kpi-value">${orders.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div></div><div class="kpi-value">₱${fmt(totalRev)}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Balance Due</div></div><div class="kpi-value" style="color:var(--danger)">₱${fmt(totalBal)}</div></div>
+    </div>
+    <table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Date</th><th>Total</th><th>Balance</th><th>Status</th></tr></thead><tbody>
+    ${orders.length ? orders.map(o => `<tr>
+      <td class="td-mono">#${String(o.id).padStart(6,'0')}</td>
+      <td>${o.customer_name||'—'}</td>
+      <td class="td-mono">${o.created_at ? new Date(o.created_at).toLocaleDateString('en-PH') : '—'}</td>
+      <td class="td-mono">₱${fmt(o.total_amount||0)}</td>
+      <td class="td-mono" style="color:var(--danger)">₱${fmt(o.balance||0)}</td>
+      <td>${o.status||'—'}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No orders found.</td></tr>'}</tbody></table>`;
+
+  } else if (type === 'payroll') {
+    const employees = (s.users||[]).filter(u => u.role !== 'admin' && (!branchId || u.branchId === branchId));
+    html += `<table class="data-table"><thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Daily Rate</th><th>Shifts Worked</th><th>Gross Pay</th></tr></thead><tbody>
+    ${employees.length ? employees.map(emp => {
+      const shifts = (s.shifts||[]).filter(sh => sh.userId === emp.id && sh.status !== 'open' && inRange(sh.openedAt));
+      const gross = shifts.length * (emp.dailyRate||500);
+      const branchName = (s.branches||[]).find(b=>b.id===emp.branchId)?.name || '—';
+      return `<tr>
+        <td><strong>${emp.name||emp.username}</strong></td>
+        <td>${branchName}</td>
+        <td>${{staff:'Branch Staff',print:'Printing Personnel',admin:'Administrator'}[emp.role]||emp.role}</td>
+        <td class="td-mono">₱${fmt(emp.dailyRate||500)}</td>
+        <td class="td-mono">${shifts.length}</td>
+        <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(gross)}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No employees found.</td></tr>'}</tbody></table>`;
+  }
+
+  html += '</div></div>';
+  const el = document.getElementById('cr-result');
+  if (el) el.innerHTML = html;
 }
 
 // ── SYSTEM CONFIG ─────────────────────────────────────────────────
@@ -10312,7 +10709,7 @@ function renderLogoUpload() {
     </div>`;
 }
 
-// ── DISPATCH ──────────────────────────────────────────────────────
+// ── DISPATCH (existing) ──────────────────────────────────────────────────────
 function renderDispatch() {
   const orders = getOrders ? getOrders() : [];
   const dispatchOrders = orders.filter(o => o.status === 'dispatch');
@@ -10337,3 +10734,393 @@ function renderDispatch() {
     </div>`;
 }
 
+// ── OM CUSTOMER RECORDS (standalone sidebar page) ───────────────────────────
+function renderOmCustomerRecords() {
+  var s = getState();
+  var u = s.currentUser;
+  if (!u) { accessDenied('Customer Records'); return; }
+  // Redirect to OM with customers tab active
+  _omTab = 'customers';
+  sessionStorage.setItem('omTab', 'customers');
+  currentPage = 'orders'; // point current page at orders so nav/breadcrumb match
+  renderOrders();
+}
+
+// ── OM PAYMENT (standalone sidebar page) ────────────────────────────────────
+function renderOmPaymentPage() {
+  var s = getState();
+  var u = s.currentUser;
+  if (!u) { accessDenied('Payment'); return; }
+  _omTab = 'payment';
+  sessionStorage.setItem('omTab', 'payment');
+  currentPage = 'orders';
+  renderOrders();
+}
+
+// ── ADMIN REPORTS PAGE ───────────────────────────────────────────────────────
+function renderAdminReports() {
+  const s = getState();
+  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Reports'); return; }
+  const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  const staffSubmissions = submittedReports.filter(r => r.type === 'branch_staff');
+  const printSubmissions = submittedReports.filter(r => r.type === 'print_dept');
+  const allSubmissions = [...submittedReports].reverse();
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h1 class="page-title">Reports</h1><p class="page-subtitle">Report generator & submissions received from staff</p></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline" onclick="navigateTo('sales-reports')">${iconSvg('money')} Sales Reports</button>
+        <button class="btn btn-outline" onclick="navigateTo('inventory-reports')">${iconSvg('box')} Inventory</button>
+        <button class="btn btn-outline" onclick="navigateTo('custom-reports')">${iconSvg('clipboard')} Custom Report</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Submissions</div><div class="kpi-icon maroon">${iconSvg('clipboard')}</div></div><div class="kpi-value">${allSubmissions.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Branch Staff</div><div class="kpi-icon gold">${iconSvg('users')}</div></div><div class="kpi-value">${staffSubmissions.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Print Dept</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${printSubmissions.length}</div></div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header"><span class="data-card-title">Submitted Reports from Staff</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Date & Time</th><th>Submitted By</th><th>Role</th><th>Branch</th><th>Reports Included</th><th>Note</th><th>Action</th></tr></thead>
+          <tbody>${allSubmissions.length ? allSubmissions.map(r => {
+    const branch = s.branches.find(b => b.id === r.branchId);
+    const roleLabel = r.role === 'staff' ? 'Branch Staff' : r.role === 'print' ? 'Printing Dept' : r.role;
+    return `<tr>
+      <td class="td-mono">${new Date(r.submittedAt).toLocaleString('en-PH')}</td>
+      <td><strong>${r.submitterName || '—'}</strong></td>
+      <td><span class="badge badge-neutral">${roleLabel}</span></td>
+      <td>${branch?.name || 'All'}</td>
+      <td>${(r.reports || []).map(rp => `<span class="badge badge-info" style="margin-right:4px">${rp}</span>`).join('')}</td>
+      <td style="max-width:200px;font-size:12px;color:var(--ink-60)">${r.note || '—'}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="viewSubmittedReport('${r.id}')">View</button></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No reports submitted yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function viewSubmittedReport(reportId) {
+  const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  const r = submittedReports.find(x => x.id === reportId);
+  if (!r) return;
+  const s = getState();
+  const branch = s.branches.find(b => b.id === r.branchId);
+  showModal(`
+    <div class="modal-header"><h2>${iconSvg('clipboard')} Submitted Report</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div><div class="text-xs text-muted">Submitted By</div><div style="font-weight:600">${r.submitterName}</div></div>
+        <div><div class="text-xs text-muted">Date & Time</div><div>${new Date(r.submittedAt).toLocaleString('en-PH')}</div></div>
+        <div><div class="text-xs text-muted">Role</div><div>${r.role}</div></div>
+        <div><div class="text-xs text-muted">Branch</div><div>${branch?.name || 'N/A'}</div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="text-xs text-muted" style="margin-bottom:6px">Reports Included</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${(r.reports || []).map(rp => `<span class="badge badge-info">${rp}</span>`).join('')}</div>
+      </div>
+      ${r.note ? `<div><div class="text-xs text-muted" style="margin-bottom:4px">Note from Staff</div><div style="background:var(--cream);padding:10px;border-radius:var(--radius);font-size:13px">${r.note}</div></div>` : ''}
+    </div>
+    <div class="modal-footer"><button class="btn btn-maroon" onclick="closeModal()">Close</button></div>`);
+}
+
+// ── ADMIN PAYSLIP GENERATION ─────────────────────────────────────────────────
+function renderAdminPayslipGen() {
+  const s = getState();
+  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Payslip Generation'); return; }
+  const employees = s.users.filter(u => u.role !== 'admin');
+  const now = new Date();
+  const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+
+  const genPayslipRows = () => employees.map(emp => {
+    const dailyRate = emp.dailyRate || 500;
+    const timecards = (s.timecards || []).filter(tc => tc.userId === emp.id && tc.status === 'approved');
+    const leaves = (s.leaves || []).filter(l => l.userId === emp.id && l.status === 'approved');
+    const workingDays = 26;
+    const daysPresent = timecards.length;
+    const daysAbsent = Math.max(0, workingDays - daysPresent);
+    const grossPay = daysPresent * dailyRate;
+    const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
+    const phic = grossPay > 0 ? Math.round(grossPay * 0.025) : 0;
+    const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
+    const deductions = sss + phic + hdmf;
+    const netPay = grossPay - deductions;
+    return `<tr>
+      <td><strong>${emp.name || emp.username}</strong></td>
+      <td class="td-mono">₱${fmt(dailyRate)}</td>
+      <td class="td-mono">${daysPresent}</td>
+      <td class="td-mono" style="color:var(--danger)">${daysAbsent}</td>
+      <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(grossPay)}</td>
+      <td class="td-mono" style="color:var(--danger)">₱${fmt(deductions)}</td>
+      <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(netPay)}</td>
+      <td><button class="btn btn-sm btn-maroon" onclick="adminGeneratePayslipModal('${emp.id}')">Generate Payslip</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">Payslip Generation</h1>
+      <p class="page-subtitle">Generate and print payslips for ${monthLabel}</p>
+    </div>
+    <div class="data-card">
+      <div class="data-card-header"><span class="data-card-title">Employee Payroll — ${monthLabel}</span><span class="text-sm text-muted">26 working days assumed</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Employee</th><th>Daily Rate</th><th>Days Present</th><th>Days Absent</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr></thead>
+          <tbody>${employees.length ? genPayslipRows() : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">No employees found.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function adminGeneratePayslipModal(empId) {
+  const s = getState();
+  const emp = s.users.find(u => u.id === empId);
+  if (!emp) return;
+  const dailyRate = emp.dailyRate || 500;
+  const timecards = (s.timecards || []).filter(tc => tc.userId === emp.id && tc.status === 'approved');
+  const workingDays = 26;
+  const daysPresent = timecards.length;
+  const daysAbsent = Math.max(0, workingDays - daysPresent);
+  const grossPay = daysPresent * dailyRate;
+  const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
+  const phic = grossPay > 0 ? Math.round(grossPay * 0.025) : 0;
+  const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
+  const deductions = sss + phic + hdmf;
+  const netPay = grossPay - deductions;
+  const now = new Date();
+  const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  const branch = s.branches.find(b => b.id === emp.branchId);
+
+  const payslipHtml = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #ddd;border-radius:8px;overflow:hidden">
+      <div style="background:#7c1c3a;color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:18px;font-weight:700">SOUTH PAFPS PACKAGING SUPPLIES</div>
+          <div style="font-size:12px;opacity:0.8">Payslip — ${monthLabel}</div>
+        </div>
+        <div style="text-align:right;font-size:12px;opacity:0.8">
+          <div>${branch?.name || 'Branch'}</div>
+          <div>Generated: ${now.toLocaleDateString('en-PH')}</div>
+        </div>
+      </div>
+      <div style="padding:16px 20px;background:#f9f5f0;border-bottom:1px solid #ddd">
+        <div style="font-weight:600;font-size:15px">${emp.name || emp.username}</div>
+        <div style="font-size:12px;color:#666">${emp.role === 'staff' ? 'Branch Staff' : emp.role === 'print' ? 'Printing Personnel' : emp.role}</div>
+      </div>
+      <div style="padding:16px 20px">
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="background:#f0f0f0">
+            <th style="padding:8px;text-align:left;border:1px solid #ddd;font-size:12px">EARNINGS</th>
+            <th style="padding:8px;text-align:right;border:1px solid #ddd;font-size:12px">AMOUNT</th>
+            <th style="padding:8px;text-align:left;border:1px solid #ddd;font-size:12px">DEDUCTIONS</th>
+            <th style="padding:8px;text-align:right;border:1px solid #ddd;font-size:12px">AMOUNT</th>
+          </tr>
+          <tr>
+            <td style="padding:8px;border:1px solid #eee;font-size:13px">Basic Pay (${daysPresent} days × ₱${fmt(dailyRate)})</td>
+            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(grossPay)}</td>
+            <td style="padding:8px;border:1px solid #eee;font-size:13px">SSS</td>
+            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(sss)}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border:1px solid #eee"></td>
+            <td style="padding:8px;border:1px solid #eee"></td>
+            <td style="padding:8px;border:1px solid #eee;font-size:13px">PhilHealth</td>
+            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(phic)}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border:1px solid #eee"></td>
+            <td style="padding:8px;border:1px solid #eee"></td>
+            <td style="padding:8px;border:1px solid #eee;font-size:13px">Pag-IBIG</td>
+            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(hdmf)}</td>
+          </tr>
+          <tr style="background:#f9f5f0;font-weight:700">
+            <td style="padding:10px 8px;border:1px solid #ddd">GROSS PAY</td>
+            <td style="padding:10px 8px;border:1px solid #ddd;text-align:right">₱${fmt(grossPay)}</td>
+            <td style="padding:10px 8px;border:1px solid #ddd">TOTAL DEDUCTIONS</td>
+            <td style="padding:10px 8px;border:1px solid #ddd;text-align:right;color:#c0392b">₱${fmt(deductions)}</td>
+          </tr>
+        </table>
+        <div style="margin-top:12px;text-align:right;font-size:18px;font-weight:700;color:#7c1c3a">
+          NET PAY: ₱${fmt(netPay)}
+        </div>
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px;color:#666">
+          <div>Days Present: <strong>${daysPresent}</strong></div>
+          <div>Days Absent: <strong>${daysAbsent}</strong></div>
+        </div>
+      </div>
+      <div style="padding:12px 20px;background:#f9f5f0;text-align:center;font-size:11px;color:#999;border-top:1px solid #eee">
+        This is a system-generated payslip. For questions, contact your administrator.
+      </div>
+    </div>`;
+
+  showModal(`
+    <div class="modal-header"><h2>${iconSvg('money')} Payslip — ${emp.name || emp.username}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">${payslipHtml}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.querySelector('#modal-container .modal-body').innerHTML,'Payslip — ${(emp.name || emp.username).replace(/'/g, '')}')">🖨️ Print Payslip</button>
+    </div>`, 'modal-lg');
+
+  // Remove salary from table after generating payslip
+  if (!emp._payslipGenerated) {
+    emp._payslipGenerated = true;
+    saveState(s);
+  }
+}
+
+// ── PRINT JOB MANAGEMENT ──────────────────────────────────────────────────────
+function renderPrintJobManagement() {
+  const s = getState();
+  if (!s.currentUser || !['admin','print'].includes(s.currentUser.role)) { accessDenied('Job Management'); return; }
+  const orders = getOrders();
+  const inProdOrders = orders.filter(o => o.status === 'production' || o.status === 'pending');
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h1 class="page-title">Job Management</h1><p class="page-subtitle">Manage and track active print jobs</p></div>
+      <button class="btn btn-maroon" onclick="navigateTo('production')">View Production Queue</button>
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Active Jobs</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProdOrders.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${orders.filter(o=>o.status==='production').length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Start</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${orders.filter(o=>o.status==='pending').length}</div></div>
+    </div>
+    <div class="data-card">
+      <div class="data-card-header"><span class="data-card-title">Active Print Jobs</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Job #</th><th>Customer</th><th>Product</th><th>Qty</th><th>Status</th><th>Due Date</th><th>Actions</th></tr></thead>
+          <tbody>${inProdOrders.length ? [...inProdOrders].reverse().map(o => {
+    const isPastDue = o.due_date && new Date(o.due_date) < new Date() && o.status !== 'completed';
+    return `<tr ${isPastDue ? 'style="background:var(--danger-l)"' : ''}>
+      <td class="td-mono fw7">#${String(o.id).padStart(6,'0')}</td>
+      <td>${o.customer_name || '—'}</td>
+      <td>${o.product_type || o.product_category || '—'}</td>
+      <td class="td-mono">${o.quantity || '—'}</td>
+      <td>${statusBadge ? statusBadge(o.status) : o.status}</td>
+      <td class="td-mono ${isPastDue ? 'danger' : ''}">${o.due_date || '—'}</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="omViewOrderModal('${o.id}')">View</button>
+        <button class="btn btn-sm btn-maroon" onclick="omUpdateProductionModal && omUpdateProductionModal('${o.id}')">Update</button>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No active jobs.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── PRINT REPORTS PAGE (with send-to-admin) ───────────────────────────────────
+function renderPrintReports() {
+  const s = getState();
+  const u = s.currentUser;
+  if (!u || !['admin','print'].includes(u.role)) { accessDenied('Reports'); return; }
+  const orders = getOrders();
+  const today = new Date().toDateString();
+  const todayCompleted = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === today);
+  const inProd = orders.filter(o => o.status === 'production');
+  const pending = orders.filter(o => o.status === 'pending');
+  const qcPassed = orders.filter(o => o.qc_status === 'passed');
+  const qcFailed = orders.filter(o => o.qc_status === 'failed');
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">Reports</h1>
+      <p class="page-subtitle">Production & inventory reports — Printing Department</p>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed Today</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${todayCompleted.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProd.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">QC Pass Rate</div><div class="kpi-icon gold">${iconSvg('check')}</div></div><div class="kpi-value">${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(0) + '%' : '—'}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Orders</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${pending.length}</div></div>
+    </div>
+
+    <!-- Send Reports to Admin -->
+    <div class="data-card" style="margin-bottom:16px">
+      <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} Send Reports to Admin</span></div>
+      <div class="data-card-body">
+        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select reports to send to the Administrator:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="prpt-production" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Production Report</div><div style="font-size:12px;color:var(--ink-60)">Job completion & progress</div></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
+            <input type="checkbox" id="prpt-inventory" style="width:16px;height:16px;accent-color:var(--maroon)">
+            <div><div style="font-weight:600;font-size:13px">Inventory Report</div><div style="font-size:12px;color:var(--ink-60)">Printing materials stock levels</div></div>
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Note to Admin (optional)</label>
+          <textarea id="prpt-note" class="form-control" rows="2" placeholder="Any remarks for the admin..."></textarea>
+        </div>
+        <button class="btn btn-maroon" onclick="submitPrintReportsToAdmin()">Submit Reports to Admin</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">Today's Completed</span></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Qty</th></tr></thead>
+            <tbody>${todayCompleted.length ? todayCompleted.map(o => `<tr>
+              <td class="td-mono">${String(o.id).padStart(6, '0')}</td>
+              <td>${o.customer_name || '—'}</td>
+              <td>${o.product_type || o.product_category || '—'}</td>
+              <td>${o.quantity || '—'}</td>
+            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No orders completed today.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">Quality Summary</span></div>
+        <div class="data-card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div style="text-align:center;padding:16px;background:var(--success-l,#ecfdf5);border-radius:8px">
+              <div style="font-size:24px;font-weight:700;color:var(--success)">${qcPassed.length}</div>
+              <div style="font-size:12px;color:var(--ink-60)">QC Passed</div>
+            </div>
+            <div style="text-align:center;padding:16px;background:var(--danger-l,#fef2f2);border-radius:8px">
+              <div style="font-size:24px;font-weight:700;color:var(--danger)">${qcFailed.length}</div>
+              <div style="font-size:12px;color:var(--ink-60)">QC Failed</div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:var(--ink-60)">Overall QC Pass Rate: <strong>${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(1) + '%' : '—'}</strong></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function submitPrintReportsToAdmin() {
+  const s = getState();
+  const u = s.currentUser;
+  const selected = [];
+  if (document.getElementById('prpt-production')?.checked) selected.push('Production Report');
+  if (document.getElementById('prpt-inventory')?.checked) selected.push('Inventory Report');
+  if (!selected.length) { showToast('Please select at least one report.', 'error'); return; }
+  const note = document.getElementById('prpt-note')?.value?.trim() || '';
+  const entry = {
+    id: 'rpt_' + Date.now(),
+    submittedBy: u.id,
+    submitterName: u.name || u.username,
+    role: u.role,
+    branchId: u.branchId || null,
+    reports: selected,
+    note,
+    submittedAt: new Date().toISOString(),
+    type: 'print_dept',
+  };
+  const existing = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  existing.push(entry);
+  localStorage.setItem('submitted_reports', JSON.stringify(existing));
+  recordAudit(s, { action: 'print_reports_submitted', message: `${u.name} submitted print reports to admin: ${selected.join(', ')}`, userId: u.id });
+  saveState(s);
+  showToast('Reports submitted to Admin successfully!', 'success');
+}

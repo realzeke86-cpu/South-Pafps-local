@@ -12,13 +12,21 @@
 // ─────────────────────────────────────────────
 // CONFIG — adjust if your Laragon folder differs
 // ─────────────────────────────────────────────
-const API_BASE = 'http://localhost/South-Pafps/api';
+const API_BASE = window.location.origin.includes('localhost')
+  ? 'http://localhost/South-Pafps/api'
+  : window.location.origin + '/api';
 
 // ─────────────────────────────────────────────
 // Low-level fetch helpers
 // ─────────────────────────────────────────────
+// Common headers for all API requests — bypasses ngrok browser-warning interstitial
+const API_HEADERS = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};
+
 async function apiGet(path) {
-  const res = await fetch(API_BASE + path);
+  const res = await fetch(API_BASE + path, { headers: API_HEADERS });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'API error');
   return json.data;
@@ -27,7 +35,7 @@ async function apiGet(path) {
 async function apiPost(path, body) {
   const res = await fetch(API_BASE + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: API_HEADERS,
     body: JSON.stringify(body),
   });
   const json = await res.json();
@@ -38,7 +46,7 @@ async function apiPost(path, body) {
 async function apiPut(path, body) {
   const res = await fetch(API_BASE + path, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: API_HEADERS,
     body: JSON.stringify(body),
   });
   const json = await res.json();
@@ -47,7 +55,7 @@ async function apiPut(path, body) {
 }
 
 async function apiDelete(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE' });
+  const res = await fetch(API_BASE + path, { method: 'DELETE', headers: API_HEADERS });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'API error');
   return json.data;
@@ -79,27 +87,28 @@ window.loadStateFromServer = async function () {
     const localOnlyCms = (local.cashMovements || []).filter(c => !serverCmIds.has(c.id));
     const mergedCashMovements = [...(serverState.cashMovements || []), ...localOnlyCms];
 
-    // Sync om_customers from server so DB deletions/additions are reflected on reload
-    const serverCustomers = serverState.customers || [];
-    const omCustomers = serverCustomers.map(c => ({
-      id: c.id,
-      businessName: c.companyName || c.company_name || '',
-      contactPerson: c.contactPerson || c.contact_person || '',
-      phone: c.phone || '',
-      email: c.email || '',
-      address: c.address || '',
-      notes: c.notes || '',
-      modeOfPayment: c.modeOfPayment || '',
-      modeOfDelivery: c.modeOfDelivery || '',
-      branchStaff: c.branchStaff || '',
-      createdAt: c.createdAt || c.created_at || '',
-    }));
-    localStorage.setItem('om_customers', JSON.stringify(omCustomers));
+    // Sync om_customers from state response (state.php now returns omCustomers directly)
+    if (serverState.omCustomers && serverState.omCustomers.length >= 0) {
+      const omCustomers = (serverState.omCustomers || []).map(c => ({
+        id: c.id,
+        businessName: c.businessName || '',
+        contactPerson: c.contactPerson || '',
+        phone: c.phone || '',
+        email: c.email || '',
+        address: c.address || '',
+        notes: c.notes || '',
+        modeOfPayment: c.modeOfPayment || '',
+        modeOfDelivery: c.modeOfDelivery || '',
+        branchStaff: c.branchStaff || '',
+        createdAt: c.createdAt || '',
+      }));
+      localStorage.setItem('om_customers', JSON.stringify(omCustomers));
+    }
 
     // Merge shiftSchedules: server is source of truth, but keep any local keys
     // that the server doesn't know about yet (optimistic saves not yet confirmed)
     const serverSchedules = serverState.shiftSchedules || {};
-    const localSchedules  = local.shiftSchedules || {};
+    const localSchedules = local.shiftSchedules || {};
     const mergedSchedules = { ...localSchedules, ...serverSchedules }; // server wins on conflict
 
     const merged = {
@@ -445,6 +454,34 @@ DB.deleteCustomer = async function (id) {
     await apiDelete('/customers/' + id);
   } catch (e) {
     console.error('[DB] deleteCustomer failed:', e.message);
+  }
+};
+
+
+// ─────────────────────────────────────────────
+// OM Customers (Order Management — separate from POS customers)
+// ─────────────────────────────────────────────
+DB.saveOMCustomer = async function (customer) {
+  try {
+    await apiPost('/om-customers', customer);
+  } catch (e) {
+    console.error('[DB] saveOMCustomer failed:', e.message);
+  }
+};
+
+DB.updateOMCustomer = async function (id, payload) {
+  try {
+    await apiPut('/om-customers/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updateOMCustomer failed:', e.message);
+  }
+};
+
+DB.deleteOMCustomer = async function (id) {
+  try {
+    await apiDelete('/om-customers/' + id);
+  } catch (e) {
+    console.error('[DB] deleteOMCustomer failed:', e.message);
   }
 };
 
