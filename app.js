@@ -41,7 +41,7 @@ function printContent(html, title) {
     </style>
   </head><body>${html}</body></html>`);
   doc.close();
-  setTimeout(function() { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 300);
+  setTimeout(function () { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 300);
 }
 
 function getOrders() {
@@ -183,6 +183,7 @@ function normalizeState(state) {
   state.handoverNotes = Array.isArray(state.handoverNotes) ? state.handoverNotes : [];
   state.timecards = Array.isArray(state.timecards) ? state.timecards : [];
   state.leaves = Array.isArray(state.leaves) ? state.leaves : [];
+  state.payslips = Array.isArray(state.payslips) ? state.payslips : [];
   state.printProducts = Array.isArray(state.printProducts) ? state.printProducts : [];
   state.dashboardPrefs = state.dashboardPrefs && typeof state.dashboardPrefs === 'object' ? state.dashboardPrefs : {};
   state.posDraft = state.posDraft && typeof state.posDraft === 'object' ? state.posDraft : {};
@@ -530,12 +531,22 @@ async function doLogin() {
 
 function doLogout() {
   closeAccountMenu();
-  const s = getState();
-  if (s.currentUser) recordAudit(s, { action: 'logout', message: `User logged out: ${s.currentUser.username}`, userId: s.currentUser.id, branchId: s.currentUser.branchId || null });
-  s.currentUser = null;
-  saveState(s);
-  localStorage.removeItem('pos_currentUser');
-  showLogin();
+  confirmModal({
+    title: 'Sign Out',
+    message: 'Are you sure you want to sign out of your account?',
+    confirmText: 'Sign Out',
+    cancelText: 'Stay',
+    icon: '🔒',
+    danger: false,
+    onConfirm: function () {
+      const s = getState();
+      if (s.currentUser) recordAudit(s, { action: 'logout', message: `User logged out: ${s.currentUser.username}`, userId: s.currentUser.id, branchId: s.currentUser.branchId || null });
+      s.currentUser = null;
+      saveState(s);
+      localStorage.removeItem('pos_currentUser');
+      showLogin();
+    }
+  });
 }
 
 function toggleAccountMenu(event) {
@@ -567,15 +578,17 @@ function getNavItems() {
 
     { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'orders' },
 
+    { type: 'item', id: 'customer-records', icon: 'users', label: 'Customer Records', page: 'customer-records' },
+
     {
       type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
-        { id: 'employee-records', icon: 'users',    label: 'Employee Records',  page: 'employee-records' },
-        { id: 'schedule',         icon: 'calendar', label: 'Scheduling',        page: 'shift-schedule' },
+        { id: 'employee-records', icon: 'users', label: 'Employee Records', page: 'employee-records' },
+        { id: 'schedule', icon: 'calendar', label: 'Scheduling', page: 'shift-schedule' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards',        icon: 'clock',    label: 'Time Cards',        page: 'timecards' },
-            { id: 'leave-mgmt',       icon: 'receipt',  label: 'Leave Management',  page: 'leave-management' },
-            { id: 'admin-payslip-gen',icon: 'money',    label: 'Payslip Generation', page: 'admin-payslip-gen' },
+            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
+            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Management', page: 'leave-management' },
+            { id: 'admin-payslip-gen', icon: 'money', label: 'Payslip Generation', page: 'admin-payslip-gen' },
           ]
         },
       ]
@@ -585,8 +598,8 @@ function getNavItems() {
 
     {
       type: 'group', id: 'settings', icon: 'key', label: 'Settings', page: 'users', children: [
-        { id: 'users',          icon: 'key',  label: 'User & Role Management', page: 'users' },
-        { id: 'system-config',  icon: 'home', label: 'System Settings',        page: 'system-config' },
+        { id: 'users', icon: 'key', label: 'User & Role Management', page: 'users' },
+        { id: 'system-config', icon: 'home', label: 'System Settings', page: 'system-config' },
       ]
     },
   ];
@@ -597,22 +610,24 @@ function getNavItems() {
 
     {
       type: 'group', id: 'pos-group', icon: 'cart', label: 'POS', page: 'pos', children: [
-        { id: 'inventory',    icon: 'box',       label: 'Inventory',       page: 'inventory' },
+        { id: 'inventory', icon: 'box', label: 'Inventory', page: 'inventory' },
         { id: 'pos-receipts', icon: 'clipboard', label: 'Receipt History', page: 'pos-receipts' },
-        { id: 'cash-movement',icon: 'money',     label: 'Cash Movement',   page: 'shift' },
+        { id: 'cash-movement', icon: 'money', label: 'Cash Movement', page: 'shift' },
       ]
     },
 
     { type: 'item', id: 'orders-group', icon: 'clipboard', label: 'Order Management', page: 'orders' },
 
+    { type: 'item', id: 'customer-records', icon: 'users', label: 'Customer Records', page: 'customer-records' },
+
     {
-      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
-        { id: 'schedule',    icon: 'calendar', label: 'Schedule',         page: 'shift-schedule' },
+      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
+        { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
-            { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Application', page: 'leave-management' },
-            { id: 'payslip',     icon: 'money',    label: 'Payslip',          page: 'payslip' },
+            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
+            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Application', page: 'leave-management' },
+            { id: 'payslip', icon: 'money', label: 'Payslip', page: 'payslip' },
           ]
         },
       ]
@@ -629,21 +644,21 @@ function getNavItems() {
 
     {
       type: 'group', id: 'production-group', icon: 'printer', label: 'Production', page: 'production', children: [
-        { id: 'production',      icon: 'box',      label: 'Production Queue',           page: 'production' },
-        { id: 'job-management',  icon: 'clipboard',label: 'Job Management',             page: 'print-job-management' },
-        { id: 'quality-control', icon: 'check',    label: 'Quality Control',            page: 'print-qc' },
-        { id: 'print-materials', icon: 'box',      label: 'Printing Materials Inventory', page: 'print-materials' },
+        { id: 'production', icon: 'box', label: 'Production Queue', page: 'production' },
+        { id: 'job-management', icon: 'clipboard', label: 'Job Management', page: 'print-job-management' },
+        { id: 'quality-control', icon: 'check', label: 'Quality Control', page: 'print-qc' },
+        { id: 'print-materials', icon: 'box', label: 'Printing Materials Inventory', page: 'print-materials' },
       ]
     },
 
     {
-      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
-        { id: 'schedule',    icon: 'calendar', label: 'Schedule',          page: 'shift-schedule' },
+      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
+        { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards',   icon: 'clock',    label: 'Time Cards',       page: 'timecards' },
-            { id: 'leave-mgmt',  icon: 'receipt',  label: 'Leave Application', page: 'leave-management' },
-            { id: 'payslip',     icon: 'money',    label: 'Payslip',          page: 'print-payslip' },
+            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
+            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Application', page: 'leave-management' },
+            { id: 'payslip', icon: 'money', label: 'Payslip', page: 'print-payslip' },
           ]
         },
       ]
@@ -738,65 +753,66 @@ function buildSidebar() {
 // Page-level permission map
 var PAGE_PERMISSIONS = {
   // All roles
-  'dashboard':          ['admin', 'staff', 'print'],
-  'shift':              ['admin', 'staff'],
-  'receipts':           ['admin', 'staff', 'print'],
-  'shift-schedule':     ['admin', 'staff', 'print'],
-  'timecards':          ['admin', 'staff', 'print'],
-  'leave-management':   ['admin', 'staff', 'print'],
-  'payslip':            ['admin', 'staff', 'print'],
-  'payslip-history':    ['admin', 'staff', 'print'],
+  'dashboard': ['admin', 'staff', 'print'],
+  'shift': ['admin', 'staff'],
+  'receipts': ['admin', 'staff', 'print'],
+  'shift-schedule': ['admin', 'staff', 'print'],
+  'timecards': ['admin', 'staff', 'print'],
+  'leave-management': ['admin', 'staff', 'print'],
+  'payslip': ['admin', 'staff', 'print'],
+  'payslip-history': ['admin', 'staff', 'print'],
 
   // Admin + Staff
-  'pos':                ['admin', 'staff'],
-  'pos-customers':      ['admin', 'staff'],
-  'pos-receipts':       ['admin', 'staff'],
-  'customers':          ['admin', 'staff'],
-  'orders':             ['admin', 'staff', 'print'],
-  'pickup':             ['admin', 'staff', 'print'],
-  'production':         ['admin', 'staff', 'print'],
-  'dispatch':           ['admin', 'staff', 'print'],
-  'logo-upload':        ['admin', 'print'],
-  'product-mgmt':       ['admin'],
-  'product-catalog':    ['admin'],
-  'categories':         ['admin'],
-  'inventory':          ['admin', 'staff'],
-  'branch-inv-overview':['admin'],
-  'pos-overview':       ['admin'],
-  'branch-reports':     ['admin'],
-  'receiving':          ['admin'],
-  'personnel-mgmt':     ['admin', 'staff', 'print'],
-  'employee-records':   ['admin'],
-  'payroll':            ['admin', 'staff', 'print'],
-  'reconcile':          ['admin'],
-  'reports':            ['admin', 'staff', 'print'],
-  'admin-reports':      ['admin'],
-  'sales-reports':      ['admin'],
-  'inventory-reports':  ['admin'],
-  'custom-reports':     ['admin'],
-  'audit':              ['admin'],
-  'transfers':          ['admin'],
-  'users':              ['admin'],
-  'system-config':      ['admin'],
-  'branches':           ['admin'],
-  'sales':              ['admin', 'staff'],
-  'staff-reports':      ['admin', 'staff'],
+  'pos': ['admin', 'staff'],
+  'pos-customers': ['admin', 'staff'],
+  'pos-receipts': ['admin', 'staff'],
+  'customers': ['admin', 'staff'],
+  'orders': ['admin', 'staff', 'print'],
+  'pickup': ['admin', 'staff', 'print'],
+  'production': ['admin', 'staff', 'print'],
+  'dispatch': ['admin', 'staff', 'print'],
+  'logo-upload': ['admin', 'print'],
+  'product-mgmt': ['admin'],
+  'product-catalog': ['admin'],
+  'categories': ['admin'],
+  'inventory': ['admin', 'staff'],
+  'branch-inv-overview': ['admin'],
+  'pos-overview': ['admin'],
+  'branch-reports': ['admin'],
+  'receiving': ['admin'],
+  'personnel-mgmt': ['admin', 'staff', 'print'],
+  'employee-records': ['admin'],
+  'payroll': ['admin', 'staff', 'print'],
+  'reconcile': ['admin'],
+  'reports': ['admin', 'staff', 'print'],
+  'admin-reports': ['admin'],
+  'sales-reports': ['admin'],
+  'inventory-reports': ['admin'],
+  'custom-reports': ['admin'],
+  'audit': ['admin'],
+  'transfers': ['admin'],
+  'users': ['admin'],
+  'system-config': ['admin'],
+  'branches': ['admin'],
+  'sales': ['admin', 'staff'],
+  'staff-reports': ['admin', 'staff'],
 
   // Order Management pages
-  'om-customer-records':['admin', 'staff'],
-  'om-payment':         ['admin', 'staff'],
+  'om-customer-records': ['admin', 'staff'],
+  'om-payment': ['admin', 'staff'],
+  'customer-records': ['admin', 'staff'],
 
   // Admin payslip generation
-  'admin-payslip-gen':  ['admin'],
+  'admin-payslip-gen': ['admin'],
 
   // Print
-  'print-orders':       ['admin', 'print'],
-  'print-qc':           ['admin', 'print'],
-  'print-job-management':['admin', 'print'],
-  'print-personnel':    ['print'],
-  'print-payslip':      ['admin', 'staff', 'print'],
-  'print-materials':    ['admin', 'print'],
-  'print-reports':      ['admin', 'print'],
+  'print-orders': ['admin', 'print'],
+  'print-qc': ['admin', 'print'],
+  'print-job-management': ['admin', 'print'],
+  'print-personnel': ['print'],
+  'print-payslip': ['admin', 'staff', 'print'],
+  'print-materials': ['admin', 'print'],
+  'print-reports': ['admin', 'print'],
 };
 
 function canAccess(page) {
@@ -824,7 +840,7 @@ function accessDenied(label) {
 
 function toggleGroup(id, page) {
   expandedGroups[id] = !expandedGroups[id];
-  if (expandedGroups[id]) navigateTo(page);
+  if (expandedGroups[id] && page) navigateTo(page);
   buildSidebar();
 }
 
@@ -877,7 +893,7 @@ function navigateTo(page) {
     'pos': renderPOS,
     'customers': renderCustomers,
     'pos-customers': renderPosCustomers,
-    'pos-receipts':  renderPosReceipts,
+    'pos-receipts': renderPosReceipts,
     'orders': renderOrders,
     'production': renderProductionOversight,
     'pickup': renderReadyForPickup,
@@ -920,6 +936,7 @@ function navigateTo(page) {
     'dispatch': renderDispatch,
     'om-customer-records': renderOmCustomerRecords,
     'om-payment': renderOmPaymentPage,
+    'customer-records': renderCustomerRecordsManagement,
     'admin-reports': renderAdminReports,
     'print-reports': renderPrintReports,
     'admin-payslip-gen': renderAdminPayslipGen,
@@ -975,6 +992,7 @@ function navigateTo(page) {
     'print-reports': 'Reports',
     'om-customer-records': 'Customer Records',
     'om-payment': 'Payment',
+    'customer-records': 'Customer Records',
     'admin-reports': 'Reports',
     'admin-payslip-gen': 'Payslip Generation',
   };
@@ -1263,7 +1281,7 @@ function renderPOS() {
           <div id="pos-selected-customer" class="pos-customer-strip${draft.customerId ? '' : ' hidden'}">
             <div class="pos-customer-strip-name">
               ${iconSvg('users')}
-              <span id="pos-selected-customer-name">${draft.customerId ? (s.customers.find(c=>c.id===draft.customerId)?.companyName||'') : ''}</span>
+              <span id="pos-selected-customer-name">${draft.customerId ? (s.customers.find(c => c.id === draft.customerId)?.companyName || '') : ''}</span>
             </div>
             <button class="btn-icon" onclick="posRemoveCustomer()" title="Remove customer">✕</button>
           </div>
@@ -1606,10 +1624,18 @@ function changeQty(idx, delta) {
 }
 
 function clearCart() {
-  const s = getState();
-  s.cart = [];
-  saveState(s);
-  refreshCart();
+  confirmModal({
+    title: 'Clear Cart',
+    message: 'Are you sure you want to remove all items from the cart?',
+    confirmText: 'Clear Cart',
+    icon: '🛒',
+    onConfirm: function () {
+      const s = getState();
+      s.cart = [];
+      saveState(s);
+      refreshCart();
+    }
+  });
 }
 
 function refreshCart() {
@@ -1934,7 +1960,7 @@ function closeShiftModal() {
   const s = getState();
   const u = s.currentUser;
   const myShift = s.shifts.find(x => x.userId === u.id && x.status === 'open');
-  const openedAt = myShift ? new Date(myShift.openedAt).toLocaleTimeString('en-PH', {hour:'2-digit',minute:'2-digit'}) : '—';
+  const openedAt = myShift ? new Date(myShift.openedAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }) : '—';
   const cashSales = myShift ? (s.sales || []).filter(x => !x.voided && x.shiftId === myShift.id)
     .reduce((sum, sale) => sum + (sale.payments?.find(p => p.method === 'cash')?.amount || 0), 0) : 0;
   showModal(`<div class="modal-header"><h2>Close Shift</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
@@ -2055,7 +2081,7 @@ function voidSaleModal(saleId) {
   const s = getState();
   const sale = s.sales.find(x => x.id === saleId);
   const saleTotal = sale ? `₱${fmt(sale.total)}` : '—';
-  const saleDate = sale ? new Date(sale.createdAt).toLocaleString('en-PH', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+  const saleDate = sale ? new Date(sale.createdAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
   showModal(`<div class="modal-header"><h2>Void Sale</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class="alert alert-error-box" style="margin-bottom:16px">${iconSvg('warning')} <strong>This cannot be undone.</strong> Stock will be restored automatically.</div>
@@ -2117,14 +2143,24 @@ function confirmVoid(saleId) {
 
 // PRODUCT MANAGEMENT
 function deleteProduct(pid) {
-  if (!confirm('Delete this product? This cannot be undone.')) return;
   const s = getState();
   if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can delete products.', 'error'); return; }
-  s.products = s.products.filter(p => p.id !== pid);
-  saveState(s);
-  DB.deleteProduct(pid);
-  showToast('Product deleted!', 'success');
-  renderProductMgmt();
+  const prod = s.products.find(p => p.id === pid);
+  const prodName = prod ? (prod.productType || prod.name || 'this product') : 'this product';
+  confirmModal({
+    title: 'Delete Product',
+    message: `Are you sure you want to delete <strong>${prodName}</strong>? This action cannot be undone.`,
+    confirmText: 'Delete Product',
+    icon: '🗑️',
+    onConfirm: function () {
+      const s2 = getState();
+      s2.products = s2.products.filter(p => p.id !== pid);
+      saveState(s2);
+      DB.deleteProduct(pid);
+      showToast('Product deleted!', 'success');
+      renderProductMgmt();
+    }
+  });
 }
 
 var _pmTab = 'branch'; // 'branch' | 'print'
@@ -2192,7 +2228,7 @@ function _renderProductMgmtPage() {
   setPageHtml(page, navId,
     '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">' +
     '<div><h1 class="page-title">' + (page === 'product-catalog' ? 'Product Catalog' : 'Product Management') + '</h1><p class="page-subtitle">' +
-      (isBranch ? products.length + ' branch products \u00b7 ' + totalVariants + ' variants' : printProducts.length + ' printing materials \u00b7 ' + totalPrintVariants + ' variants') +
+    (isBranch ? products.length + ' branch products \u00b7 ' + totalVariants + ' variants' : printProducts.length + ' printing materials \u00b7 ' + totalPrintVariants + ' variants') +
     '</p></div>' +
     (isBranch
       ? '<button class="btn btn-maroon" onclick="addProductModal()">+ Add Branch Product</button>'
@@ -2278,22 +2314,22 @@ function editPrintProductModal(pid) {
   const errSvg = iconSvg('error');
   const varRows = p.variants.map(v =>
     '<div class="product-form-variant-row" data-vid="' + v.id + '" style="grid-template-columns:1.2fr 0.8fr 0.8fr 0.7fr 0.8fr 0.6fr 0.5fr auto;gap:8px;margin-bottom:8px">'
-    + '<input class="form-control vn-name" value="' + (v.name||''   ).replace(/"/g,'&quot;') + '" placeholder="Variant name">'
-    + '<input class="form-control vn-size" value="' + (v.size||''   ).replace(/"/g,'&quot;') + '" placeholder="Size">'
-    + '<input class="form-control vn-color" value="' + (v.color||''  ).replace(/"/g,'&quot;') + '" placeholder="Color name">'
-    + '<input class="form-control vn-colorhex" value="' + (v.colorHex||'').replace(/"/g,'&quot;') + '" placeholder="#000000" style="font-family:monospace">'
-    + '<input class="form-control vn-sku" value="' + (v.sku||''    ).replace(/"/g,'&quot;') + '" placeholder="SKU">'
-    + '<input class="form-control vn-price" type="number" value="' + (v.price||0) + '" placeholder="Unit Cost">'
-    + '<input class="form-control vn-stock" type="number" value="' + (v.stock||0) + '" placeholder="Stock">'
+    + '<input class="form-control vn-name" value="' + (v.name || '').replace(/"/g, '&quot;') + '" placeholder="Variant name">'
+    + '<input class="form-control vn-size" value="' + (v.size || '').replace(/"/g, '&quot;') + '" placeholder="Size">'
+    + '<input class="form-control vn-color" value="' + (v.color || '').replace(/"/g, '&quot;') + '" placeholder="Color name">'
+    + '<input class="form-control vn-colorhex" value="' + (v.colorHex || '').replace(/"/g, '&quot;') + '" placeholder="#000000" style="font-family:monospace">'
+    + '<input class="form-control vn-sku" value="' + (v.sku || '').replace(/"/g, '&quot;') + '" placeholder="SKU">'
+    + '<input class="form-control vn-price" type="number" value="' + (v.price || 0) + '" placeholder="Unit Cost">'
+    + '<input class="form-control vn-stock" type="number" value="' + (v.stock || 0) + '" placeholder="Stock">'
     + '<button class="btn-icon" style="color:var(--danger)" onclick="this.closest(\'.product-form-variant-row\').remove()" title="Remove variant">' + errSvg + '</button>'
     + '</div>'
   ).join('');
   showModal(
     '<div class="modal-header"><h2>Edit Printing Material</h2><button class="btn-close-modal" onclick="closeModal()">&#x2715;</button></div>'
     + '<div class="modal-body">'
-    + '<div class="form-group"><label>Material Type</label><input id="pep-type" class="form-control" value="' + (p.materialType||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Ink, Paper, Plate"></div>'
-    + '<div class="form-group"><label>Material Name</label><input id="pep-name" class="form-control" value="' + p.name.replace(/"/g,'&quot;') + '"></div>'
-    + '<div class="form-group"><label>Description</label><input id="pep-desc" class="form-control" value="' + (p.desc||'').replace(/"/g,'&quot;') + '"></div>'
+    + '<div class="form-group"><label>Material Type</label><input id="pep-type" class="form-control" value="' + (p.materialType || '').replace(/"/g, '&quot;') + '" placeholder="e.g. Ink, Paper, Plate"></div>'
+    + '<div class="form-group"><label>Material Name</label><input id="pep-name" class="form-control" value="' + p.name.replace(/"/g, '&quot;') + '"></div>'
+    + '<div class="form-group"><label>Description</label><input id="pep-desc" class="form-control" value="' + (p.desc || '').replace(/"/g, '&quot;') + '"></div>'
     + '<hr class="divider">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="font-size:14px">Variants</strong><button class="btn btn-sm btn-outline" onclick="addPrintEditVariantRow()">+ Add Variant</button></div>'
     + '<div style="font-size:11px;color:var(--ink-50);margin-bottom:10px">Name &middot; Size &middot; Color &middot; Color Hex &middot; SKU &middot; Unit Cost &middot; Stock</div>'
@@ -2357,13 +2393,23 @@ function togglePrintProduct(pid) {
 }
 
 function deletePrintProduct(pid) {
-  if (!confirm('Delete this printing material? This cannot be undone.')) return;
   const s = getState();
-  s.printProducts = (s.printProducts || []).filter(p => p.id !== pid);
-  saveState(s);
-  showToast('Printing material deleted!', 'success');
-  _pmTab = 'print';
-  _renderProductMgmtPage();
+  const prod = (s.printProducts || []).find(p => p.id === pid);
+  const prodName = prod ? (prod.name || 'this printing material') : 'this printing material';
+  confirmModal({
+    title: 'Delete Printing Material',
+    message: `Are you sure you want to delete <strong>${prodName}</strong>? This action cannot be undone.`,
+    confirmText: 'Delete Material',
+    icon: '🗑️',
+    onConfirm: function () {
+      const s2 = getState();
+      s2.printProducts = (s2.printProducts || []).filter(p => p.id !== pid);
+      saveState(s2);
+      showToast('Printing material deleted!', 'success');
+      _pmTab = 'print';
+      _renderProductMgmtPage();
+    }
+  });
 }
 
 
@@ -2504,8 +2550,8 @@ function editProductModal(pid) {
   showModal(`<div class="modal-header"><h2>Edit Product</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class="form-group"><label>Product Type</label><input id="ep-type" class="form-control" value="${p.productType || ''}" placeholder="e.g. Cup, Box, Bag"></div>
-      <div class="form-group"><label>Product Name</label><input id="ep-name" class="form-control" value="${p.name.replace(/"/g,'&quot;')}"></div>
-      <div class="form-group"><label>Description</label><input id="ep-desc" class="form-control" value="${(p.desc||'').replace(/"/g,'&quot;')}"></div>
+      <div class="form-group"><label>Product Name</label><input id="ep-name" class="form-control" value="${p.name.replace(/"/g, '&quot;')}"></div>
+      <div class="form-group"><label>Description</label><input id="ep-desc" class="form-control" value="${(p.desc || '').replace(/"/g, '&quot;')}"></div>
       <hr class="divider">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <strong style="font-size:14px">Variants</strong>
@@ -2513,9 +2559,9 @@ function editProductModal(pid) {
       </div>
       <div style="font-size:11px;color:var(--ink-50);margin-bottom:10px">Name · Size · SKU · Price · Stock</div>
       <div id="ep-variant-rows">${p.variants.map(v => `<div class="product-form-variant-row" data-vid="${v.id}" style="grid-template-columns:1.4fr 100px 100px 90px 80px auto;gap:8px;margin-bottom:8px">
-        <input class="form-control vn-name" value="${v.name.replace(/"/g,'&quot;')}" placeholder="Variant name">
-        <input class="form-control vn-size" value="${(v.size||'').replace(/"/g,'&quot;')}" placeholder="Size">
-        <input class="form-control vn-sku" value="${(v.sku||'').replace(/"/g,'&quot;')}" placeholder="SKU">
+        <input class="form-control vn-name" value="${v.name.replace(/"/g, '&quot;')}" placeholder="Variant name">
+        <input class="form-control vn-size" value="${(v.size || '').replace(/"/g, '&quot;')}" placeholder="Size">
+        <input class="form-control vn-sku" value="${(v.sku || '').replace(/"/g, '&quot;')}" placeholder="SKU">
         <input class="form-control vn-price" type="number" value="${v.price}" placeholder="Price">
         <input class="form-control vn-stock" type="number" value="${v.stock}" placeholder="Stock">
         <button class="btn-icon" style="color:var(--danger)" onclick="this.closest('.product-form-variant-row').remove()" title="Remove variant">${errSvg}</button>
@@ -2593,7 +2639,7 @@ function _renderInventoryPage() {
   };
 
   const totalVariants = allVariants.length;
-  const lowStockCount  = allVariants.filter(({ v, reorderLevel }) => { const st = stockFor(v); return st > 0 && st <= reorderLevel; }).length;
+  const lowStockCount = allVariants.filter(({ v, reorderLevel }) => { const st = stockFor(v); return st > 0 && st <= reorderLevel; }).length;
   const outOfStockCount = allVariants.filter(({ v }) => stockFor(v) === 0).length;
   const healthyCount = totalVariants - lowStockCount - outOfStockCount;
 
@@ -2609,9 +2655,9 @@ function _renderInventoryPage() {
     const lvl = st === 0 ? 'out' : st <= reorderLevel ? 'low' : 'ok';
     const matchStatus =
       _invFilter.status === 'all' ? true :
-      _invFilter.status === 'low' ? lvl === 'low' :
-      _invFilter.status === 'out' ? lvl === 'out' :
-      _invFilter.status === 'ok'  ? lvl === 'ok'  : true;
+        _invFilter.status === 'low' ? lvl === 'low' :
+          _invFilter.status === 'out' ? lvl === 'out' :
+            _invFilter.status === 'ok' ? lvl === 'ok' : true;
     return matchSearch && matchStatus;
   });
 
@@ -2629,6 +2675,7 @@ function _renderInventoryPage() {
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h1 class="page-title">Branch Inventory</h1><p class="page-subtitle">${isAdmin ? 'Stock monitoring · ' + branchLabel : 'Your branch stock — ' + branchLabel}</p></div>
+      ${isAdmin ? `<div style="display:flex;gap:8px"><button class="btn btn-maroon" onclick="addStockModal()">+ Add Stock</button></div>` : ''}
     </div>
     <div class="kpi-grid">
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Variants</div><div class="kpi-icon blue">${iconSvg('box')}</div></div><div class="kpi-value">${totalVariants}</div><div class="kpi-sub">${s.products.filter(p => p.active).length} active products</div></div>
@@ -2650,7 +2697,7 @@ function _renderInventoryPage() {
         ${branchSelector}
         <select class="form-control" style="width:auto" onchange="_invFilter.status=this.value;_renderInventoryPage()">
           <option value="all" ${_invFilter.status === 'all' ? 'selected' : ''}>All Stock</option>
-          <option value="ok"  ${_invFilter.status === 'ok'  ? 'selected' : ''}>Healthy</option>
+          <option value="ok"  ${_invFilter.status === 'ok' ? 'selected' : ''}>Healthy</option>
           <option value="low" ${_invFilter.status === 'low' ? 'selected' : ''}>Low Stock</option>
           <option value="out" ${_invFilter.status === 'out' ? 'selected' : ''}>Out of Stock</option>
         </select>
@@ -2662,8 +2709,8 @@ function _renderInventoryPage() {
             <th>Product Type</th>
             <th>Size / Variant</th>
             ${showBranchCols
-              ? s.branches.map(b => `<th style="text-align:center">${b.name}</th>`).join('')
-              : '<th>Stock</th>'}
+      ? s.branches.map(b => `<th style="text-align:center">${b.name}</th>`).join('')
+      : '<th>Stock</th>'}
             <th>Reorder Pt.</th>
             <th>Max Stock</th>
             <th>Last Count</th>
@@ -2684,17 +2731,17 @@ function _renderInventoryPage() {
             ? '<span class="badge badge-warning">Low Stock</span>'
             : '<span class="badge badge-success">Healthy</span>';
         const lastCount = v.lastCountDate
-          ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+          ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
           : '<span class="text-muted">\u2014</span>';
         const branchStockCols = showBranchCols
           ? s.branches.map(b => {
-              const bSt = (v.branchStocks || {})[b.id] ?? 0;
-              const bColor = bSt === 0 ? 'var(--danger)' : bSt <= reorderLevel ? 'var(--warning)' : 'var(--success)';
-              return `<td class="td-mono" style="font-weight:700;color:${bColor};text-align:center">${bSt}</td>`;
-            }).join('')
+            const bSt = (v.branchStocks || {})[b.id] ?? 0;
+            const bColor = bSt === 0 ? 'var(--danger)' : bSt <= reorderLevel ? 'var(--warning)' : 'var(--success)';
+            return `<td class="td-mono" style="font-weight:700;color:${bColor};text-align:center">${bSt}</td>`;
+          }).join('')
           : `<td class="td-mono" style="font-weight:700;color:${stockColor}">${displayStock}</td>`;
         const adjustBtn = isAdmin
-          ? `<button class="btn btn-sm btn-outline" onclick="adjustStockModal('${p.id}','${v.id}')">Adjust</button>`
+          ? `<div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-outline" onclick="adjustStockModal('${p.id}','${v.id}')">Adjust</button><button class="btn btn-sm btn-icon" title="Delete variant" onclick="deleteVariantFromInv('${p.id}','${v.id}')">${iconSvg('error')}</button></div>`
           : '<span class="badge badge-neutral">View Only</span>';
         return `<tr>
           <td><strong>${p.productType || p.name}</strong><div style="font-size:11px;color:var(--ink-50)">${p.name}</div></td>
@@ -2767,14 +2814,14 @@ function confirmAdjustStock(pid, vid) {
   let anyChange = false;
   s.branches.forEach(b => {
     const typeEl = document.querySelector(`.adj-type-${b.id}`);
-    const qtyEl  = document.querySelector(`.adj-qty-${b.id}`);
+    const qtyEl = document.querySelector(`.adj-qty-${b.id}`);
     if (!typeEl || !qtyEl || qtyEl.value === '') return;
     const qty = parseInt(qtyEl.value) || 0;
     const type = typeEl.value;
     const cur = variant.branchStocks[b.id] ?? 0;
-    if (type === 'add')    variant.branchStocks[b.id] = cur + qty;
+    if (type === 'add') variant.branchStocks[b.id] = cur + qty;
     else if (type === 'remove') variant.branchStocks[b.id] = Math.max(0, cur - qty);
-    else if (type === 'set')    variant.branchStocks[b.id] = Math.max(0, qty);
+    else if (type === 'set') variant.branchStocks[b.id] = Math.max(0, qty);
     anyChange = true;
   });
 
@@ -2790,6 +2837,113 @@ function confirmAdjustStock(pid, vid) {
   DB.updateProduct(pid, { name: prod.name, desc: prod.desc, variants: prod.variants });
   closeModal();
   showToast('Stock updated per branch.', 'success');
+  renderInventory();
+}
+
+function deleteVariantFromInv(pid, vid) {
+  const s = getState();
+  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can delete stock entries.', 'error'); return; }
+  const prod = s.products.find(x => x.id === pid);
+  if (!prod) return;
+  const variant = prod.variants.find(x => x.id === vid);
+  if (!variant) return;
+  confirmModal({
+    title: 'Delete Variant',
+    message: `Are you sure you want to delete variant <strong>${variant.name || variant.size}</strong> from <strong>${prod.productType || prod.name}</strong>? This cannot be undone.`,
+    confirmText: 'Delete Variant',
+    icon: '🗑️',
+    onConfirm: function () {
+      const s2 = getState();
+      const prod2 = s2.products.find(x => x.id === pid);
+      if (!prod2) return;
+      prod2.variants = prod2.variants.filter(x => x.id !== vid);
+      saveState(s2);
+      DB.updateProduct(pid, { name: prod2.name, desc: prod2.desc, variants: prod2.variants });
+      showToast('Variant deleted.', 'success');
+      renderInventory();
+    }
+  });
+}
+
+function addStockModal() {
+  const s = getState();
+  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can add stock.', 'error'); return; }
+  const productOptions = s.products.filter(p => p.active)
+    .map(p => `<option value="${p.id}">${p.productType || p.name} — ${p.name}</option>`).join('');
+
+  const branchStockInputs = s.branches.map(b => `
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--ink-10)">
+      <span style="flex:1;font-weight:600;font-size:13px">${b.name}</span>
+      <input type="number" class="form-control addstock-branch-qty" data-branch="${b.id}" placeholder="0" min="0" style="width:100px;font-size:13px">
+    </div>`).join('');
+
+  showModal(`
+    <div class="modal-header"><h2>Add Stock / New Variant</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Product</label>
+        <select class="form-control" id="addstock-product">${productOptions}</select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Variant Name / Size <span style="color:var(--danger)">*</span></label><input type="text" class="form-control" id="addstock-name" placeholder="e.g. Small, 10x12, Red"></div>
+        <div class="form-group"><label>SKU</label><input type="text" class="form-control" id="addstock-sku" placeholder="Optional"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="form-group"><label>Unit Price (₱)</label><input type="number" class="form-control" id="addstock-price" placeholder="0.00" min="0" step="0.01"></div>
+        <div class="form-group"><label>Reorder Point</label><input type="number" class="form-control" id="addstock-reorder" placeholder="20" min="1" value="20"></div>
+        <div class="form-group"><label>Max Stock</label><input type="number" class="form-control" id="addstock-maxstock" placeholder="60" min="1" value="60"></div>
+      </div>
+      <hr class="divider">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--ink-60);margin-bottom:8px">Initial Stock Per Branch</div>
+      ${branchStockInputs}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="confirmAddStock()">Add Variant</button>
+    </div>`, 'modal-lg');
+}
+
+function confirmAddStock() {
+  const s = getState();
+  const pid = document.getElementById('addstock-product').value;
+  const name = document.getElementById('addstock-name').value.trim();
+  const sku = document.getElementById('addstock-sku').value.trim();
+  const price = parseFloat(document.getElementById('addstock-price').value) || 0;
+  const reorderLevel = Math.max(1, parseInt(document.getElementById('addstock-reorder').value) || 20);
+  const maxStock = Math.max(1, parseInt(document.getElementById('addstock-maxstock').value) || 60);
+
+  if (!name) { showToast('Variant name is required.', 'error'); return; }
+
+  const prod = s.products.find(x => x.id === pid);
+  if (!prod) { showToast('Product not found.', 'error'); return; }
+
+  const branchStocks = {};
+  document.querySelectorAll('.addstock-branch-qty').forEach(input => {
+    const branchId = input.dataset.branch;
+    branchStocks[branchId] = Math.max(0, parseInt(input.value) || 0);
+  });
+  const totalStock = Object.values(branchStocks).reduce((sum, q) => sum + q, 0);
+
+  const newVariant = {
+    id: 'pvar_' + Date.now(),
+    name,
+    size: name,
+    sku,
+    price,
+    stock: totalStock,
+    reorderLevel,
+    maxStock,
+    reserved: 0,
+    branchStocks,
+    lastCountDate: new Date().toISOString(),
+  };
+
+  prod.variants = prod.variants || [];
+  prod.variants.push(newVariant);
+  saveState(s);
+  DB.updateProduct(pid, { name: prod.name, desc: prod.desc, variants: prod.variants });
+  closeModal();
+  showToast(`Variant "${name}" added to ${prod.productType || prod.name}.`, 'success');
   renderInventory();
 }
 
@@ -2849,34 +3003,27 @@ function renderPersonnelMgmt() {
   }
 
   // Admin: full personnel management
-  const staffUsers = s.users.filter(u => u.role === 'staff');
+  const staffUsers = s.users.filter(u => u.role === 'staff' || u.role === 'print');
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header"><h1 class="page-title">Personnel Management</h1><p class="page-subtitle">Manage staff, schedules, and payroll.</p></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-      <div class="data-card" style="cursor:pointer" onclick="navigateTo('shift-schedule')">
-        <div class="data-card-header"><span class="data-card-title">${iconSvg('calendar')} Shift Schedule</span><span class="badge badge-maroon">→</span></div>
-        <div class="data-card-body"><p class="text-sm text-muted">Assign one staff member per week per branch.</p></div>
-      </div>
-      <div class="data-card" style="cursor:pointer" onclick="navigateTo('payroll')">
-        <div class="data-card-header"><span class="data-card-title">${iconSvg('money')} Payroll</span><span class="badge badge-maroon">→</span></div>
-        <div class="data-card-body"><p class="text-sm text-muted">View payroll estimates based on shift hours and assigned rates per branch.</p></div>
-      </div>
-    </div>
+    <div class="page-header"><h1 class="page-title">Personnel Management</h1><p class="page-subtitle">Manage staff and monitor their shift activity.</p></div>
     <div class="data-card"><div class="data-card-header"><span class="data-card-title">All Staff</span><span class="badge badge-neutral">${staffUsers.length} staff members</span></div>
       <div class="data-card-body no-pad">
-        <table class="data-table"><thead><tr><th>Name</th><th>Username</th><th>Branch</th><th>Active Shift</th><th>Shifts This Month</th></tr></thead>
-        <tbody>${staffUsers.map(u => {
+        <table class="data-table"><thead><tr><th>Name</th><th>Role</th><th>Position</th><th>Branch</th><th>Active Shift</th><th>Shifts This Month</th><th></th></tr></thead>
+        <tbody>${staffUsers.length ? staffUsers.map(u => {
     const branch = s.branches.find(b => b.id === u.branchId);
     const myShift = s.shifts.find(x => x.userId === u.id && x.status === 'open');
     const monthShifts = s.shifts.filter(x => x.userId === u.id && new Date(x.openedAt).getMonth() === new Date().getMonth()).length;
+    const roleBadge = u.role === 'print' ? '<span class="badge badge-info">Printing Dept</span>' : '<span class="badge badge-success">Branch Staff</span>';
     return `<tr>
-            <td><strong>${u.name}</strong></td>
-            <td class="td-mono">${u.username}</td>
+            <td><strong>${u.name}</strong><div style="font-size:11px;color:var(--ink-40);font-family:var(--font-mono)">${u.username}</div></td>
+            <td>${roleBadge}</td>
+            <td>${u.position ? `<span style="font-size:12px">${u.position}</span>` : `<span style="color:var(--ink-30);font-size:12px;cursor:pointer" onclick="editUserModal('${u.id}')" title="Click to set position">Set position…</span>`}</td>
             <td>${branch?.name || '–'}</td>
             <td>${myShift ? `<span class="badge badge-success">${iconSvg('statusOpen')} Open</span>` : '<span class="badge badge-neutral">Closed</span>'}</td>
             <td>${monthShifts}</td>
+            <td><button class="btn btn-sm btn-outline" onclick="editUserModal('${u.id}')">Edit</button></td>
           </tr>`;
-  }).join('')}</tbody>
+  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No staff found.</td></tr>'}</tbody>
         </table>
       </div>
     </div>`;
@@ -2885,37 +3032,40 @@ function renderPersonnelMgmt() {
 // SHIFT SCHEDULE
 // ── PH PUBLIC HOLIDAYS ────────────────────────────────────────────
 const PH_HOLIDAYS = {
-  '2025-01-01':"New Year's Day",'2025-04-09':'Araw ng Kagitingan',
-  '2025-04-17':'Maundy Thursday','2025-04-18':'Good Friday','2025-04-19':'Black Saturday',
-  '2025-05-01':'Labor Day','2025-06-12':'Independence Day','2025-08-25':'National Heroes Day',
-  '2025-11-01':"All Saints' Day",'2025-11-30':'Bonifacio Day',
-  '2025-12-08':'Immaculate Conception','2025-12-25':'Christmas Day','2025-12-30':'Rizal Day',
-  '2026-01-01':"New Year's Day",'2026-04-02':'Maundy Thursday','2026-04-03':'Good Friday',
-  '2026-04-04':'Black Saturday','2026-04-09':'Araw ng Kagitingan',
-  '2026-05-01':'Labor Day','2026-06-12':'Independence Day','2026-08-31':'National Heroes Day',
-  '2026-11-01':"All Saints' Day",'2026-11-02':"All Souls' Day",'2026-11-30':'Bonifacio Day',
-  '2026-12-08':'Immaculate Conception','2026-12-25':'Christmas Day',
-  '2026-12-30':'Rizal Day','2026-12-31':"New Year's Eve",
+  '2025-01-01': "New Year's Day", '2025-04-09': 'Araw ng Kagitingan',
+  '2025-04-17': 'Maundy Thursday', '2025-04-18': 'Good Friday', '2025-04-19': 'Black Saturday',
+  '2025-05-01': 'Labor Day', '2025-06-12': 'Independence Day', '2025-08-25': 'National Heroes Day',
+  '2025-11-01': "All Saints' Day", '2025-11-30': 'Bonifacio Day',
+  '2025-12-08': 'Immaculate Conception', '2025-12-25': 'Christmas Day', '2025-12-30': 'Rizal Day',
+  '2026-01-01': "New Year's Day", '2026-04-02': 'Maundy Thursday', '2026-04-03': 'Good Friday',
+  '2026-04-04': 'Black Saturday', '2026-04-09': 'Araw ng Kagitingan',
+  '2026-05-01': 'Labor Day', '2026-06-12': 'Independence Day', '2026-08-31': 'National Heroes Day',
+  '2026-11-01': "All Saints' Day", '2026-11-02': "All Souls' Day", '2026-11-30': 'Bonifacio Day',
+  '2026-12-08': 'Immaculate Conception', '2026-12-25': 'Christmas Day',
+  '2026-12-30': 'Rizal Day', '2026-12-31': "New Year's Eve",
 };
 
 // ── DAY STATUS HELPERS ────────────────────────────────────────────
-// status values stored in shiftSchedules: 'Work' | 'Off' | 'Leave' | 'Holiday' | 'Rest Day'
-const SCHED_STATUSES = ['Work','Off','Rest Day','Leave','Holiday'];
-const SCHED_COLORS   = { Work:'#16a34a', Off:'#6b7280', 'Rest Day':'#7c3aed', Leave:'#d97706', Holiday:'#dc2626' };
-const SCHED_BADGES   = {
-  Work:     `<span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">WORK</span>`,
-  Off:      `<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">OFF</span>`,
-  'Rest Day':`<span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">REST</span>`,
-  Leave:    `<span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">LEAVE</span>`,
-  Holiday:  `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">HOLIDAY</span>`,
+// status values stored in shiftSchedules: 'Work' | 'Rest Day' | 'Leave' | 'Holiday'
+// 'Off' removed — 'Rest Day' covers that. Default Mon–Fri = Work, Sat–Sun = Rest Day.
+const SCHED_STATUSES = ['Work', 'Rest Day', 'Leave', 'Holiday'];
+const SCHED_COLORS = { Work: '#16a34a', 'Rest Day': '#7c3aed', Leave: '#d97706', Holiday: '#dc2626' };
+const SCHED_CYCLE = ['Work', 'Rest Day', 'Leave', 'Holiday'];
+const SCHED_BADGES = {
+  Work:       `<span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">WORK</span>`,
+  'Rest Day': `<span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">REST DAY</span>`,
+  Leave:      `<span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">LEAVE</span>`,
+  Holiday:    `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">HOLIDAY</span>`,
 };
 
 function getSchedStatus(s, uid, dateStr) {
-  // Holiday takes priority if admin hasn't overridden
   const stored = (s.shiftSchedules || {})[`${uid}_${dateStr}`];
   if (stored) return stored;
+  // Holidays always take priority if not manually overridden
   if (PH_HOLIDAYS[dateStr]) return 'Holiday';
-  return 'Off';
+  // Default: Mon–Fri = Work (8am–5pm), Sat–Sun = Rest Day
+  const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun, 6=Sat
+  return (dow === 0 || dow === 6) ? 'Rest Day' : 'Work';
 }
 
 function saveSchedDay(uid, dateStr, val) {
@@ -2924,6 +3074,14 @@ function saveSchedDay(uid, dateStr, val) {
   s.shiftSchedules[`${uid}_${dateStr}`] = val;
   saveState(s);
   if (typeof DB !== 'undefined') DB.saveShiftSchedule(uid, dateStr, val);
+}
+
+function cycleSchedDay(uid, dateStr) {
+  const s = getState();
+  const current = getSchedStatus(s, uid, dateStr);
+  const next = SCHED_CYCLE[(SCHED_CYCLE.indexOf(current) + 1) % SCHED_CYCLE.length];
+  saveSchedDay(uid, dateStr, next);
+  renderShiftSchedule();
 }
 
 // ── ADMIN SCHEDULING PAGE ─────────────────────────────────────────
@@ -2938,18 +3096,18 @@ function renderShiftSchedule() {
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
   });
-  const weekLabel = `${days[0].toLocaleDateString('en-PH',{month:'short',day:'numeric'})} – ${days[6].toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}`;
-  const todayStr  = toLocalDateString(new Date());
+  const weekLabel = `${days[0].toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const todayStr = toLocalDateString(new Date());
 
   // Filter: which branch to show (default all)
   const filterBranch = window._schedBranchFilter || 'all';
-  const allBranches  = s.branches || [];
-  const branchOpts   = [`<option value="all" ${filterBranch==='all'?'selected':''}>All Branches</option>`,
-    ...allBranches.map(b => `<option value="${b.id}" ${filterBranch===b.id?'selected':''}>${b.name}</option>`)
+  const allBranches = s.branches || [];
+  const branchOpts = [`<option value="all" ${filterBranch === 'all' ? 'selected' : ''}>All Branches</option>`,
+  ...allBranches.map(b => `<option value="${b.id}" ${filterBranch === b.id ? 'selected' : ''}>${b.name}</option>`)
   ].join('');
 
   // Build summary badges for top bar
-  const allStaff = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  const allStaff = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
   let totalWork = 0, totalOff = 0, totalLeave = 0;
   allStaff.forEach(u => {
     days.forEach(d => {
@@ -2966,13 +3124,13 @@ function renderShiftSchedule() {
   // Branch staff sections
   allBranches.forEach(branch => {
     if (filterBranch !== 'all' && filterBranch !== branch.id) return;
-    const staff = (s.users||[]).filter(u => u.role === 'staff' && u.branchId === branch.id);
+    const staff = (s.users || []).filter(u => u.role === 'staff' && u.branchId === branch.id);
     sections.push(buildSchedSection(s, branch.name, '🏪', staff, days, todayStr));
   });
 
   // Print dept section
   if (filterBranch === 'all') {
-    const printStaff = (s.users||[]).filter(u => u.role === 'print');
+    const printStaff = (s.users || []).filter(u => u.role === 'print');
     if (printStaff.length) sections.push(buildSchedSection(s, 'Printing Department', '🖨️', printStaff, days, todayStr));
   }
 
@@ -3001,7 +3159,7 @@ function renderShiftSchedule() {
         <div class="kpi-value" style="color:var(--warning)">${totalLeave}</div>
       </div>
       <div class="kpi-card" style="flex:1;min-width:140px">
-        <div class="kpi-header"><div class="kpi-label">Off / Rest</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
+        <div class="kpi-header"><div class="kpi-label">Rest / Holiday</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
         <div class="kpi-value" style="color:var(--ink-60)">${totalOff}</div>
       </div>
     </div>
@@ -3015,7 +3173,7 @@ function renderShiftSchedule() {
           <button class="btn btn-sm btn-outline" onclick="goToday()">Today</button>
         </div>
         <div style="display:flex;gap:8px;font-size:12px;align-items:center;flex-wrap:wrap">
-          ${Object.entries(SCHED_BADGES).map(([k,v])=>`<div style="display:flex;align-items:center;gap:4px">${v}<span style="color:var(--ink-60)">${k}</span></div>`).join('')}
+          ${Object.entries(SCHED_BADGES).map(([k, v]) => `<div style="display:flex;align-items:center;gap:4px">${v}<span style="color:var(--ink-60)">${k}</span></div>`).join('')}
         </div>
       </div>
       <div class="data-card-body no-pad">
@@ -3036,28 +3194,32 @@ function buildSchedSection(s, sectionName, icon, staff, days, todayStr) {
   const dayHeaders = days.map(d => {
     const ds = toLocalDateString(d);
     const isToday = ds === todayStr;
-    const isHol   = !!PH_HOLIDAYS[ds];
-    return `<th style="text-align:center;min-width:90px;${isToday?'background:var(--maroon-10,#fdf2f2)':''}">
-      <div style="font-weight:700;font-size:12px;${isToday?'color:var(--maroon)':''}">${d.toLocaleDateString('en-PH',{weekday:'short'})}</div>
-      <div style="font-weight:400;font-size:11px;color:var(--ink-50)">${d.toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</div>
+    const isHol = !!PH_HOLIDAYS[ds];
+    return `<th style="text-align:center;min-width:90px;${isToday ? 'background:var(--maroon-10,#fdf2f2)' : ''}">
+      <div style="font-weight:700;font-size:12px;${isToday ? 'color:var(--maroon)' : ''}">${d.toLocaleDateString('en-PH', { weekday: 'short' })}</div>
+      <div style="font-weight:400;font-size:11px;color:var(--ink-50)">${d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</div>
       ${isHol ? `<div style="font-size:10px;color:var(--danger);font-weight:600">Holiday</div>` : ''}
     </th>`;
   }).join('');
 
   const rows = staff.map(u => {
     const dayStatuses = days.map(d => {
-      const ds  = toLocalDateString(d);
+      const ds = toLocalDateString(d);
       const val = getSchedStatus(s, u.id, ds);
       const isToday = ds === todayStr;
-      const color = SCHED_COLORS[val] || '#6b7280';
-      const opts = SCHED_STATUSES.map(st => `<option value="${st}" ${val===st?'selected':''}>${st}</option>`).join('');
-      return `<td style="text-align:center;padding:6px;${isToday?'background:var(--maroon-10,#fdf2f2)':''}">
-        <div class="form-select-wrap" style="min-width:80px">
-          <select class="form-control" style="font-size:11px;padding:4px 20px 4px 6px;color:${color};font-weight:600"
-            onchange="saveSchedDay('${u.id}','${ds}',this.value);renderShiftSchedule()">
-            ${opts}
-          </select>
-        </div>
+      const isDefault = !((s.shiftSchedules || {})[`${u.id}_${ds}`]);
+      const badgeBg = { Work: '#dcfce7', 'Rest Day': '#ede9fe', Leave: '#fef3c7', Holiday: '#fee2e2' }[val] || '#f3f4f6';
+      const badgeFg = SCHED_COLORS[val] || '#6b7280';
+      const label = { Work: '✓ Work', 'Rest Day': '✕ Rest Day', Leave: '⏸ Leave', Holiday: '★ Holiday' }[val] || val;
+      return `<td style="text-align:center;padding:6px 4px;${isToday ? 'background:var(--maroon-10,#fdf2f2)' : ''}">
+        <button onclick="cycleSchedDay('${u.id}','${ds}')"
+          title="Click to cycle: Work → Rest Day → Leave → Holiday"
+          style="border:2px solid ${isDefault ? 'transparent' : badgeFg + '55'};cursor:pointer;border-radius:20px;
+                 padding:5px 10px;font-size:11px;font-weight:700;background:${badgeBg};color:${badgeFg};
+                 white-space:nowrap;opacity:${isDefault ? '0.72' : '1'};
+                 transition:all .15s;min-width:82px;">
+          ${label}
+        </button>
       </td>`;
     }).join('');
 
@@ -3068,7 +3230,7 @@ function buildSchedSection(s, sectionName, icon, staff, days, todayStr) {
       <td style="padding:10px 16px;min-width:160px;border-right:1px solid var(--border)">
         <div style="font-weight:700;font-size:13px">${u.name}</div>
         <div style="font-size:11px;color:var(--ink-50)">${u.username}</div>
-        <div style="margin-top:4px;font-size:11px;color:${workDays>0?'var(--success)':'var(--ink-40)'};font-weight:600">${workDays} day${workDays!==1?'s':''} this week</div>
+        <div style="margin-top:4px;font-size:11px;color:${workDays > 0 ? 'var(--success)' : 'var(--ink-40)'};font-weight:600">${workDays} day${workDays !== 1 ? 's' : ''} this week</div>
       </td>
       ${dayStatuses}
     </tr>`;
@@ -3077,7 +3239,7 @@ function buildSchedSection(s, sectionName, icon, staff, days, todayStr) {
   return `
     <div style="padding:12px 20px 4px;border-bottom:1px solid var(--border);background:var(--cream)">
       <span style="font-weight:700;font-size:13px">${icon} ${sectionName}</span>
-      <span style="font-size:12px;color:var(--ink-50);margin-left:8px">${staff.length} employee${staff.length!==1?'s':''}</span>
+      <span style="font-size:12px;color:var(--ink-50);margin-left:8px">${staff.length} employee${staff.length !== 1 ? 's' : ''}</span>
     </div>
     <div style="overflow-x:auto">
       <table class="data-table" style="font-size:12.5px;min-width:700px">
@@ -3088,9 +3250,9 @@ function buildSchedSection(s, sectionName, icon, staff, days, todayStr) {
         </tr></thead>
         <tbody>
           ${rows.replace(/<\/tr>/g, () => {
-            // inject total work days column at end of each row
-            return '</tr>';
-          })}
+    // inject total work days column at end of each row
+    return '</tr>';
+  })}
         </tbody>
       </table>
     </div>`;
@@ -3117,9 +3279,24 @@ function schedAutoFillWeek() {
   const s = getState();
   if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
   const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
-  const days = Array.from({length:7},(_,i)=>{ const d=new Date(weekStart); d.setDate(weekStart.getDate()+i); return d; });
-  if (!confirm(`Auto-fill this week for all employees?\n• Mon–Fri → Work\n• Sat–Sun → Rest Day\n• Holidays → Holiday\n\nThis will overwrite current assignments.`)) return;
-  const allEmp = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  confirmModal({
+    title: 'Auto-fill Week Schedule',
+    message: 'Auto-fill this week for all employees?<br><br><strong>Mon–Fri</strong> → Work &nbsp;·&nbsp; <strong>Sat–Sun</strong> → Rest Day &nbsp;·&nbsp; <strong>Holidays</strong> → Holiday<br><br>This will overwrite all current assignments.',
+    confirmText: 'Auto-fill Week',
+    cancelText: 'Cancel',
+    icon: '🗓️',
+    danger: false,
+    onConfirm: function () { _schedAutoFillWeekConfirmed(); }
+  });
+  return;
+}
+function _schedAutoFillWeekConfirmed() {
+  const s = getState();
+  if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
+  const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  const allEmp = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
   allEmp.forEach(u => {
     days.forEach(d => {
       const ds = toLocalDateString(d);
@@ -3136,10 +3313,21 @@ function schedAutoFillWeek() {
 function schedClearWeek() {
   const s = getState();
   if (!s.scheduleWeekStart) return;
-  if (!confirm('Clear all schedule assignments for this week? This cannot be undone.')) return;
+  confirmModal({
+    title: 'Clear Week Schedule',
+    message: 'Are you sure you want to clear <strong>all schedule assignments</strong> for this week? This cannot be undone.',
+    confirmText: 'Clear Week',
+    icon: '🗓️',
+    onConfirm: function () { _schedClearWeekConfirmed(); }
+  });
+  return;
+}
+function _schedClearWeekConfirmed() {
+  const s = getState();
+  if (!s.scheduleWeekStart) return;
   const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
-  const days = Array.from({length:7},(_,i)=>{ const d=new Date(weekStart); d.setDate(weekStart.getDate()+i); return d; });
-  const allEmp = (s.users||[]).filter(u => ['staff','print'].includes(u.role));
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  const allEmp = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
   allEmp.forEach(u => {
     days.forEach(d => {
       const ds = toLocalDateString(d);
@@ -3156,55 +3344,55 @@ function schedClearWeek() {
 function renderPersonalSchedule() {
   const s = getState();
   const u = s.currentUser;
-  const br = (s.branches||[]).find(b => b.id === u.branchId);
+  const br = (s.branches || []).find(b => b.id === u.branchId);
 
   if (!window._schedCalYear) { window._schedCalYear = new Date().getFullYear(); window._schedCalMonth = new Date().getMonth(); }
-  const year  = window._schedCalYear;
+  const year = window._schedCalYear;
   const month = window._schedCalMonth;
-  const monthLabel = new Date(year,month,1).toLocaleDateString('en-PH',{month:'long',year:'numeric'});
-  const daysInMonth = new Date(year, month+1, 0).getDate();
-  const firstDay    = new Date(year, month, 1).getDay();
-  const todayStr    = toLocalDateString(new Date());
+  const monthLabel = new Date(year, month, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const todayStr = toLocalDateString(new Date());
 
-  window._schedPrev = () => { if(window._schedCalMonth===0){window._schedCalYear--;window._schedCalMonth=11;}else{window._schedCalMonth--;} renderPersonalSchedule(); };
-  window._schedNext = () => { if(window._schedCalMonth===11){window._schedCalYear++;window._schedCalMonth=0;}else{window._schedCalMonth++;} renderPersonalSchedule(); };
+  window._schedPrev = () => { if (window._schedCalMonth === 0) { window._schedCalYear--; window._schedCalMonth = 11; } else { window._schedCalMonth--; } renderPersonalSchedule(); };
+  window._schedNext = () => { if (window._schedCalMonth === 11) { window._schedCalYear++; window._schedCalMonth = 0; } else { window._schedCalMonth++; } renderPersonalSchedule(); };
 
   // Count this month's stats
-  let workCount=0, offCount=0, leaveCount=0, restCount=0;
-  for (let d=1; d<=daysInMonth; d++) {
-    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  let workCount = 0, leaveCount = 0, restCount = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const st = getSchedStatus(s, u.id, ds);
-    if (st==='Work') workCount++;
-    else if (st==='Leave') leaveCount++;
-    else if (st==='Rest Day') restCount++;
-    else offCount++;
+    if (st === 'Work') workCount++;
+    else if (st === 'Leave') leaveCount++;
+    else if (st === 'Rest Day') restCount++;
+    else restCount++; // Holiday also counted as non-work
   }
 
   // Holidays this month
   const monthHolidays = [];
-  for (let d=1; d<=daysInMonth; d++) {
-    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    if (PH_HOLIDAYS[ds]) monthHolidays.push({ds, name:PH_HOLIDAYS[ds], d});
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (PH_HOLIDAYS[ds]) monthHolidays.push({ ds, name: PH_HOLIDAYS[ds], d });
   }
 
   // Calendar grid
-  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let cells = DOW.map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--ink-50);padding:6px 0">${d}</div>`).join('');
-  for (let i=0; i<firstDay; i++) cells += '<div></div>';
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let cells = DOW.map(d => `<div style="text-align:center;font-size:11px;font-weight:700;color:var(--ink-50);padding:6px 0">${d}</div>`).join('');
+  for (let i = 0; i < firstDay; i++) cells += '<div></div>';
 
-  for (let d=1; d<=daysInMonth; d++) {
-    const ds  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const st  = getSchedStatus(s, u.id, ds);
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const st = getSchedStatus(s, u.id, ds);
     const isToday = ds === todayStr;
-    const isHol   = !!PH_HOLIDAYS[ds];
-    const color   = SCHED_COLORS[st] || '#6b7280';
-    const bgMap   = { Work:'#f0fdf4', 'Rest Day':'#f5f3ff', Leave:'#fefce8', Holiday:'#fef2f2', Off:'#f9fafb' };
-    const bg      = isToday ? '#fdf2f2' : (bgMap[st]||'#f9fafb');
+    const isHol = !!PH_HOLIDAYS[ds];
+    const color = SCHED_COLORS[st] || '#6b7280';
+    const bgMap = { Work: '#f0fdf4', 'Rest Day': '#f5f3ff', Leave: '#fefce8', Holiday: '#fef2f2', Off: '#f9fafb' };
+    const bg = isToday ? '#fdf2f2' : (bgMap[st] || '#f9fafb');
     cells += `
-      <div style="border-radius:8px;background:${bg};border:${isToday?'2px solid var(--maroon)':'1px solid #e5e7eb'};padding:8px 6px;min-height:72px;position:relative">
-        <div style="font-weight:${isToday?'800':'600'};font-size:13px;color:${isToday?'var(--maroon)':'var(--ink)'};margin-bottom:4px">${d}${isHol?' 🎌':''}</div>
+      <div style="border-radius:8px;background:${bg};border:${isToday ? '2px solid var(--maroon)' : '1px solid #e5e7eb'};padding:8px 6px;min-height:72px;position:relative">
+        <div style="font-weight:${isToday ? '800' : '600'};font-size:13px;color:${isToday ? 'var(--maroon)' : 'var(--ink)'};margin-bottom:4px">${d}${isHol ? ' 🎌' : ''}</div>
         <div style="font-size:10px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px">${st}</div>
-        ${isHol?`<div style="font-size:9px;color:var(--danger);margin-top:2px;line-height:1.2">${PH_HOLIDAYS[ds]}</div>`:''}
+        ${isHol ? `<div style="font-size:9px;color:var(--danger);margin-top:2px;line-height:1.2">${PH_HOLIDAYS[ds]}</div>` : ''}
       </div>`;
   }
 
@@ -3212,7 +3400,7 @@ function renderPersonalSchedule() {
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
         <h1 class="page-title">My Schedule</h1>
-        <p class="page-subtitle">${u.name} · ${br?.name||'Printing Department'}</p>
+        <p class="page-subtitle">${u.name} · ${br?.name || 'Printing Department'}</p>
       </div>
       <button class="btn btn-outline" onclick="navigateTo('leave-management')">+ Request Leave</button>
     </div>
@@ -3230,10 +3418,7 @@ function renderPersonalSchedule() {
         <div class="kpi-header"><div class="kpi-label">On Leave</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
         <div class="kpi-value" style="color:var(--warning)">${leaveCount}</div>
       </div>
-      <div class="kpi-card" style="flex:1;min-width:120px">
-        <div class="kpi-header"><div class="kpi-label">Off</div><div class="kpi-icon">${iconSvg('error')}</div></div>
-        <div class="kpi-value" style="color:var(--ink-40)">${offCount}</div>
-      </div>
+
     </div>
 
     <div class="data-card">
@@ -3244,7 +3429,7 @@ function renderPersonalSchedule() {
           <button class="btn btn-sm btn-outline" onclick="window._schedNext()">Next →</button>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${Object.entries(SCHED_BADGES).map(([k,v])=>`<div style="display:flex;align-items:center;gap:3px">${v}</div>`).join('')}
+          ${Object.entries(SCHED_BADGES).map(([k, v]) => `<div style="display:flex;align-items:center;gap:3px">${v}</div>`).join('')}
         </div>
       </div>
       <div class="data-card-body" style="padding:16px">
@@ -3258,9 +3443,9 @@ function renderPersonalSchedule() {
     <div class="data-card" style="margin-top:16px">
       <div class="data-card-header"><span class="data-card-title">🎌 Holidays This Month</span></div>
       <div class="data-card-body" style="display:flex;flex-direction:column;gap:8px">
-        ${monthHolidays.map(h=>`
+        ${monthHolidays.map(h => `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--cream);border-radius:var(--radius)">
-            <div><strong>${new Date(h.ds+'T00:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'})}</strong> — ${h.name}</div>
+            <div><strong>${new Date(h.ds + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}</strong> — ${h.name}</div>
             <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700">Holiday Pay</span>
           </div>`).join('')}
       </div>
@@ -3437,33 +3622,33 @@ function getPayPeriods(userId, shifts) {
 }
 
 function calcPayslip(user, periodData, state) {
-  const DAILY_RATE          = user.dailyRate    || 400;
+  const DAILY_RATE = user.dailyRate || 400;
   const COMMISSION_CUP_RATE = user.commissionCup || 300;
-  const COMMISSION_GP_RATE  = user.commissionGp  || 150;
+  const COMMISSION_GP_RATE = user.commissionGp || 150;
 
   const totalDays = periodData.shifts.length;
-  const basicPay  = totalDays * DAILY_RATE;
+  const basicPay = totalDays * DAILY_RATE;
 
   // Commission days: Opening = Cups, Closing = GP
   const openingDays = periodData.shifts.filter(sh => {
-    const sk = `${user.id}_${sh.openedAt ? sh.openedAt.slice(0,10) : ''}`;
+    const sk = `${user.id}_${sh.openedAt ? sh.openedAt.slice(0, 10) : ''}`;
     return (state.shiftSchedules || {})[sk] === 'On';
   }).length;
   const closingDays = periodData.shifts.filter(sh => {
-    const sk = `${user.id}_${sh.openedAt ? sh.openedAt.slice(0,10) : ''}`;
+    const sk = `${user.id}_${sh.openedAt ? sh.openedAt.slice(0, 10) : ''}`;
     return (state.shiftSchedules || {})[sk] === 'On';
   }).length;
 
   const commissionCup = openingDays * COMMISSION_CUP_RATE;
-  const commissionGp  = closingDays * COMMISSION_GP_RATE;
-  const grossPay      = basicPay + commissionCup + commissionGp;
+  const commissionGp = closingDays * COMMISSION_GP_RATE;
+  const grossPay = basicPay + commissionCup + commissionGp;
 
   // Philippine statutory deductions
-  const sss         = Math.round(grossPay * 0.045);
-  const philhealth  = Math.round(grossPay * 0.02);
-  const hdmf        = Math.min(Math.round(grossPay * 0.02), 100);
+  const sss = Math.round(grossPay * 0.045);
+  const philhealth = Math.round(grossPay * 0.02);
+  const hdmf = Math.min(Math.round(grossPay * 0.02), 100);
   const totalDeductions = sss + philhealth + hdmf;
-  const netPay      = grossPay - totalDeductions;
+  const netPay = grossPay - totalDeductions;
 
   return {
     totalDays, basicPay, openingDays, closingDays,
@@ -3471,7 +3656,7 @@ function calcPayslip(user, periodData, state) {
     grossPay, sss, philhealth, hdmf, totalDeductions, netPay,
     dailyRate: DAILY_RATE,
     commissionCupRate: COMMISSION_CUP_RATE,
-    commissionGpRate:  COMMISSION_GP_RATE,
+    commissionGpRate: COMMISSION_GP_RATE,
   };
 }
 
@@ -3492,322 +3677,176 @@ function getYTDEarnings(userId, shifts, state) {
   return { gross, sss, philhealth, hdmf, deductions, net: gross - deductions, shifts: yearShifts.length };
 }
 
+function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
+  const periodStart = new Date(period.startDate || period.shifts[0]?.openedAt || Date.now())
+    .toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const periodEnd = new Date(period.endDate || period.shifts[period.shifts.length - 1]?.openedAt || Date.now())
+    .toLocaleDateString('en-PH', { day: 'numeric', year: 'numeric' });
+  return `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+    </div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <tbody>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${period.label}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${period.payDateLabel || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
+      </tbody>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <colgroup><col style="width:34%"><col style="width:10%"><col style="width:14%"><col style="width:3px"><col style="width:auto"><col style="width:14%"></colgroup>
+      <thead><tr>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:3px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td><td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.totalDays}</td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.basicPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.sss > 0 ? '₱' + fmt(calc.sss) : ''}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱' + fmt(calc.philhealth) : ''}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱' + fmt(calc.hdmf) : ''}</td></tr>
+        <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.grossPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.totalDeductions)}</td></tr>
+        <tr style="font-weight:700;"><td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(calc.netPay)}</td></tr>
+      </tfoot>
+    </table>
+  </div>`;
+}
+
+function viewPayslipModal(periodKey) {
+  const s = getState();
+  const me = s.currentUser;
+  const periods = getPayPeriods(me.id, s.shifts);
+  const period = periods.find(p => p.key === periodKey);
+  if (!period) { showToast('Payslip not found.', 'error'); return; }
+  const calc = calcPayslip(me, period, s);
+  const positionLabel = me.role === 'staff' ? 'Sales Associate' : 'Printing Personnel';
+  const empNum = me.employeeNumber || ('BPS-' + String(me.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const html = buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel);
+  showModal(`<div class="modal-header"><h2>📄 Payslip — ${period.label}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="payslip-modal-doc" style="padding:0;max-height:75vh;overflow-y:auto;">${html}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-modal-doc').innerHTML,'Payslip — South Pafps')">${iconSvg('printer')} Print Payslip</button>
+    </div>`);
+}
+
 function renderPayslip() {
   const s = getState();
   const me = s.currentUser;
   if (!me || !['staff', 'print'].includes(me.role)) { accessDenied('My Payroll'); return; }
 
-  const branch = s.branches.find(b => b.id === me.branchId);
-  const periods = getPayPeriods(me.id, s.shifts);
-  const ytd = getYTDEarnings(me.id, s.shifts, s);
-
-  // Default to most recent period
-  const latestKey = periods.length ? periods[0].key : null;
-  const selectedKey = window._payslipSelectedKey || latestKey;
-  window._payslipSelectedKey = selectedKey;
-
-  const selectedPeriod = periods.find(p => p.key === selectedKey) || periods[0] || null;
-  const calc = selectedPeriod ? calcPayslip(me, selectedPeriod, s) : null;
-
-  const positionLabel = me.role === 'staff' ? 'Sales Associate' : 'Printing Personnel';
-  // Generate a deterministic employee number from user id
-  const empNum = (me.employeeNumber) || ('BPS-' + String(me.id || '001').replace(/\D/g,'').padStart(3,'0'));
-
-  const COMPANY = {
-    name: 'SOUTH PAFPS PACKAGING SUPPLIES',
-    address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
-    address2: 'Pasong Buaya 2, Imus, Cavite',
-    tel: 'Tel: (046) 436-9414',
-  };
+  // Only show payslips that admin has explicitly sent to this employee
+  const myPayslips = (s.payslips || []).filter(p => p.userId === me.id);
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <div>
-        <h1 class="page-title">My Payroll</h1>
-        <p class="page-subtitle">View, download, and print your payslips</p>
-      </div>
+    <div class="page-header">
+      <h1 class="page-title">My Payslip</h1>
+      <p class="page-subtitle">View and print your payslips sent by the admin</p>
     </div>
-
-    <!-- Pay Period Selector + YTD Strip -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-      <div class="data-card" style="margin:0">
-        <div class="data-card-header"><span class="data-card-title">${iconSvg('calendar')} Select Pay Period</span></div>
-        <div class="data-card-body">
-          ${periods.length === 0
-            ? `<p class="text-sm text-muted">No completed shifts found. Payslips are generated from closed shifts.</p>`
-            : `<div class="form-select-wrap"><select class="form-control" onchange="window._payslipSelectedKey=this.value;renderPayslip()">
-                ${periods.map(p => `<option value="${p.key}" ${p.key === selectedKey ? 'selected' : ''}>${p.label}</option>`).join('')}
-              </select></div>
-              ${selectedPeriod ? `<div class="text-sm text-muted" style="margin-top:8px">${iconSvg('check')} Pay Date: <strong>${selectedPeriod.payDateLabel}</strong></div>` : ''}`
-          }
-        </div>
-      </div>
-      <div class="data-card" style="margin:0">
-        <div class="data-card-header"><span class="data-card-title">${iconSvg('chart')} Year-to-Date Earnings (${new Date().getFullYear()})</span></div>
-        <div class="data-card-body">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
-            <div style="background:var(--cream);border-radius:var(--radius-sm);padding:10px">
-              <div style="font-size:11px;color:var(--ink-60);margin-bottom:4px">Shifts Worked</div>
-              <div style="font-size:20px;font-weight:700;color:var(--ink)">${ytd.shifts}</div>
-            </div>
-            <div style="background:var(--success-l);border-radius:var(--radius-sm);padding:10px">
-              <div style="font-size:11px;color:var(--ink-60);margin-bottom:4px">Gross Earned</div>
-              <div style="font-size:18px;font-weight:700;color:var(--success)">₱${fmt(ytd.gross)}</div>
-            </div>
-            <div style="background:var(--maroon-xs);border-radius:var(--radius-sm);padding:10px">
-              <div style="font-size:11px;color:var(--ink-60);margin-bottom:4px">Net Pay (YTD)</div>
-              <div style="font-size:18px;font-weight:700;color:var(--maroon)">₱${fmt(ytd.net)}</div>
-            </div>
-          </div>
-          <div style="margin-top:10px;display:flex;gap:10px;font-size:12px;color:var(--ink-60);justify-content:center">
-            <span>SSS: <strong>₱${fmt(ytd.sss)}</strong></span>
-            <span>·</span>
-            <span>PhilHealth: <strong>₱${fmt(ytd.philhealth)}</strong></span>
-            <span>·</span>
-            <span>HDMF: <strong>₱${fmt(ytd.hdmf)}</strong></span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    ${!calc ? `
     <div class="data-card">
-      <div class="data-card-body" style="text-align:center;padding:40px;color:var(--ink-60)">
-        <div style="font-size:40px;margin-bottom:12px">📄</div>
-        <p>No payslip available yet. Payslips are generated once your shifts are closed by the admin.</p>
-      </div>
-    </div>` : `
-
-    <!-- Action buttons -->
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <button class="btn btn-maroon" onclick="printPayslip()">
-        ${iconSvg('printer')} Print Payslip
-      </button>
-      <button class="btn btn-outline" onclick="downloadPayslip()">
-        ↓ Download PDF
-      </button>
-    </div>
-
-    <!-- PAYSLIP DOCUMENT -->
-    <div class="data-card" id="payslip-document" style="margin-bottom:24px;max-width:860px;">
-      <div class="data-card-body" style="padding:32px 40px;font-family:'Arial',sans-serif;font-size:12px;color:#111;">
-
-        <!-- ── HEADER ── -->
-        <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-          <div style="flex-shrink:0;width:100px;">
-            <img src="logo.png" alt="South Pafps" style="width:100px;height:auto;display:block;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-            <div style="display:none;width:100px;height:76px;background:var(--maroon);border-radius:8px;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;text-align:center;padding:8px;box-sizing:border-box;">SOUTH<br>PAFPS<br><span style="font-size:7px;opacity:.8">PACKAGING SUPPLIES</span></div>
-          </div>
-          <div style="flex:1;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div>
-            <div style="font-size:11px;line-height:1.7;color:#333;">
-              ${COMPANY.address1}<br>
-              ${COMPANY.address2}<br>
-              ${COMPANY.tel}
-            </div>
-          </div>
-        </div>
-
-        <!-- ── PAYSLIP TITLE ── -->
-        <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
-
-        <!-- ── EMPLOYEE INFO ── -->
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
-          <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
-          <tbody>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${empNum}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${selectedPeriod.label}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${selectedPeriod.payDateLabel}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"></td>
-              <td style="padding:4px 8px;border:1px solid #999;"></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- ── EARNINGS / DEDUCTIONS ── -->
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
-          <colgroup>
-            <col style="width:34%">
-            <col style="width:10%">
-            <col style="width:14%">
-            <col style="width:3px">
-            <col style="width:auto">
-            <col style="width:14%">
-          </colgroup>
-          <thead>
-            <tr>
-              <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
-              <td style="border-top:1px solid #333;border-bottom:1px solid #333;padding:0;width:3px;background:#333;"></td>
-              <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Basic Pay row -->
-            <tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.totalDays}</td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.basicPay)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.sss > 0 ? '₱'+fmt(calc.sss) : ''}</td>
-            </tr>
-            <!-- Commission Cups row -->
-            ${calc.commissionCup > 0 ? `<tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;">Commission (Cups)</td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.openingDays}</td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.commissionCup)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱'+fmt(calc.philhealth) : ''}</td>
-            </tr>` : `<tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱'+fmt(calc.philhealth) : ''}</td>
-            </tr>`}
-            <!-- Commission GP row -->
-            ${calc.commissionGp > 0 ? `<tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;">Commission (GP)</td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.closingDays}</td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.commissionGp)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱'+fmt(calc.hdmf) : ''}</td>
-            </tr>` : `<tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱'+fmt(calc.hdmf) : ''}</td>
-            </tr>`}
-            <!-- Filler rows to match document height -->
-            <tr style="height:22px;">
-              <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
-            </tr>
-            <tr style="height:22px;">
-              <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <!-- GROSS PAY / TOTAL DEDUCTION -->
-            <tr style="font-weight:700;background:#e8e8e8;">
-              <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.grossPay)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.totalDeductions)}</td>
-            </tr>
-            <!-- NET PAY -->
-            <tr style="font-weight:700;">
-              <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;color:var(--maroon);">₱${fmt(calc.netPay)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <!-- ── CUT LINE ── -->
-        <div style="margin-top:28px;border-top:2px dashed #ccc;text-align:center;padding-top:4px;font-size:10px;color:#aaa;letter-spacing:2px;">
-          · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Shift Detail Table -->
-    <div class="data-card" style="max-width:860px">
-      <div class="data-card-header">
-        <span class="data-card-title">Shifts in This Pay Period</span>
-        <span class="badge badge-neutral">${selectedPeriod.shifts.length} shifts</span>
-      </div>
+      <div class="data-card-header"><span class="data-card-title">${iconSvg('money')} My Payslips</span></div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Date</th><th>Opened</th><th>Closed</th><th>Sales</th><th>Earnings</th></tr></thead>
-          <tbody>
-            ${selectedPeriod.shifts.length ? selectedPeriod.shifts.map(sh => {
-              const shiftSales = s.sales.filter(x => x.shiftId === sh.id && !x.voided).length;
-              return `<tr>
-                <td>${new Date(sh.openedAt).toLocaleDateString('en-PH', { weekday:'short', month:'short', day:'numeric' })}</td>
-                <td>${fmtTime(sh.openedAt)}</td>
-                <td>${sh.closedAt ? fmtTime(sh.closedAt) : '<span class="badge badge-success">Open</span>'}</td>
-                <td>${shiftSales}</td>
-                <td class="td-mono">₱${fmt(calc.dailyRate)}</td>
-              </tr>`;
-            }).join('') : '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--ink-60)">No shifts in this period.</td></tr>'}
-          </tbody>
+          <thead><tr><th>Pay Period</th><th>Daily Rate</th><th>Days Present</th><th>Net Pay</th><th>Sent</th><th>Action</th></tr></thead>
+          <tbody>${myPayslips.length
+      ? myPayslips.map(p => `<tr>
+                <td><strong>${p.payPeriod}</strong></td>
+                <td class="td-mono">₱${fmt(p.dailyRate)}</td>
+                <td class="td-mono">${p.daysPresent}</td>
+                <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay)}</td>
+                <td style="font-size:12px;color:var(--ink-60)">${p.sentAt ? fmtTime(p.sentAt) : '—'}</td>
+                <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View &amp; Print</button></td>
+              </tr>`).join('')
+      : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--ink-60)">
+                <div style="font-size:28px;margin-bottom:10px">📄</div>
+                No payslips available yet.<br>
+                <span style="font-size:12px">Payslips will appear here once your admin sends them to you.</span>
+              </td></tr>`
+    }</tbody>
         </table>
       </div>
-    </div>
-    `}`;
+    </div>`;
 }
 
-function printPayslip() {
-  const doc = document.getElementById('payslip-document');
-  if (!doc) { showToast('Payslip not found. Please wait for it to load.', 'error'); return; }
-  printContent(doc.outerHTML, 'Payslip — South Pafps');
-}
-
-function downloadPayslip() {
-  const doc = document.getElementById('payslip-document');
-  if (!doc) return;
+function viewSentPayslipModal(payslipId) {
   const s = getState();
+  const p = (s.payslips || []).find(x => x.id === payslipId);
+  if (!p) { showToast('Payslip not found.', 'error'); return; }
   const me = s.currentUser;
-  const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Payslip - ${me?.name || 'Employee'}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Times New Roman',serif;font-size:12px;padding:30px}
-    table{width:100%;border-collapse:collapse}
-    td,th{padding:5px 10px}
-  </style></head><body>
-  ${doc.innerHTML}
-  <script>
-    window.onload=function(){
-      setTimeout(function(){
-        var a=document.createElement('a');
-        a.href='data:text/html;charset=utf-8,'+encodeURIComponent(document.documentElement.outerHTML);
-        a.download='Payslip_${(me?.name || 'employee').replace(/\s+/g,'_')}.html';
-        a.click();
-      },300);
-    }
-  <\/script>
-  </body></html>`);
-  win.document.close();
-  showToast('Payslip downloaded as HTML — open in browser then Save as PDF.', 'success');
+  const branch = s.branches.find(b => b.id === (p.branchId || me?.branchId));
+  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const empNum = me?.employeeNumber || ('EMP-' + String(me?.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  const positionLabel = me?.role === 'staff' ? 'Sales Associate' : me?.role === 'print' ? 'Printing Personnel' : (me?.role || '');
+
+  const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+    </div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <tbody>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.sss || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth No.:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.philhealth || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG No.:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.pagibig || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.tin || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Branch:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${branch?.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
+      </tbody>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <colgroup><col style="width:50%"><col style="width:3px"><col style="width:50%"></colgroup>
+      <thead><tr>
+        <th style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">EARNINGS / INCOME</th>
+        <td style="background:#333;padding:0;"></td>
+        <th style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">DEDUCTIONS</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
+          <span>Basic Pay (${p.daysPresent}d × ₱${fmt(p.dailyRate)})</span><strong>₱${fmt(p.daysPresent * p.dailyRate)}</strong>
+        </td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
+          <span>SSS EE Contribution</span><span>${p.sss > 0 ? '₱' + fmt(p.sss) : '—'}</span>
+        </td></tr>
+        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
+          <span>Incentives</span><strong>${p.incentives > 0 ? '₱' + fmt(p.incentives) : '—'}</strong>
+        </td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
+          <span>PhilHealth (NHIP)</span><span>${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : '—'}</span>
+        </td></tr>
+        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;height:24px;"></td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
+          <span>Pag-IBIG (HDMF)</span><span>${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : '—'}</span>
+        </td></tr>
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#e8e8e8;">
+          <td style="border:1px solid #999;padding:6px 8px;">GROSS PAY &nbsp;&nbsp; ₱${fmt(p.grossPay)}</td>
+          <td style="background:#333;width:3px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTIONS &nbsp;&nbsp; ₱${fmt(p.deductions)}</td>
+        </tr>
+        <tr style="font-weight:700;">
+          <td style="border:1px solid #999;padding:8px;background:#fff;"></td>
+          <td style="background:#333;width:3px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:8px;background:#fff7f7;color:#7B1C2E;font-size:14px;">NET PAY &nbsp;&nbsp; ₱${fmt(p.netPay)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    ${p.notes ? `<div style="margin-top:10px;font-size:11px;color:#666;border-top:1px solid #eee;padding-top:8px;">Notes: ${p.notes}</div>` : ''}
+    <div style="margin-top:12px;text-align:center;font-size:10px;color:#aaa;">This is a system-generated payslip. For concerns, contact your administrator.</div>
+  </div>`;
+
+  showModal(`<div class="modal-header"><h2>📄 Payslip — ${p.payPeriod}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="payslip-modal-doc" style="padding:0;max-height:75vh;overflow-y:auto;">${html}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-modal-doc').innerHTML,'Payslip — South Pafps')">${iconSvg('printer')} Print Payslip</button>
+    </div>`, 'modal-lg');
 }
 
 
@@ -3918,19 +3957,140 @@ function renderReports() {
 }
 
 function showDiscountRulesModal() {
-  showModal(`<div class='modal-header'><h2>Discount Rules Configuration</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div><div class='modal-body'>TODO: Configure discount thresholds, percentages, and rules here.</div><div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
+  // FIX 6: Show actual configured discount rules instead of TODO
+  showModal(`<div class='modal-header'><h2>&#x1F4CB; Discount Rules</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
+    <div class='modal-body'>
+      <div class='alert alert-info' style='margin-bottom:14px'>These are the current system-wide discount rules applied automatically during order creation.</div>
+      <table class='data-table'>
+        <thead><tr><th>Rule</th><th>Condition</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Bulk Order Discount</strong></td><td>Order subtotal &ge; &#x20B1;3,000</td><td><span class='badge badge-success'>5% off subtotal</span></td></tr>
+          <tr><td><strong>Plate Charge (New Customer)</strong></td><td>Customer type = New</td><td>Product Fee + &#x20B1;550 plate</td></tr>
+          <tr><td><strong>Plate Charge (New Logo)</strong></td><td>New logo flag checked</td><td>Product Fee + &#x20B1;550 plate</td></tr>
+          <tr><td><strong>No Plate Charge</strong></td><td>Existing customer, same logo</td><td><span class='badge badge-neutral'>&#x20B1;0</span></td></tr>
+        </tbody>
+      </table>
+      <p style='font-size:12px;color:var(--ink-60);margin-top:12px'>To change these values, update the <code>OM_DISCOUNT_THRESHOLD</code>, <code>OM_DISCOUNT_RATE</code>, and <code>OM_PLATE_PER_COLOR</code> constants in app.js.</p>
+    </div>
+    <div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
 }
 function showDownpaymentReportModal() {
-  showModal(`<div class='modal-header'><h2>50% Downpayment Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div><div class='modal-body'>TODO: Show all orders/payments with 50% downpayment.</div><div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
+  // FIX 6: Show actual orders with downpayments recorded
+  var orders = getOrders().filter(function(o) { return (o.downpayment || 0) > 0 && o.status !== 'cancelled'; });
+  orders = [...orders].reverse();
+  var rows = orders.length ? orders.map(function(o) {
+    return '<tr>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td>' + (o.customer_name || '—') + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.downpayment || 0) + '</td>'
+      + '<td class="td-mono" style="color:' + ((o.balance||0)>0?'var(--danger)':'var(--success)') + '">&#x20B1;' + omFmt(o.balance || 0) + '</td>'
+      + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No orders with downpayments found.</td></tr>';
+  var totalDP = orders.reduce(function(s,o){ return s + (o.downpayment||0); }, 0);
+  showModal(`<div class='modal-header'><h2>&#x1F4B3; Downpayment Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
+    <div class='modal-body' style='padding:0'>
+      <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Orders with DP</span><div style='font-weight:700;font-size:18px'>${orders.length}</div></div>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Total Collected</span><div style='font-weight:700;font-size:18px;color:var(--success)'>&#x20B1;${omFmt(totalDP)}</div></div>
+      </div>
+      <div style='overflow-x:auto'>
+      <table class='data-table'>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Downpayment</th><th>Balance</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>
+    <div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`, 'modal-lg');
 }
 function showBalanceDueReportModal() {
-  showModal(`<div class='modal-header'><h2>Balance Due Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div><div class='modal-body'>TODO: Show all orders with outstanding balance.</div><div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
+  // FIX 6: Show orders with outstanding balances
+  var orders = getOrders().filter(function(o) { return (o.balance || 0) > 0 && o.status !== 'cancelled'; });
+  orders = [...orders].sort(function(a,b){ return (b.balance||0)-(a.balance||0); });
+  var rows = orders.length ? orders.map(function(o) {
+    var isPastDue = o.due_date && new Date(o.due_date) < new Date() && o.status !== 'completed';
+    return '<tr' + (isPastDue ? ' style="background:var(--danger-l)"' : '') + '>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td>' + (o.customer_name || '—') + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.downpayment || 0) + '</td>'
+      + '<td class="td-mono" style="color:var(--danger);font-weight:700">&#x20B1;' + omFmt(o.balance || 0) + '</td>'
+      + '<td>' + omStatusBadge(o.status) + '</td>'
+      + '<td class="td-mono">' + (o.due_date || '—') + (isPastDue ? ' <span class="badge badge-danger">PAST DUE</span>' : '') + '</td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--ink-60)">No outstanding balances. All orders are fully paid!</td></tr>';
+  var totalBal = orders.reduce(function(s,o){ return s + (o.balance||0); }, 0);
+  showModal(`<div class='modal-header'><h2>&#x26A0;&#xFE0F; Balance Due Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
+    <div class='modal-body' style='padding:0'>
+      <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Orders with Balance</span><div style='font-weight:700;font-size:18px'>${orders.length}</div></div>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Total Outstanding</span><div style='font-weight:700;font-size:18px;color:var(--danger)'>&#x20B1;${omFmt(totalBal)}</div></div>
+      </div>
+      <div style='overflow-x:auto'>
+      <table class='data-table'>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Order Status</th><th>Due Date</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>
+    <div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`, 'modal-lg');
 }
 function showPaidOrdersReportModal() {
-  showModal(`<div class='modal-header'><h2>Paid Orders Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div><div class='modal-body'>TODO: Show all fully paid orders.</div><div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
+  // FIX 6: Show fully paid orders
+  var orders = getOrders().filter(function(o) { return o.payment_status === 'Fully Paid'; });
+  orders = [...orders].reverse();
+  var rows = orders.length ? orders.map(function(o) {
+    return '<tr>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td>' + (o.customer_name || '—') + '</td>'
+      + '<td>' + (o.product_type || o.product_category || '—') + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
+      + '<td>' + omStatusBadge(o.status) + '</td>'
+      + '<td class="td-mono">' + (o.due_date || '—') + '</td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No fully paid orders found.</td></tr>';
+  var total = orders.reduce(function(s,o){ return s + (o.total_amount||0); }, 0);
+  showModal(`<div class='modal-header'><h2>&#x2705; Paid Orders Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
+    <div class='modal-body' style='padding:0'>
+      <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Fully Paid Orders</span><div style='font-weight:700;font-size:18px'>${orders.length}</div></div>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Total Revenue</span><div style='font-weight:700;font-size:18px;color:var(--success)'>&#x20B1;${omFmt(total)}</div></div>
+      </div>
+      <div style='overflow-x:auto'>
+      <table class='data-table'>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Amount</th><th>Order Status</th><th>Due Date</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>
+    <div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`, 'modal-lg');
 }
 function showDiscountReportModal() {
-  showModal(`<div class='modal-header'><h2>Discount Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div><div class='modal-body'>TODO: Show all orders/transactions with discounts applied.</div><div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`);
+  // FIX 6: Show orders where a discount was applied
+  var orders = getOrders().filter(function(o) { return (o.discount_amount || 0) > 0; });
+  orders = [...orders].reverse();
+  var rows = orders.length ? orders.map(function(o) {
+    return '<tr>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td>' + (o.customer_name || '—') + '</td>'
+      + '<td class="td-mono">' + (o.quantity || '—') + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt((o.quantity||0)*(o.unit_price||0)) + '</td>'
+      + '<td class="td-mono" style="color:var(--success);font-weight:700">- &#x20B1;' + omFmt(o.discount_amount || 0) + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No discounted orders found.</td></tr>';
+  var totalDiscount = orders.reduce(function(s,o){ return s + (o.discount_amount||0); }, 0);
+  showModal(`<div class='modal-header'><h2>&#x1F3F7;&#xFE0F; Discount Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
+    <div class='modal-body' style='padding:0'>
+      <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Discounted Orders</span><div style='font-weight:700;font-size:18px'>${orders.length}</div></div>
+        <div><span style='font-size:11px;color:var(--ink-60)'>Total Discounts Given</span><div style='font-weight:700;font-size:18px;color:var(--success)'>&#x20B1;${omFmt(totalDiscount)}</div></div>
+      </div>
+      <div style='overflow-x:auto'>
+      <table class='data-table'>
+        <thead><tr><th>Order #</th><th>Customer</th><th>Qty</th><th>Subtotal</th><th>Discount</th><th>Final Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>
+    <div class='modal-footer'><button class='btn btn-outline' onclick='closeModal()'>Close</button></div>`, 'modal-lg');
 }
 
 function viewReceiptModal(saleId) {
@@ -3943,62 +4103,62 @@ function viewReceiptModal(saleId) {
 // View receipt for Order Management orders in POS receipt history
 function omViewReceiptModal(saleId) {
   var s = getState();
-  var sale = (s.sales || []).find(function(x) { return String(x.id) === String(saleId); });
+  var sale = (s.sales || []).find(function (x) { return String(x.id) === String(saleId); });
   if (!sale) { showToast('Receipt not found.', 'error'); return; }
   var receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
-  var date = sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' }) : '—';
+  var date = sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
   var item = (sale.items && sale.items[0]) || {};
   showModal(
-    '<div class="modal-header"><h2>?? Receipt ' + receiptNo + '</h2>'
+    '<div class="modal-header"><h2>\uD83D\uDCCB Receipt ' + receiptNo + '</h2>'
     + '<button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body" style="font-family:monospace;max-width:360px;margin:0 auto">'
     + '<div style="text-align:center;margin-bottom:12px">'
-    +   '<strong style="font-size:16px">SOUTH PAFPS</strong><br>'
-    +   '<span style="font-size:12px;color:var(--ink-60)">Packaging Supplies</span>'
+    + '<strong style="font-size:16px">SOUTH PAFPS</strong><br>'
+    + '<span style="font-size:12px;color:var(--ink-60)">Packaging Supplies</span>'
     + '</div>'
     + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
     + '<div style="font-size:12px;margin-bottom:8px">'
-    +   '<div style="display:flex;justify-content:space-between"><span>Receipt #</span><strong>' + receiptNo + '</strong></div>'
-    +   '<div style="display:flex;justify-content:space-between"><span>Date</span><span>' + date + '</span></div>'
-    +   '<div style="display:flex;justify-content:space-between"><span>Order #</span><span>#' + String(sale.omOrderId || '').padStart(6,'0') + '</span></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Receipt #</span><strong>' + receiptNo + '</strong></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Date</span><span>' + date + '</span></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Order #</span><span>#' + String(sale.omOrderId || '').padStart(6, '0') + '</span></div>'
     + '</div>'
     + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
     + '<div style="font-size:12px;margin-bottom:8px">'
-    +   '<div><strong>' + omEsc(sale.omCustomerName || '—') + '</strong></div>'
-    +   (sale.omContactPerson ? '<div style="color:var(--ink-60)">' + omEsc(sale.omContactPerson) + '</div>' : '')
-    +   (sale.omPhone ? '<div style="color:var(--ink-60)">' + omEsc(sale.omPhone) + '</div>' : '')
+    + '<div><strong>' + omEsc(sale.omCustomerName || '—') + '</strong></div>'
+    + (sale.omContactPerson ? '<div style="color:var(--ink-60)">' + omEsc(sale.omContactPerson) + '</div>' : '')
+    + (sale.omPhone ? '<div style="color:var(--ink-60)">' + omEsc(sale.omPhone) + '</div>' : '')
     + '</div>'
     + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
     + '<table style="width:100%;font-size:12px;border-collapse:collapse">'
-    +   '<tr style="color:var(--ink-60)"><td>Item</td><td style="text-align:center">Qty</td><td style="text-align:right">Amount</td></tr>'
-    +   '<tr><td>' + omEsc((item.productName || '') + (item.variantName ? ' — ' + item.variantName : '')) + '</td>'
-    +     '<td style="text-align:center">' + (item.qty || 1) + '</td>'
-    +     '<td style="text-align:right">₱' + omFmt(item.subtotal || sale.total || 0) + '</td></tr>'
-    +   (sale.omPlateCharge > 0 ? '<tr><td style="color:var(--ink-60)">Plate Charge</td><td></td><td style="text-align:right">₱' + omFmt(sale.omPlateCharge) + '</td></tr>' : '')
-    +   (sale.discountAmount > 0 ? '<tr><td style="color:var(--success)">Discount</td><td></td><td style="text-align:right;color:var(--success)">- ₱' + omFmt(sale.discountAmount) + '</td></tr>' : '')
+    + '<tr style="color:var(--ink-60)"><td>Item</td><td style="text-align:center">Qty</td><td style="text-align:right">Amount</td></tr>'
+    + '<tr><td>' + omEsc((item.productName || '') + (item.variantName ? ' — ' + item.variantName : '')) + '</td>'
+    + '<td style="text-align:center">' + (item.qty || 1) + '</td>'
+    + '<td style="text-align:right">₱' + omFmt(item.subtotal || sale.total || 0) + '</td></tr>'
+    + (sale.omPlateCharge > 0 ? '<tr><td style="color:var(--ink-60)">Plate Charge</td><td></td><td style="text-align:right">₱' + omFmt(sale.omPlateCharge) + '</td></tr>' : '')
+    + (sale.discountAmount > 0 ? '<tr><td style="color:var(--success)">Discount</td><td></td><td style="text-align:right;color:var(--success)">- ₱' + omFmt(sale.discountAmount) + '</td></tr>' : '')
     + '</table>'
     + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
     + '<div style="font-size:13px">'
-    +   '<div style="display:flex;justify-content:space-between"><span>Total</span><strong style="color:var(--maroon)">₱' + omFmt(sale.total) + '</strong></div>'
-    +   '<div style="display:flex;justify-content:space-between"><span>Mode</span><span>' + omEsc(sale.paymentMode || 'Cash') + '</span></div>'
-    +   (sale.omBalance > 0 ? '<div style="display:flex;justify-content:space-between;color:var(--danger)"><span>Balance</span><span>₱' + omFmt(sale.omBalance) + '</span></div>' : '<div style="display:flex;justify-content:space-between;color:var(--success)"><span>Balance</span><span>Fully Paid</span></div>')
+    + '<div style="display:flex;justify-content:space-between"><span>Total</span><strong style="color:var(--maroon)">₱' + omFmt(sale.total) + '</strong></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Mode</span><span>' + omEsc(sale.paymentMode || 'Cash') + '</span></div>'
+    + (sale.omBalance > 0 ? '<div style="display:flex;justify-content:space-between;color:var(--danger)"><span>Balance</span><span>₱' + omFmt(sale.omBalance) + '</span></div>' : '<div style="display:flex;justify-content:space-between;color:var(--success)"><span>Balance</span><span>Fully Paid</span></div>')
     + '</div>'
     + '<hr style="border:none;border-top:1px dashed var(--ink-20);margin:10px 0">'
     + '<div style="text-align:center;font-size:11px;color:var(--ink-60)">'
-    +   '<div>Thank you for your business!</div>'
-    +   '<div>South Pafps Packaging Supplies</div>'
+    + '<div>Thank you for your business!</div>'
+    + '<div>South Pafps Packaging Supplies</div>'
     + '</div>'
     + '</div>'
     + '<div class="modal-footer">'
-    +   '<button class="btn btn-outline" onclick="closeModal()">Close</button>'
-    +   '<button class="btn btn-maroon" onclick="omPrintReceiptById(\'' + saleId + '\')">Print ??️</button>'
+    + '<button class="btn btn-outline" onclick="closeModal()">Close</button>'
+    + '<button class="btn btn-maroon" onclick="omPrintReceiptById(\'' + saleId + '\')">\uD83D\uDDB6\uFE0F Print</button>'
     + '</div>'
   );
 }
 
 function omPrintReceiptById(saleId) {
   var s = getState();
-  var sale = (s.sales || []).find(function(x) { return String(x.id) === String(saleId); });
+  var sale = (s.sales || []).find(function (x) { return String(x.id) === String(saleId); });
   if (!sale) return;
   var item = (sale.items && sale.items[0]) || {};
   var receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
@@ -4009,18 +4169,18 @@ function omPrintReceiptById(saleId) {
     + '</head><body>'
     + '<h2>SOUTH PAFPS</h2><p>Packaging Supplies</p><hr>'
     + '<p>Receipt # <strong>' + receiptNo + '</strong></p>'
-    + '<p>Order # <strong>#' + String(sale.omOrderId || '').padStart(6,'0') + '</strong></p>'
+    + '<p>Order # <strong>#' + String(sale.omOrderId || '').padStart(6, '0') + '</strong></p>'
     + '<p>Date: ' + date + '</p><hr>'
     + '<p><strong>' + (sale.omCustomerName || '') + '</strong></p>'
     + (sale.omContactPerson ? '<p>' + sale.omContactPerson + '</p>' : '')
     + '<hr>'
     + '<table>'
-    +   '<tr><td>' + ((item.productName || '') + (item.variantName ? ' - ' + item.variantName : '')) + '</td><td style="text-align:right">x' + (item.qty||1) + '</td><td style="text-align:right">₱' + (item.subtotal||0).toFixed(2) + '</td></tr>'
-    +   (sale.omPlateCharge > 0 ? '<tr><td>Plate Charge</td><td></td><td style="text-align:right">₱' + sale.omPlateCharge.toFixed(2) + '</td></tr>' : '')
-    +   (sale.discountAmount > 0 ? '<tr><td>Discount</td><td></td><td style="text-align:right">- ₱' + sale.discountAmount.toFixed(2) + '</td></tr>' : '')
+    + '<tr><td>' + ((item.productName || '') + (item.variantName ? ' - ' + item.variantName : '')) + '</td><td style="text-align:right">x' + (item.qty || 1) + '</td><td style="text-align:right">₱' + (item.subtotal || 0).toFixed(2) + '</td></tr>'
+    + (sale.omPlateCharge > 0 ? '<tr><td>Plate Charge</td><td></td><td style="text-align:right">₱' + sale.omPlateCharge.toFixed(2) + '</td></tr>' : '')
+    + (sale.discountAmount > 0 ? '<tr><td>Discount</td><td></td><td style="text-align:right">- ₱' + sale.discountAmount.toFixed(2) + '</td></tr>' : '')
     + '</table><hr>'
-    + '<table><tr><td><strong>TOTAL</strong></td><td style="text-align:right"><strong>₱' + (sale.total||0).toFixed(2) + '</strong></td></tr>'
-    + '<tr><td>Mode</td><td style="text-align:right">' + (sale.paymentMode||'Cash') + '</td></tr>'
+    + '<table><tr><td><strong>TOTAL</strong></td><td style="text-align:right"><strong>₱' + (sale.total || 0).toFixed(2) + '</strong></td></tr>'
+    + '<tr><td>Mode</td><td style="text-align:right">' + (sale.paymentMode || 'Cash') + '</td></tr>'
     + '<tr><td>Balance</td><td style="text-align:right">' + (sale.omBalance > 0 ? '₱' + sale.omBalance.toFixed(2) : 'FULLY PAID') + '</td></tr>'
     + '</table><hr>'
     + '<div class="footer"><p>Thank you for your business!</p><p>South Pafps Packaging Supplies</p></div>'
@@ -4041,16 +4201,16 @@ function renderPosCustomers() {
   const staffBranchId = !isAdmin ? s.currentUser?.branchId : null;
 
   // Build per-customer stats from sales
-  const totalSpent   = {};
-  const visitCount   = {};
-  const lastVisit    = {};
+  const totalSpent = {};
+  const visitCount = {};
+  const lastVisit = {};
   const branchCustIds = new Set();
 
   (s.sales || []).forEach(sale => {
     if (sale.voided) return;
     if (sale.customerId) {
-      totalSpent[sale.customerId]  = (totalSpent[sale.customerId]  || 0) + (sale.total || 0);
-      visitCount[sale.customerId]  = (visitCount[sale.customerId]  || 0) + 1;
+      totalSpent[sale.customerId] = (totalSpent[sale.customerId] || 0) + (sale.total || 0);
+      visitCount[sale.customerId] = (visitCount[sale.customerId] || 0) + 1;
       if (!lastVisit[sale.customerId] || sale.createdAt > lastVisit[sale.customerId])
         lastVisit[sale.customerId] = sale.createdAt;
       if (staffBranchId && sale.branchId === staffBranchId)
@@ -4070,16 +4230,16 @@ function renderPosCustomers() {
   const q = (_posCustFilter.search || '').toLowerCase();
   let filtered = pool.filter(c =>
     !q ||
-    (c.companyName    || '').toLowerCase().includes(q) ||
-    (c.contactPerson  || '').toLowerCase().includes(q) ||
-    (c.phone          || '').toLowerCase().includes(q)
+    (c.companyName || '').toLowerCase().includes(q) ||
+    (c.contactPerson || '').toLowerCase().includes(q) ||
+    (c.phone || '').toLowerCase().includes(q)
   );
 
   // Sort
   filtered.sort((a, b) => {
-    if (_posCustFilter.sort === 'name')    return (a.companyName || a.contactPerson || '').localeCompare(b.companyName || b.contactPerson || '');
-    if (_posCustFilter.sort === 'spent')   return (totalSpent[b.id] || 0) - (totalSpent[a.id] || 0);
-    if (_posCustFilter.sort === 'visits')  return (visitCount[b.id] || 0) - (visitCount[a.id] || 0);
+    if (_posCustFilter.sort === 'name') return (a.companyName || a.contactPerson || '').localeCompare(b.companyName || b.contactPerson || '');
+    if (_posCustFilter.sort === 'spent') return (totalSpent[b.id] || 0) - (totalSpent[a.id] || 0);
+    if (_posCustFilter.sort === 'visits') return (visitCount[b.id] || 0) - (visitCount[a.id] || 0);
     // recent (default)
     return (lastVisit[b.id] || '').localeCompare(lastVisit[a.id] || '');
   });
@@ -4124,10 +4284,10 @@ function renderPosCustomers() {
           value="${_posCustFilter.search}"
           oninput="_posCustFilter.search=this.value;renderPosCustomers()">
         <select class="form-control" style="width:auto" onchange="_posCustFilter.sort=this.value;renderPosCustomers()">
-          <option value="recent"  ${_posCustFilter.sort === 'recent'  ? 'selected' : ''}>Most Recent</option>
-          <option value="spent"   ${_posCustFilter.sort === 'spent'   ? 'selected' : ''}>Highest Spend</option>
-          <option value="visits"  ${_posCustFilter.sort === 'visits'  ? 'selected' : ''}>Most Visits</option>
-          <option value="name"    ${_posCustFilter.sort === 'name'    ? 'selected' : ''}>Name A–Z</option>
+          <option value="recent"  ${_posCustFilter.sort === 'recent' ? 'selected' : ''}>Most Recent</option>
+          <option value="spent"   ${_posCustFilter.sort === 'spent' ? 'selected' : ''}>Highest Spend</option>
+          <option value="visits"  ${_posCustFilter.sort === 'visits' ? 'selected' : ''}>Most Visits</option>
+          <option value="name"    ${_posCustFilter.sort === 'name' ? 'selected' : ''}>Name A–Z</option>
         </select>
       </div>
       <div class="data-card-body no-pad">
@@ -4142,25 +4302,25 @@ function renderPosCustomers() {
             <th>Action</th>
           </tr></thead>
           <tbody>${filtered.length === 0
-            ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No walk-in customers found.</td></tr>'
-            : filtered.map(c => {
-                const balance = c.outstandingBalance || 0;
-                const balCell = balance > 0
-                  ? '<span class="td-mono" style="color:var(--danger);font-weight:700">₱' + fmt(balance) + '</span>'
-                  : '<span class="badge badge-success">Clear</span>';
-                return '<tr>' +
-                  '<td><strong>' + (c.companyName || c.contactPerson || 'Unknown') + '</strong>' +
-                    (c.contactPerson && c.companyName ? '<div style="font-size:11px;color:var(--ink-50)">' + c.contactPerson + '</div>' : '') +
-                  '</td>' +
-                  '<td class="td-mono">' + (c.phone || '—') + '</td>' +
-                  '<td class="td-mono">' + (visitCount[c.id] || 0) + '</td>' +
-                  '<td class="td-mono" style="font-weight:700;color:var(--maroon)">₱' + fmt(totalSpent[c.id] || 0) + '</td>' +
-                  '<td class="td-mono" style="font-size:12px">' + (lastVisit[c.id] ? fmtDate(lastVisit[c.id]) : '—') + '</td>' +
-                  '<td>' + balCell + '</td>' +
-                  '<td><button class="btn btn-sm btn-outline" onclick="viewPosCustomerModal(\'' + c.id + '\')">View</button></td>' +
-                  '</tr>';
-              }).join('')
-          }</tbody>
+      ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No walk-in customers found.</td></tr>'
+      : filtered.map(c => {
+        const balance = c.outstandingBalance || 0;
+        const balCell = balance > 0
+          ? '<span class="td-mono" style="color:var(--danger);font-weight:700">₱' + fmt(balance) + '</span>'
+          : '<span class="badge badge-success">Clear</span>';
+        return '<tr>' +
+          '<td><strong>' + (c.companyName || c.contactPerson || 'Unknown') + '</strong>' +
+          (c.contactPerson && c.companyName ? '<div style="font-size:11px;color:var(--ink-50)">' + c.contactPerson + '</div>' : '') +
+          '</td>' +
+          '<td class="td-mono">' + (c.phone || '—') + '</td>' +
+          '<td class="td-mono">' + (visitCount[c.id] || 0) + '</td>' +
+          '<td class="td-mono" style="font-weight:700;color:var(--maroon)">₱' + fmt(totalSpent[c.id] || 0) + '</td>' +
+          '<td class="td-mono" style="font-size:12px">' + (lastVisit[c.id] ? fmtDate(lastVisit[c.id]) : '—') + '</td>' +
+          '<td>' + balCell + '</td>' +
+          '<td><button class="btn btn-sm btn-outline" onclick="viewPosCustomerModal(\'' + c.id + '\')">View</button></td>' +
+          '</tr>';
+      }).join('')
+    }</tbody>
         </table>
       </div>
     </div>`;
@@ -4173,31 +4333,66 @@ function viewPosCustomerModal(cid) {
   const custSales = (s.sales || []).filter(x => x.customerId === cid && !x.voided)
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   const totalSpent = custSales.reduce((sum, x) => sum + (x.total || 0), 0);
+  const avgSpend = custSales.length ? totalSpent / custSales.length : 0;
+  const lastSale = custSales[0];
+  const balance = c.outstandingBalance || 0;
+  const displayName = c.companyName || c.contactPerson || 'Unknown Customer';
+  const initials = displayName.split(' ').slice(0,2).map(w => w[0]||'').join('').toUpperCase() || '?';
+
   const salesHtml = custSales.slice(0, 10).map(sale =>
     '<tr>' +
-    '<td class="td-mono" style="font-size:12px">' + (sale.receiptNo || String(sale.id).slice(-6).toUpperCase()) + '</td>' +
-    '<td class="td-mono">₱' + fmt(sale.total) + '</td>' +
-    '<td class="td-mono" style="font-size:12px">' + fmtTime(sale.createdAt) + '</td>' +
-    '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">Receipt</button></td>' +
+    '<td class="td-mono" style="font-size:12px;font-weight:600">' + (sale.receiptNo || String(sale.id).slice(-6).toUpperCase()) + '</td>' +
+    '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(sale.total) + '</td>' +
+    '<td style="font-size:12px;color:var(--ink-60)">' + fmtTime(sale.createdAt) + '</td>' +
+    '<td style="text-align:right"><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">\uD83D\uDDDA Receipt</button></td>' +
     '</tr>'
-  ).join('') || '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No sales found.</td></tr>';
+  ).join('') || '<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--ink-40)"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDED2</div>No purchase history yet.</td></tr>';
 
   showModal(
-    '<div class="modal-header"><h2>' + iconSvg('users') + ' ' + (c.companyName || c.contactPerson || 'Customer') + '</h2>' +
-    '<button class="btn-close-modal" onclick="closeModal()">&#x2715;</button></div>' +
-    '<div class="modal-body">' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">' +
-    '<div class="form-group" style="margin:0"><label>Contact Person</label><div class="form-control-static">' + (c.contactPerson || '—') + '</div></div>' +
-    '<div class="form-group" style="margin:0"><label>Phone</label><div class="form-control-static td-mono">' + (c.phone || '—') + '</div></div>' +
-    '<div class="form-group" style="margin:0"><label>Total Visits</label><div class="form-control-static td-mono">' + custSales.length + '</div></div>' +
-    '<div class="form-group" style="margin:0"><label>Total Spent</label><div class="form-control-static td-mono" style="color:var(--maroon);font-weight:700">₱' + fmt(totalSpent) + '</div></div>' +
+    '<div class="modal-header" style="border-bottom:none;padding-bottom:0">' +
+    '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>' +
+
+    '<div style="background:linear-gradient(135deg,var(--maroon) 0%,#a02040 100%);padding:28px 28px 22px;margin:-8px 0 0;position:relative;overflow:hidden">' +
+    '<div style="position:absolute;top:-20px;right:-20px;width:120px;height:120px;background:rgba(255,255,255,0.06);border-radius:50%"></div>' +
+    '<div style="display:flex;align-items:center;gap:16px;position:relative">' +
+    '<div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.3)">' + initials + '</div>' +
+    '<div style="flex:1;min-width:0">' +
+    '<div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">' + omEsc(displayName) + '</div>' +
+    (c.contactPerson && c.companyName ? '<div style="font-size:13px;color:rgba(255,255,255,0.72);margin-bottom:6px">' + omEsc(c.contactPerson) + '</div>' : '<div style="margin-bottom:6px"></div>') +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+    '<span style="background:rgba(255,255,255,0.15);color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600">\uD83C\uDFEA POS Walk-in</span>' +
+    (balance > 0
+      ? '<span style="background:#ef4444;color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600">\u26a0 Balance Due: \u20b1' + fmt(balance) + '</span>'
+      : '<span style="background:rgba(34,197,94,0.28);color:#bbf7d0;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600">\u2713 No Balance</span>') +
+    '</div></div></div></div>' +
+
+    '<div class="modal-body" style="padding:20px 24px">' +
+
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">' +
+    '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--maroon)">' + custSales.length + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Total Visits</div></div>' +
+    '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--maroon)">\u20b1' + fmt(totalSpent) + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Total Spent</div></div>' +
+    '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--ink)">\u20b1' + fmt(avgSpend) + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Avg / Visit</div></div>' +
     '</div>' +
-    '<div style="font-weight:600;margin-bottom:8px;font-size:13px">Recent Purchases</div>' +
-    '<table class="data-table"><thead><tr><th>Receipt</th><th>Total</th><th>Date</th><th></th></tr></thead>' +
-    '<tbody>' + salesHtml + '</tbody></table>' +
+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">' +
+    _crInfoField('Phone', c.phone || '\u2014', true) +
+    _crInfoField('Email', c.email || '\u2014') +
+    _crInfoField('Address', c.address || '\u2014') +
+    _crInfoField('Last Visit', lastSale ? fmtTime(lastSale.createdAt) : '\u2014') +
+    (c.notes ? '<div style="grid-column:span 2">' + _crInfoField('Notes', c.notes) + '</div>' : '') +
     '</div>' +
-    '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>'
-  , 'modal-lg');
+
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-40);margin-bottom:8px">Purchase History</div>' +
+    '<div style="border:1px solid var(--ink-10);border-radius:10px;overflow:hidden">' +
+    '<table class="data-table" style="margin:0"><thead><tr><th>Receipt #</th><th>Amount</th><th>Date &amp; Time</th><th></th></tr></thead>' +
+    '<tbody>' + salesHtml + '</tbody></table></div>' +
+    '</div>' +
+
+    '<div class="modal-footer">' +
+    '<button class="btn btn-outline" onclick="closeModal()">Close</button>' +
+    '<button class="btn btn-maroon" onclick="closeModal();crEditPosCustomer(\'' + cid + '\')">' + iconSvg('users') + ' Edit Customer</button>' +
+    '</div>'
+    , 'modal-lg');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -4225,19 +4420,19 @@ function renderPosReceipts() {
     const matchSearch = !q || receiptNo.toLowerCase().includes(q) || custName.toLowerCase().includes(q);
     const isVoided = sale.voided || sale.status === 'voided';
     const matchStatus =
-      _posReceiptFilter.status === 'all'    ? true :
-      _posReceiptFilter.status === 'paid'   ? !isVoided :
-      _posReceiptFilter.status === 'voided' ? isVoided : true;
+      _posReceiptFilter.status === 'all' ? true :
+        _posReceiptFilter.status === 'paid' ? !isVoided :
+          _posReceiptFilter.status === 'voided' ? isVoided : true;
     const saleDate = (sale.createdAt || '').slice(0, 10);
     const matchFrom = !_posReceiptFilter.dateFrom || saleDate >= _posReceiptFilter.dateFrom;
-    const matchTo   = !_posReceiptFilter.dateTo   || saleDate <= _posReceiptFilter.dateTo;
+    const matchTo = !_posReceiptFilter.dateTo || saleDate <= _posReceiptFilter.dateTo;
     return matchSearch && matchStatus && matchFrom && matchTo;
   });
 
-  const totalRevenue  = filtered.filter(x => !x.voided && x.status !== 'voided').reduce((s, x) => s + (x.total || 0), 0);
-  const voidedCount   = filtered.filter(x => x.voided || x.status === 'voided').length;
-  const paidCount     = filtered.length - voidedCount;
-  const hasFilter     = q || _posReceiptFilter.status !== 'all' || _posReceiptFilter.dateFrom || _posReceiptFilter.dateTo;
+  const totalRevenue = filtered.filter(x => !x.voided && x.status !== 'voided').reduce((s, x) => s + (x.total || 0), 0);
+  const voidedCount = filtered.filter(x => x.voided || x.status === 'voided').length;
+  const paidCount = filtered.length - voidedCount;
+  const hasFilter = q || _posReceiptFilter.status !== 'all' || _posReceiptFilter.dateFrom || _posReceiptFilter.dateTo;
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
@@ -4281,8 +4476,8 @@ function renderPosReceipts() {
           value="${_posReceiptFilter.search}"
           oninput="_posReceiptFilter.search=this.value;renderPosReceipts()">
         <select class="form-control" style="width:auto" onchange="_posReceiptFilter.status=this.value;renderPosReceipts()">
-          <option value="all"    ${_posReceiptFilter.status === 'all'    ? 'selected' : ''}>All Status</option>
-          <option value="paid"   ${_posReceiptFilter.status === 'paid'   ? 'selected' : ''}>Paid</option>
+          <option value="all"    ${_posReceiptFilter.status === 'all' ? 'selected' : ''}>All Status</option>
+          <option value="paid"   ${_posReceiptFilter.status === 'paid' ? 'selected' : ''}>Paid</option>
           <option value="voided" ${_posReceiptFilter.status === 'voided' ? 'selected' : ''}>Voided</option>
         </select>
         <input type="date" class="form-control" style="width:auto"
@@ -4308,28 +4503,28 @@ function renderPosReceipts() {
             <th>Action</th>
           </tr></thead>
           <tbody>${filtered.length === 0
-            ? '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">' + (hasFilter ? 'No receipts match your filter.' : 'No receipts yet.') + '</td></tr>'
-            : filtered.map(sale => {
-                const cust = (s.customers || []).find(c => c.id === sale.customerId);
-                const custName = cust ? (cust.companyName || cust.contactPerson || 'Walk-in') : 'Walk-in';
-                const isVoided = sale.voided || sale.status === 'voided';
-                const receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
-                const payMethods = (sale.payments || []).map(p => p.method).join(', ') || (sale.paymentMode || '—');
-                const itemCount = (sale.items || []).length;
-                return '<tr>' +
-                  '<td class="td-mono" style="font-weight:600">' + receiptNo + '</td>' +
-                  '<td>' + (cust && cust.source === 'pos' ? '🛒 ' : '') + custName + '</td>' +
-                  '<td class="td-mono">' + itemCount + '</td>' +
-                  '<td style="text-transform:capitalize;font-size:12px">' + payMethods + '</td>' +
-                  '<td class="td-mono" style="font-weight:700;color:' + (isVoided ? 'var(--ink-40)' : 'var(--maroon)') + '">' +
-                    (isVoided ? '<s>₱' + fmt(sale.total) + '</s>' : '₱' + fmt(sale.total)) +
-                  '</td>' +
-                  '<td>' + (isVoided ? '<span class="badge badge-danger">Voided</span>' : '<span class="badge badge-success">Paid</span>') + '</td>' +
-                  '<td class="td-mono" style="font-size:12px">' + fmtTime(sale.createdAt || sale.created_at) + '</td>' +
-                  '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">View</button></td>' +
-                  '</tr>';
-              }).join('')
-          }</tbody>
+      ? '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">' + (hasFilter ? 'No receipts match your filter.' : 'No receipts yet.') + '</td></tr>'
+      : filtered.map(sale => {
+        const cust = (s.customers || []).find(c => c.id === sale.customerId);
+        const custName = cust ? (cust.companyName || cust.contactPerson || 'Walk-in') : 'Walk-in';
+        const isVoided = sale.voided || sale.status === 'voided';
+        const receiptNo = sale.receiptNo || String(sale.id).slice(-6).toUpperCase();
+        const payMethods = (sale.payments || []).map(p => p.method).join(', ') || (sale.paymentMode || '—');
+        const itemCount = (sale.items || []).length;
+        return '<tr>' +
+          '<td class="td-mono" style="font-weight:600">' + receiptNo + '</td>' +
+          '<td>' + (cust && cust.source === 'pos' ? '🛒 ' : '') + custName + '</td>' +
+          '<td class="td-mono">' + itemCount + '</td>' +
+          '<td style="text-transform:capitalize;font-size:12px">' + payMethods + '</td>' +
+          '<td class="td-mono" style="font-weight:700;color:' + (isVoided ? 'var(--ink-40)' : 'var(--maroon)') + '">' +
+          (isVoided ? '<s>₱' + fmt(sale.total) + '</s>' : '₱' + fmt(sale.total)) +
+          '</td>' +
+          '<td>' + (isVoided ? '<span class="badge badge-danger">Voided</span>' : '<span class="badge badge-success">Paid</span>') + '</td>' +
+          '<td class="td-mono" style="font-size:12px">' + fmtTime(sale.createdAt || sale.created_at) + '</td>' +
+          '<td><button class="btn btn-sm btn-outline" onclick="viewReceiptModal(\'' + sale.id + '\')">View</button></td>' +
+          '</tr>';
+      }).join('')
+    }</tbody>
         </table>
       </div>
     </div>`;
@@ -4341,9 +4536,9 @@ function renderReceipts() {
   var navId = getNavRenderId();
   var s = getState();
   var sales = (s.sales || []).slice().reverse().slice(0, 200);
-  var rows = sales.map(function(sale) {
+  var rows = sales.map(function (sale) {
     var isOM = sale.source === 'order_management';
-    var cust = s.customers ? s.customers.find(function(c) { return c.id === sale.customerId; }) : null;
+    var cust = s.customers ? s.customers.find(function (c) { return c.id === sale.customerId; }) : null;
     var customer = isOM
       ? (sale.omCustomerName || sale.omContactPerson || 'OM Customer')
       : (cust ? (cust.companyName || cust.contactPerson || 'Walk-in') : 'Walk-in');
@@ -4418,18 +4613,18 @@ function renderSales() {
     <div class="data-card"><div class="data-card-body no-pad">
       <table class="data-table"><thead><tr><th>Receipt #</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Time</th>${u.role === 'admin' ? '<th>Actions</th>' : ''}</tr></thead>
       <tbody>${allSales.map(sale => {
-        const cust = s2.customers.find(c => c.id === sale.customerId);
-        const customer = cust ? (cust.companyName || cust.contactPerson) : 'Walk-in';
-        return `<tr>
+    const cust = s2.customers.find(c => c.id === sale.customerId);
+    const customer = cust ? (cust.companyName || cust.contactPerson) : 'Walk-in';
+    return `<tr>
           <td class="td-mono">${sale.receiptNo || String(sale.id).slice(-6).toUpperCase()}</td>
           <td>${customer}</td>
           <td>${sale.items ? sale.items.length : 0}</td>
           <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(sale.total)}</td>
-          <td><span class="badge ${sale.voided||sale.status==='voided'?'badge-danger':'badge-success'}">${sale.voided||sale.status==='voided'?'Voided':'Paid'}</span></td>
+          <td><span class="badge ${sale.voided || sale.status === 'voided' ? 'badge-danger' : 'badge-success'}">${sale.voided || sale.status === 'voided' ? 'Voided' : 'Paid'}</span></td>
           <td class="td-mono">${fmtTime(sale.createdAt || sale.created_at)}</td>
           ${u.role === 'admin' ? `<td><button class="btn btn-sm btn-outline" onclick="editSaleModal('${sale.id}')">Edit</button> <button class="btn btn-sm btn-icon" onclick="voidSaleModal('${sale.id}')">${iconSvg('error')}</button></td>` : ''}
         </tr>`;
-      }).join('') || `<tr><td colspan="${u.role === 'admin' ? 7 : 6}" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found.</td></tr>`}
+  }).join('') || `<tr><td colspan="${u.role === 'admin' ? 7 : 6}" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found.</td></tr>`}
       </tbody></table>
     </div></div>`);
 }
@@ -4902,16 +5097,16 @@ function custNameSearch(val) {
   if (!q) { drop.style.display = 'none'; return; }
 
   // Pull from both stores and normalise to a common shape
-  var posCustomers = (getState().customers || []).map(function(c) {
+  var posCustomers = (getState().customers || []).map(function (c) {
     return { _id: c.id, _src: 'pos', name: c.companyName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
   });
-  var omCustomers = (getCustomerRecords() || []).map(function(c) {
+  var omCustomers = (getCustomerRecords() || []).map(function (c) {
     return { _id: c.id, _src: 'om', name: c.businessName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
   });
 
   // Combine, deduplicate by name, filter by query
   var seen = {};
-  var matches = posCustomers.concat(omCustomers).filter(function(c) {
+  var matches = posCustomers.concat(omCustomers).filter(function (c) {
     var key = c.name.toLowerCase();
     if (seen[key]) return false;
     seen[key] = true;
@@ -4920,14 +5115,14 @@ function custNameSearch(val) {
 
   if (!matches.length) { drop.style.display = 'none'; return; }
 
-  drop.innerHTML = matches.map(function(c) {
+  drop.innerHTML = matches.map(function (c) {
     return '<div class="cust-suggest-item" onmousedown="custFillFromRecord(\'' + c._id + '\',\'' + c._src + '\')">'
       + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
       + '<div style="font-size:11px;color:var(--ink-60)">'
-        + (c.contact || '')
-        + (c.phone ? ' · ' + c.phone : '')
+      + (c.contact || '')
+      + (c.phone ? ' · ' + c.phone : '')
       + '</div>'
-    + '</div>';
+      + '</div>';
   }).join('');
   drop.style.display = 'block';
 }
@@ -4935,19 +5130,19 @@ function custNameSearch(val) {
 function custFillFromRecord(custId, src) {
   var c = null;
   if (src === 'om') {
-    c = (getCustomerRecords() || []).find(function(x) { return x.id === custId; });
+    c = (getCustomerRecords() || []).find(function (x) { return x.id === custId; });
     if (c) c = { companyName: c.businessName, contactPerson: c.contactPerson, phone: c.phone, email: c.email, address: c.address, notes: c.notes || '' };
   } else {
-    c = (getState().customers || []).find(function(x) { return x.id === custId; });
+    c = (getState().customers || []).find(function (x) { return x.id === custId; });
   }
   if (!c) return;
   function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
-  sv('cust-company',  c.companyName);
-  sv('cust-contact',  c.contactPerson);
-  sv('cust-phone',    c.phone);
-  sv('cust-email',    c.email);
-  sv('cust-address',  c.address);
-  sv('cust-notes',    c.notes);
+  sv('cust-company', c.companyName);
+  sv('cust-contact', c.contactPerson);
+  sv('cust-phone', c.phone);
+  sv('cust-email', c.email);
+  sv('cust-address', c.address);
+  sv('cust-notes', c.notes);
   var drop = document.getElementById('cust-suggest');
   if (drop) drop.style.display = 'none';
 }
@@ -5043,7 +5238,7 @@ function postARPaymentModal(customerId) {
       <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px;">
         <div style="grid-column:1/-1"><span style="color:var(--ink-50)">Customer</span><div style="font-weight:700;font-size:15px;margin-top:2px">${c.companyName}</div></div>
         <div><span style="color:var(--ink-50)">Outstanding Balance</span><div style="font-weight:700;font-size:16px;color:var(--danger);margin-top:2px">₱${fmt(c.outstandingBalance || 0)}</div></div>
-        <div><span style="color:var(--ink-50)">Contact</span><div style="font-weight:600;margin-top:2px">${c.contactPerson||'—'}</div></div>
+        <div><span style="color:var(--ink-50)">Contact</span><div style="font-weight:600;margin-top:2px">${c.contactPerson || '—'}</div></div>
       </div>
       <div class="form-row-2">
         <div class="form-group">
@@ -5196,48 +5391,48 @@ var _omFilter = '';
 function showCustomerModal() {
   var s = getState();
   var allPOS = (s.customers || []);
-  var allOM  = (getCustomerRecords() || []);
+  var allOM = (getCustomerRecords() || []);
 
   // Build combined list normalised to { id, src, name, contact, phone }
   var combined = [];
   var seenNames = {};
-  allPOS.forEach(function(c) {
+  allPOS.forEach(function (c) {
     var n = (c.companyName || c.contactPerson || '').trim();
     if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'pos', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
   });
-  allOM.forEach(function(c) {
+  allOM.forEach(function (c) {
     var n = (c.businessName || c.contactPerson || '').trim();
     if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'om', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
   });
 
   function renderList(q) {
     var q2 = (q || '').toLowerCase().trim();
-    var shown = q2 ? combined.filter(function(c) {
+    var shown = q2 ? combined.filter(function (c) {
       return c.name.toLowerCase().indexOf(q2) !== -1 || c.contact.toLowerCase().indexOf(q2) !== -1;
     }) : combined;
     shown = shown.slice(0, 10);
     if (!shown.length) return '<div style="padding:20px;text-align:center;color:var(--ink-60);font-size:13px">' + (q2 ? 'No matching customers found.' : 'No customer records yet.') + '</div>';
-    return shown.map(function(c) {
+    return shown.map(function (c) {
       return '<div class="cust-suggest-item" onclick="posSelectCustomer(\'' + c.id + '\',\'' + c.src + '\')" style="cursor:pointer;padding:12px 16px">'
         + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
         + '<div style="font-size:11px;color:var(--ink-60)">' + (c.contact || '') + (c.phone ? ' · ' + c.phone : '') + '</div>'
-      + '</div>';
+        + '</div>';
     }).join('');
   }
 
   showModal(
     '<div class="modal-header"><h2>' + iconSvg('users') + ' Customer</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body" style="padding-bottom:8px">'
-      + '<div style="display:flex;gap:8px;margin-bottom:12px">'
-        + '<div style="position:relative;flex:1">'
-          + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
-          + '<input id="pos-cust-search" class="form-control" style="padding-left:34px" placeholder="Search customer name…" autocomplete="off" oninput="posCustomerSearchRefresh(this.value)">'
-        + '</div>'
-        + '<button class="btn btn-maroon" onclick="posOpenNewCustomerForm()">+ New Customer</button>'
-      + '</div>'
-      + '<div id="pos-cust-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--ink-10);border-radius:var(--radius)">'
-        + renderList('')
-      + '</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:12px">'
+    + '<div style="position:relative;flex:1">'
+    + '<span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-60)">' + iconSvg('search') + '</span>'
+    + '<input id="pos-cust-search" class="form-control" style="padding-left:34px" placeholder="Search customer name…" autocomplete="off" oninput="posCustomerSearchRefresh(this.value)">'
+    + '</div>'
+    + '<button class="btn btn-maroon" onclick="posOpenNewCustomerForm()">+ New Customer</button>'
+    + '</div>'
+    + '<div id="pos-cust-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--ink-10);border-radius:var(--radius)">'
+    + renderList('')
+    + '</div>'
     + '</div>'
   );
 
@@ -5248,18 +5443,18 @@ function showCustomerModal() {
 function posCustomerSearchRefresh(q) {
   var list = window._posCustList || [];
   var q2 = (q || '').toLowerCase().trim();
-  var shown = q2 ? list.filter(function(c) {
+  var shown = q2 ? list.filter(function (c) {
     return c.name.toLowerCase().indexOf(q2) !== -1 || c.contact.toLowerCase().indexOf(q2) !== -1;
   }) : list;
   shown = shown.slice(0, 10);
   var el = document.getElementById('pos-cust-list');
   if (!el) return;
   if (!shown.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-60);font-size:13px">' + (q2 ? 'No matching customers found.' : 'No customer records yet.') + '</div>'; return; }
-  el.innerHTML = shown.map(function(c) {
+  el.innerHTML = shown.map(function (c) {
     return '<div class="cust-suggest-item" onclick="posSelectCustomer(\'' + c.id + '\',\'' + c.src + '\')" style="cursor:pointer;padding:12px 16px">'
       + '<div style="font-weight:600;font-size:13px">' + omEsc(c.name) + '</div>'
       + '<div style="font-size:11px;color:var(--ink-60)">' + (c.contact || '') + (c.phone ? ' · ' + c.phone : '') + '</div>'
-    + '</div>';
+      + '</div>';
   }).join('');
 }
 
@@ -5267,12 +5462,12 @@ function posSelectCustomer(custId, src) {
   var c = null;
   var name = '';
   if (src === 'om') {
-    var rec = (getCustomerRecords() || []).find(function(x) { return x.id === custId; });
+    var rec = (getCustomerRecords() || []).find(function (x) { return x.id === custId; });
     if (rec) {
       name = rec.businessName || rec.contactPerson || '';
       // Mirror into pos customers so credit sales work
       var s = getState();
-      var existing = s.customers.find(function(x) { return (x.companyName || '').toLowerCase() === name.toLowerCase(); });
+      var existing = s.customers.find(function (x) { return (x.companyName || '').toLowerCase() === name.toLowerCase(); });
       if (!existing) {
         var newC = { id: 'cust_om_' + custId, companyName: name, contactPerson: rec.contactPerson || '', phone: rec.phone || '', email: rec.email || '', address: rec.address || '', notes: rec.notes || '', outstandingBalance: 0, blocked: false, source: 'pos', createdAt: new Date().toISOString() };
         s.customers.push(newC);
@@ -5284,7 +5479,7 @@ function posSelectCustomer(custId, src) {
     }
   } else {
     var s2 = getState();
-    var posC = (s2.customers || []).find(function(x) { return x.id === custId; });
+    var posC = (s2.customers || []).find(function (x) { return x.id === custId; });
     if (posC) name = posC.companyName || posC.contactPerson || '';
   }
 
@@ -5349,6 +5544,7 @@ function confirmEditOrder(orderId) {
 }
 
 function voidOrderModal(orderId) {
+  var _u = getState().currentUser; if (!_u || _u.role !== 'admin') { showToast('Admin access required.', 'error'); return; }
   showModal('<div class="modal-header"><h2>' + iconSvg('error') + ' Cancel Order</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
     + '<div class="alert alert-error-box">' + iconSvg('warning') + ' This will cancel the order. This cannot be undone.</div>'
@@ -5410,18 +5606,6 @@ function renderOrders(filterStatus, searchQuery) {
   var isPrint = u && u.role === 'print';
   var isStaff = u && u.role === 'staff';
 
-  // ── Tab sets per role ──────────────────────────────────────────────
-  // ADMIN / STAFF: all 6 tabs (staff sees production as view-only)
-  // PRINT: all 6 tabs — Customer Records, Order Details, Payment = view-only
-  //                     Logo Upload, Production, Daily Dispatch = full access
-
-  // Default to 'orders' (Order Details) tab; persist via sessionStorage
-  var allTabIds = ['customers','orders','payment','production','dispatch'];
-  if (!_omTab || !allTabIds.includes(_omTab)) {
-    var storedTab = sessionStorage.getItem('omTab');
-    _omTab = (storedTab && allTabIds.includes(storedTab)) ? storedTab : 'orders';
-  }
-
   if (filterStatus !== undefined) _omFilter = filterStatus;
   if (searchQuery !== undefined) _omSearch = searchQuery;
 
@@ -5430,21 +5614,47 @@ function renderOrders(filterStatus, searchQuery) {
   var prods = getProductionRecords();
   var dispatches = getDispatchRecords();
   var payments = getPaymentRecords();
-  var logos = getLogoUploads();
 
-  var pending  = orders.filter(function (o) { return o.status === 'pending'; }).length;
-  var inProd   = orders.filter(function (o) { return o.status === 'production'; }).length;
-  var dispCount= orders.filter(function (o) { return o.status === 'dispatch'; }).length;
-  var done     = orders.filter(function (o) { return o.status === 'completed'; }).length;
-  var balDue   = orders.reduce(function (sum, o) { return sum + (o.balance || 0); }, 0);
+  var pending = orders.filter(function (o) { return o.status === 'pending'; }).length;
+  var inProd = orders.filter(function (o) { return o.status === 'production'; }).length;
+  var dispCount = orders.filter(function (o) { return o.status === 'dispatch'; }).length;
+  var done = orders.filter(function (o) { return o.status === 'completed'; }).length;
+  var balDue = orders.reduce(function (sum, o) { return sum + (o.balance || 0); }, 0);
 
-  // All roles see all 6 tabs
+  // ── PRINT PERSONNEL: simplified Order Details only view ──────────────
+  if (isPrint) {
+    var kpiHtml = '<div class="kpi-grid" style="margin-bottom:20px">'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">' + iconSvg('printer') + '</div></div><div class="kpi-value" style="color:var(--info)">' + inProd + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Dispatch</div><div class="kpi-icon gold">' + iconSvg('truck') + '</div></div><div class="kpi-value" style="color:var(--gold)">' + dispCount + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed</div><div class="kpi-icon green">' + iconSvg('check') + '</div></div><div class="kpi-value" style="color:var(--success)">' + done + '</div></div>'
+      + '</div>';
+    var html = '<div class="page-header" style="margin-bottom:16px">'
+      + '<h1 class="page-title">Order Details</h1>'
+      + '<p class="page-subtitle">View order status and details.</p>'
+      + '</div>'
+      + kpiHtml
+      + '<div id="om-tab-content">' + omRenderOrdersTab() + '</div>';
+    setPageHtml('orders', getNavRenderId(), html);
+    return;
+  }
+
+  // ── ADMIN / STAFF: full tabbed view ──────────────────────────────────
+  // Default to 'orders' (Order Details) tab; persist via sessionStorage
+  var allTabIds = ['orders', 'payment', 'production', 'dispatch', 'cancelled'];
+  if (!_omTab || !allTabIds.includes(_omTab)) {
+    var storedTab = sessionStorage.getItem('omTab');
+    _omTab = (storedTab && allTabIds.includes(storedTab)) ? storedTab : 'orders';
+  }
+
+  // customers tab moved to dedicated Customer Records page
+  var cancelledOrders = orders.filter(function (o) { return o.status === 'cancelled'; });
+  var activeOrders = orders.filter(function (o) { return o.status !== 'cancelled'; });
   var tabs = [
-    { id: 'customers',  label: '\uD83D\uDC65 Customer Records',   count: crs.length },
-    { id: 'orders',     label: '\uD83D\uDCCB Order Details',      count: orders.length },
-    { id: 'payment',    label: '\uD83D\uDCB3 Payment (50% DP)',   count: payments.length },
-    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production',   count: prods.length },
-    { id: 'dispatch',   label: '\uD83D\uDE9A Daily Dispatch',      count: dispatches.length },
+    { id: 'orders', label: '\uD83D\uDCCB Order Details', count: orders.length },
+    { id: 'payment', label: '\uD83D\uDCB3 Payment (50% DP)', count: payments.length },
+    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production', count: prods.length },
+    { id: 'dispatch', label: '\uD83D\uDE9A Daily Dispatch', count: dispatches.length },
+    { id: 'cancelled', label: '\u274C Cancelled', count: cancelledOrders.length },
   ];
 
   var tabsHtml = tabs.map(function (t) {
@@ -5452,36 +5662,34 @@ function renderOrders(filterStatus, searchQuery) {
   }).join('');
 
   var tabContent = '';
-  if (_omTab === 'logos') _omTab = 'orders'; // logos tab removed
+  if (_omTab === 'logos' || _omTab === 'customers') _omTab = 'orders';
   if (_omTab === 'orders') tabContent = omRenderOrdersTab();
-  else if (_omTab === 'customers') tabContent = omRenderCustomersTab();
   else if (_omTab === 'payment') tabContent = omRenderPaymentsTab();
   else if (_omTab === 'production') tabContent = omRenderProductionTab();
   else if (_omTab === 'dispatch') tabContent = omRenderDispatchTab();
+  else if (_omTab === 'cancelled') tabContent = omRenderCancelledTab();
 
-  var subtitle = isPrint
-    ? 'Logo upload, production & dispatch — full access. Customer, orders & payment — view only.'
-    : isStaff
-      ? 'Full access to orders, payments & customers. Production is view only.'
-      : 'Full order lifecycle \u2014 from customer records to dispatch.';
+  var subtitle = isStaff
+    ? 'Full access to orders and payments. Production is view only.'
+    : 'Full order lifecycle \u2014 from orders to dispatch.';
 
-  // KPI strip: Admin=all 5, Print=In Production/Dispatch/Completed only, Staff=none
-  var kpiHtml = '';
+  // KPI strip: Admin=all 5, Staff=none
+  var kpiHtml2 = '';
   if (!isStaff) {
-    kpiHtml += '<div class="om-kpi-strip">';
-    if (!isPrint) kpiHtml += '<div class="om-kpi"><div class="om-kpi-val">' + pending + '</div><div class="om-kpi-lbl">Pending</div></div>';
-    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--info)">' + inProd + '</div><div class="om-kpi-lbl">In Production</div></div>';
-    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--gold)">' + dispCount + '</div><div class="om-kpi-lbl">In Dispatch</div></div>';
-    kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--success)">' + done + '</div><div class="om-kpi-lbl">Completed</div></div>';
-    if (!isPrint) kpiHtml += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Balance Due</div></div>';
-    kpiHtml += '</div>';
+    kpiHtml2 += '<div class="om-kpi-strip">';
+    kpiHtml2 += '<div class="om-kpi"><div class="om-kpi-val">' + pending + '</div><div class="om-kpi-lbl">Pending</div></div>';
+    kpiHtml2 += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--info)">' + inProd + '</div><div class="om-kpi-lbl">In Production</div></div>';
+    kpiHtml2 += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--gold)">' + dispCount + '</div><div class="om-kpi-lbl">In Dispatch</div></div>';
+    kpiHtml2 += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--success)">' + done + '</div><div class="om-kpi-lbl">Completed</div></div>';
+    kpiHtml2 += '<div class="om-kpi"><div class="om-kpi-val" style="color:var(--danger)">\u20B1' + omFmt(balDue) + '</div><div class="om-kpi-lbl">Balance Due</div></div>';
+    kpiHtml2 += '</div>';
   }
 
   var html = '<div class="page-header" style="margin-bottom:16px">'
     + '<h1 class="page-title">Order Management</h1>'
     + '<p class="page-subtitle">' + subtitle + '</p>'
     + '</div>'
-    + kpiHtml
+    + kpiHtml2
     + '<div class="om-tabs">' + tabsHtml + '</div>'
     + '<div id="om-tab-content">' + tabContent + '</div>';
 
@@ -5500,31 +5708,33 @@ function omSwitchTab(tab) {
 function omRefreshTab() {
   var el = document.getElementById('om-tab-content');
   if (!el) return;
+  var isPrint = (getState().currentUser || {}).role === 'print';
+  if (isPrint) { el.innerHTML = omRenderOrdersTab(); return; }
   if (_omTab === 'orders') el.innerHTML = omRenderOrdersTab();
-  else if (_omTab === 'customers') el.innerHTML = omRenderCustomersTab();
   else if (_omTab === 'payment') el.innerHTML = omRenderPaymentsTab();
   else if (_omTab === 'production') el.innerHTML = omRenderProductionTab();
   else if (_omTab === 'dispatch') el.innerHTML = omRenderDispatchTab();
+  else if (_omTab === 'cancelled') el.innerHTML = omRenderCancelledTab();
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function omEsc(str) {
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function omTable(headCols, bodyRows) {
   return '<div class="om-table-card">'
-    +'<div class="om-table-scroll">'
-    +'<table class="data-table om-table"><thead><tr>'+headCols+'</tr></thead>'
-    +'<tbody>'+bodyRows+'</tbody></table>'
-    +'</div></div>';
+    + '<div class="om-table-scroll">'
+    + '<table class="data-table om-table"><thead><tr>' + headCols + '</tr></thead>'
+    + '<tbody>' + bodyRows + '</tbody></table>'
+    + '</div></div>';
 }
 
 function omToolbar(leftHtml, rightHtml) {
   return '<div class="om-toolbar">'
-    +'<div class="om-search-wrap">'+iconSvg('search')+leftHtml+'</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+rightHtml+'</div>'
-    +'</div>';
+    + '<div class="om-search-wrap">' + iconSvg('search') + leftHtml + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + rightHtml + '</div>'
+    + '</div>';
 }
 
 // ── TAB: LOGO UPLOAD ──────────────────────────────────────────────────────────
@@ -5541,40 +5751,40 @@ function omRenderLogoTab() {
   var rows = filtered.map(function (l) {
     return '<tr>'
       + '<td class="xs">' + omDate(l.uploadedAt) + '</td>'
-      + '<td class="fw7">#' + String(l.orderNumber || l.orderId || '').padStart(6,'0') + '</td>'
+      + '<td class="fw7">#' + String(l.orderNumber || l.orderId || '').padStart(6, '0') + '</td>'
       + '<td><div class="cell-primary">' + omEsc(l.businessName || '\u2014') + '</div></td>'
-      + '<td class="truncate" title="' + omEsc(l.fileName||'') + '">' + omEsc(l.fileName || '\u2014') + '</td>'
+      + '<td class="truncate" title="' + omEsc(l.fileName || '') + '">' + omEsc(l.fileName || '\u2014') + '</td>'
       + '<td class="xs">' + omEsc(l.fileType || '\u2014') + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(l.notes||'') + '">' + omEsc(l.notes || '\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(l.notes || '') + '">' + omEsc(l.notes || '\u2014') + '</td>'
       + '<td class="actions-cell">'
-        + (l.fileData
-          ? '<a class="btn btn-sm btn-outline" href="' + l.fileData + '" download="' + omEsc(l.fileName||'logo') + '">\u2193 Download</a> '
-          : '')
-        + '<button class="btn btn-sm btn-danger" onclick="omDeleteLogo(\'' + l.id + '\')">\u2715</button>'
+      + (l.fileData
+        ? '<a class="btn btn-sm btn-outline" href="' + l.fileData + '" download="' + omEsc(l.fileName || 'logo') + '">\u2193 Download</a> '
+        : '')
+      + '<button class="btn btn-sm btn-danger" onclick="omDeleteLogo(\'' + l.id + '\')">\u2715</button>'
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="7" class="empty-row">No logo uploads yet.</td></tr>';
 
   return omToolbar(
-    '<input class="form-control pl34" placeholder="Search logos\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<input class="form-control pl34" placeholder="Search logos\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     '<button class="btn btn-maroon" onclick="omNewLogoModal()">\uD83D\uDDBC\uFE0F Upload Logo</button>'
   )
-  + omTable(
-    '<th class="wfix90">Date</th>'
-    + '<th class="wfix80">Order #</th>'
-    + '<th class="wgrow">Client Name</th>'
-    + '<th class="wgrow">File Name</th>'
-    + '<th class="wfix90">Type</th>'
-    + '<th class="wgrow-sm">Notes</th>'
-    + '<th class="wfix120">Actions</th>',
-    rows
-  );
+    + omTable(
+      '<th class="wfix90">Date</th>'
+      + '<th class="wfix80">Order #</th>'
+      + '<th class="wgrow">Client Name</th>'
+      + '<th class="wgrow">File Name</th>'
+      + '<th class="wfix90">Type</th>'
+      + '<th class="wgrow-sm">Notes</th>'
+      + '<th class="wfix120">Actions</th>',
+      rows
+    );
 }
 
 function omNewLogoModal() {
   var orders = getOrders().filter(function (o) { return o.status !== 'cancelled'; });
   var orderOptions = orders.map(function (o) {
-    return '<option value="' + o.id + '">#' + String(o.id).padStart(6,'0') + ' \u2014 ' + omEsc(o.customer_name||'') + '</option>';
+    return '<option value="' + o.id + '">#' + String(o.id).padStart(6, '0') + ' \u2014 ' + omEsc(o.customer_name || '') + '</option>';
   }).join('');
   showModal('<div class="modal-header"><h2>\uD83D\uDDBC\uFE0F Upload Logo</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
@@ -5588,9 +5798,9 @@ function omNewLogoModal() {
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveLogo()">Save Logo</button></div>');
 }
 function omAutofillLogo(orderId) {
-  var o = getOrders().find(function(x){return String(x.id)===String(orderId);});
+  var o = getOrders().find(function (x) { return String(x.id) === String(orderId); });
   var el = document.getElementById('omlogo-business');
-  if (el) el.value = o ? (o.customer_name||'') : '';
+  if (el) el.value = o ? (o.customer_name || '') : '';
 }
 function omReadLogoFile(input) {
   var file = input.files && input.files[0];
@@ -5598,89 +5808,196 @@ function omReadLogoFile(input) {
   document.getElementById('omlogo-fname').value = file.name;
   document.getElementById('omlogo-ftype').value = file.type || file.name.split('.').pop();
   var reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = function (e) {
     document.getElementById('omlogo-data').value = e.target.result;
     var prev = document.getElementById('omlogo-preview');
-    var img  = document.getElementById('omlogo-img');
+    var img = document.getElementById('omlogo-img');
     if (file.type.startsWith('image/') && prev && img) { img.src = e.target.result; prev.style.display = 'block'; }
   };
   reader.readAsDataURL(file);
 }
 function omSaveLogo() {
-  function gv(id){var el=document.getElementById(id);return el?el.value:'';}
+  function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var fileName = gv('omlogo-fname').trim();
-  if (!fileName) { showToast('Please select a file.','error'); return; }
+  if (!fileName) { showToast('Please select a file.', 'error'); return; }
   var logos = getLogoUploads();
   var orderId = gv('omlogo-order');
-  var order = orderId ? getOrders().find(function(o){return String(o.id)===String(orderId);}) : null;
-  logos.push({ id:omGenId('LG'), orderId:orderId||null, orderNumber:order?order.id:null,
-    businessName:gv('omlogo-business').trim()||(order?order.customer_name:''),
-    fileName:fileName, fileType:gv('omlogo-ftype'), fileData:gv('omlogo-data'),
-    notes:gv('omlogo-notes').trim(), uploadedAt:new Date().toISOString() });
+  var order = orderId ? getOrders().find(function (o) { return String(o.id) === String(orderId); }) : null;
+  logos.push({
+    id: omGenId('LG'), orderId: orderId || null, orderNumber: order ? order.id : null,
+    businessName: gv('omlogo-business').trim() || (order ? order.customer_name : ''),
+    fileName: fileName, fileType: gv('omlogo-ftype'), fileData: gv('omlogo-data'),
+    notes: gv('omlogo-notes').trim(), uploadedAt: new Date().toISOString()
+  });
   saveLogoUploads(logos);
-  closeModal(); showToast('Logo uploaded!','success'); _omTab='logos'; renderOrders();
+  closeModal(); showToast('Logo uploaded!', 'success'); _omTab = 'logos'; renderOrders();
 }
 function omDeleteLogo(logoId) {
-  if (!confirm('Remove this logo upload?')) return;
-  saveLogoUploads(getLogoUploads().filter(function(l){return l.id!==logoId;}));
-  showToast('Logo removed.','warning'); renderOrders();
+  confirmModal({
+    title: 'Remove Logo',
+    message: 'Are you sure you want to remove this logo upload?',
+    confirmText: 'Remove Logo',
+    icon: '🗑️',
+    onConfirm: function () {
+      saveLogoUploads(getLogoUploads().filter(function (l) { return l.id !== logoId; }));
+      showToast('Logo removed.', 'warning'); renderOrders();
+    }
+  });
+  return;
+  saveLogoUploads(getLogoUploads().filter(function (l) { return l.id !== logoId; }));
+  showToast('Logo removed.', 'warning'); renderOrders();
 }
 
 // ── TAB: ORDER DETAILS ────────────────────────────────────────────────────────
 function omRenderOrdersTab() {
   var u = getState().currentUser;
-  var orders = getOrders();
-  var sc = { pending:0, production:0, dispatch:0, completed:0, cancelled:0 };
-  orders.forEach(function(o){ if(o.status in sc) sc[o.status]++; });
+  var orders = getOrders().filter(function (o) { return o.status !== 'cancelled'; });
+  var sc = { pending: 0, production: 0, dispatch: 0, completed: 0 };
+  orders.forEach(function (o) { if (o.status in sc) sc[o.status]++; });
 
-  var filtered = orders.filter(function(o){
+  var filtered = orders.filter(function (o) {
     var ms = !_omFilter || o.status === _omFilter;
-    var q  = (_omSearch||'').toLowerCase();
+    var q = (_omSearch || '').toLowerCase();
     var mq = !q
-      || (o.customer_name||'').toLowerCase().indexOf(q) !== -1
+      || (o.customer_name || '').toLowerCase().indexOf(q) !== -1
       || String(o.id).indexOf(q) !== -1
-      || (o.product_type||'').toLowerCase().indexOf(q) !== -1;
+      || (o.product_type || '').toLowerCase().indexOf(q) !== -1;
     return ms && mq;
   });
 
   var isPrintRole = u && u.role === 'print';
 
-  var rows = [...filtered].reverse().map(function(o){
+  var rows = [...filtered].reverse().map(function (o) {
     var balance = o.balance || 0;
     return '<tr>'
-      + '<td class="fw7 xs">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="fw7 xs">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td class="xs">' + omDate(o.created_at) + '</td>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(o.customer_name||'\u2014') + '</div>'
-        + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
-      + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type||'') + '">' + omEsc(o.product_type||o.product_category||'\u2014') + '</td>'
-      + '<td class="center xs">' + omEsc(String(o.quantity||'\u2014')) + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(o.customer_name || '\u2014') + '</div>'
+      + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
+      + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type || '') + '">' + omEsc(o.product_type || o.product_category || '\u2014') + '</td>'
+      + '<td class="center xs">' + omEsc(String(o.quantity || '\u2014')) + '</td>'
       + '<td>' + omStatusBadge(o.status) + '</td>'
       + '<td class="fw7 maroon xs">\u20B1' + omFmt(o.total_amount) + '</td>'
-      + '<td class="xs ' + (balance>0?'danger':'success') + '">\u20B1' + omFmt(balance) + '</td>'
+      + '<td class="xs ' + (balance > 0 ? 'danger' : 'success') + '">\u20B1' + omFmt(balance) + '</td>'
       + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
       + '<td class="actions-cell">'
-        + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
-        + (isPrintRole ? '' :
-            (o.status==='pending' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="To Production">' + iconSvg('printer') + '</button>' : '')
-          + (o.status==='production' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToDispatch(\'' + o.id + '\')" title="Dispatch">' + iconSvg('truck') + '</button>' : '')
-          + '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>'
-          + '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>')
+      + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
+      + (isPrintRole ? '' :
+        (o.status === 'pending' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="To Production">' + iconSvg('printer') + '</button>' : '')
+        + (o.status === 'production' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToDispatch(\'' + o.id + '\')" title="Dispatch">' + iconSvg('truck') + '</button>' : '')
+        + (u && u.role === 'admin' ? '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>' : '')
+        + (u && u.role === 'admin' ? '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>' : ''))
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="10" class="empty-row">No orders found.</td></tr>';
 
   return omToolbar(
-    '<input class="form-control pl34" placeholder="Search order, customer, product\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<input class="form-control pl34" placeholder="Search order, customer, product\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     '<div class="form-select-wrap" style="min-width:140px;">'
-      + '<select class="form-control" onchange="_omFilter=this.value;omRefreshTab()">'
-      + '<option value="" ' + (!_omFilter?'selected':'') + '>All (' + orders.length + ')</option>'
-      + '<option value="pending" ' + (_omFilter==='pending'?'selected':'') + '>Pending (' + sc.pending + ')</option>'
-      + '<option value="production" ' + (_omFilter==='production'?'selected':'') + '>Production (' + sc.production + ')</option>'
-      + '<option value="dispatch" ' + (_omFilter==='dispatch'?'selected':'') + '>Dispatch (' + sc.dispatch + ')</option>'
-      + '<option value="completed" ' + (_omFilter==='completed'?'selected':'') + '>Completed (' + sc.completed + ')</option>'
-      + '<option value="cancelled" ' + (_omFilter==='cancelled'?'selected':'') + '>Cancelled (' + sc.cancelled + ')</option>'
-      + '</select></div>'
-      + (!isPrintRole ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
+    + '<select class="form-control" onchange="_omFilter=this.value;omRefreshTab()">'
+    + '<option value="" ' + (!_omFilter ? 'selected' : '') + '>All (' + orders.length + ')</option>'
+    + '<option value="pending" ' + (_omFilter === 'pending' ? 'selected' : '') + '>Pending (' + sc.pending + ')</option>'
+    + '<option value="production" ' + (_omFilter === 'production' ? 'selected' : '') + '>Production (' + sc.production + ')</option>'
+    + '<option value="dispatch" ' + (_omFilter === 'dispatch' ? 'selected' : '') + '>Dispatch (' + sc.dispatch + ')</option>'
+    + '<option value="completed" ' + (_omFilter === 'completed' ? 'selected' : '') + '>Completed (' + sc.completed + ')</option>'
+    + '</select></div>'
+    + (!isPrintRole ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
+  )
+    + omTable(
+      '<th class="wfix80">Order #</th>'
+      + '<th class="wfix90">Date</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wgrow">Product</th>'
+      + '<th class="wfix40 center">Qty</th>'
+      + '<th class="wfix110">Status</th>'
+      + '<th class="wfix90">Total</th>'
+      + '<th class="wfix90">Balance</th>'
+      + '<th class="wfix100">Pay Status</th>'
+      + '<th class="wfix120">Actions</th>',
+      rows
+    );
+}
+
+// ── TAB: CUSTOMER RECORDS ─────────────────────────────────────────────────────
+function omRenderCustomersTab() {
+  var crs = getCustomerRecords();
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = crs.filter(function (c) {
+    return !q
+      || (c.businessName || '').toLowerCase().indexOf(q) !== -1
+      || (c.contactPerson || '').toLowerCase().indexOf(q) !== -1
+      || (c.phone || '').indexOf(q) !== -1;
+  });
+
+  var isPrint = (getState().currentUser || {}).role === 'print';
+
+  var rows = filtered.map(function (c) {
+    return '<tr>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(c.businessName || '\u2014') + '</div>'
+      + (c.contactPerson ? '<div class="cell-sub">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="xs">' + omEsc(c.phone || '\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(c.email || '') + '">' + omEsc(c.email || '\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(c.address || '') + '">' + omEsc(c.address || '\u2014') + '</td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment || '\u2014') + '</span></td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfDelivery || '\u2014') + '</span></td>'
+      + '<td class="xs">' + omDate(c.createdAt) + '</td>'
+      + '<td class="actions-cell">'
+      + (isPrint
+        ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
+        : '<button class="btn btn-sm btn-outline" onclick="omEditCustomerModal(\'' + c.id + '\')">Edit</button>'
+        + ' <button class="btn btn-sm btn-danger" onclick="omDeleteCustomer(\'' + c.id + '\')">\u2715</button>')
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="8" class="empty-row">No customer records yet.</td></tr>';
+
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search customers\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    isPrint ? '' : '<button class="btn btn-maroon" onclick="omNewCustomerModal()">+ New Customer</button>'
+  )
+    + omTable(
+      '<th class="wgrow">Name / Contact</th>'
+      + '<th class="wfix100">Phone</th>'
+      + '<th class="wgrow-sm">Email</th>'
+      + '<th class="wgrow">Address</th>'
+      + '<th class="wfix90">Pay Mode</th>'
+      + '<th class="wfix80">Delivery</th>'
+      + '<th class="wfix90">Added</th>'
+      + '<th class="wfix100">Actions</th>',
+      rows
+    );
+}
+
+// ── TAB: CANCELLED ────────────────────────────────────────────────
+function omRenderCancelledTab() {
+  var orders = getOrders().filter(function (o) { return o.status === 'cancelled'; });
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = orders.filter(function (o) {
+    return !q
+      || (o.customer_name || '').toLowerCase().indexOf(q) !== -1
+      || String(o.id).indexOf(q) !== -1
+      || (o.product_type || '').toLowerCase().indexOf(q) !== -1;
+  });
+
+  var rows = [...filtered].reverse().map(function (o) {
+    var reason = o.cancel_reason || o.void_reason || '\u2014';
+    return '<tr style="opacity:0.8">'
+      + '<td class="fw7 xs">#' + String(o.id).padStart(6, '0') + '</td>'
+      + '<td class="xs">' + omDate(o.created_at) + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(o.customer_name || '\u2014') + '</div>'
+      + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
+      + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type || '') + '">' + omEsc(o.product_type || o.product_category || '\u2014') + '</td>'
+      + '<td class="center xs">' + omEsc(String(o.quantity || '\u2014')) + '</td>'
+      + '<td class="fw7 maroon xs">\u20B1' + omFmt(o.total_amount) + '</td>'
+      + '<td style="max-width:200px;font-size:12px;color:var(--ink-60)">' + omEsc(reason) + '</td>'
+      + '<td class="actions-cell">'
+      + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="8" class="empty-row">No cancelled orders.</td></tr>';
+
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search order, customer, product\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<span class="text-sm text-muted">' + filtered.length + ' cancelled order' + (filtered.length !== 1 ? 's' : '') + '</span>'
   )
   + omTable(
     '<th class="wfix80">Order #</th>'
@@ -5688,60 +6005,9 @@ function omRenderOrdersTab() {
     + '<th class="wgrow">Customer</th>'
     + '<th class="wgrow">Product</th>'
     + '<th class="wfix40 center">Qty</th>'
-    + '<th class="wfix110">Status</th>'
     + '<th class="wfix90">Total</th>'
-    + '<th class="wfix90">Balance</th>'
-    + '<th class="wfix100">Pay Status</th>'
-    + '<th class="wfix120">Actions</th>',
-    rows
-  );
-}
-
-// ── TAB: CUSTOMER RECORDS ─────────────────────────────────────────────────────
-function omRenderCustomersTab() {
-  var crs = getCustomerRecords();
-  var q = (_omSearch||'').toLowerCase();
-  var filtered = crs.filter(function(c){
-    return !q
-      || (c.businessName||'').toLowerCase().indexOf(q) !== -1
-      || (c.contactPerson||'').toLowerCase().indexOf(q) !== -1
-      || (c.phone||'').indexOf(q) !== -1;
-  });
-
-  var isPrint = (getState().currentUser||{}).role === 'print';
-
-  var rows = filtered.map(function(c){
-    return '<tr>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(c.businessName||'\u2014') + '</div>'
-        + (c.contactPerson ? '<div class="cell-sub">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
-      + '<td class="xs">' + omEsc(c.phone||'\u2014') + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(c.email||'') + '">' + omEsc(c.email||'\u2014') + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(c.address||'') + '">' + omEsc(c.address||'\u2014') + '</td>'
-      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment||'\u2014') + '</span></td>'
-      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfDelivery||'\u2014') + '</span></td>'
-      + '<td class="xs">' + omDate(c.createdAt) + '</td>'
-      + '<td class="actions-cell">'
-        + (isPrint
-          ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
-          : '<button class="btn btn-sm btn-outline" onclick="omEditCustomerModal(\'' + c.id + '\')">Edit</button>'
-            + ' <button class="btn btn-sm btn-danger" onclick="omDeleteCustomer(\'' + c.id + '\')">\u2715</button>')
-      + '</td>'
-      + '</tr>';
-  }).join('') || '<tr><td colspan="8" class="empty-row">No customer records yet.</td></tr>';
-
-  return omToolbar(
-    '<input class="form-control pl34" placeholder="Search customers\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
-    isPrint ? '' : '<button class="btn btn-maroon" onclick="omNewCustomerModal()">+ New Customer</button>'
-  )
-  + omTable(
-    '<th class="wgrow">Name / Contact</th>'
-    + '<th class="wfix100">Phone</th>'
-    + '<th class="wgrow-sm">Email</th>'
-    + '<th class="wgrow">Address</th>'
-    + '<th class="wfix90">Pay Mode</th>'
-    + '<th class="wfix80">Delivery</th>'
-    + '<th class="wfix90">Added</th>'
-    + '<th class="wfix100">Actions</th>',
+    + '<th>Cancel Reason</th>'
+    + '<th class="wfix80"></th>',
     rows
   );
 }
@@ -5749,93 +6015,122 @@ function omRenderCustomersTab() {
 // ── TAB: PAYMENT (50% DP) ─────────────────────────────────────────────────────
 function omRenderPaymentsTab() {
   var payments = getPaymentRecords();
-  var q = (_omSearch||'').toLowerCase();
-  var filtered = [...payments].reverse().filter(function(p){
-    return !q
-      || (p.businessName||'').toLowerCase().indexOf(q) !== -1
-      || String(p.orderNumber||'').indexOf(q) !== -1;
+  var orders = getOrders();
+
+  // Deduplicate: show one row per order, using the order's current payment data
+  // Build a map of orderId -> latest payment info
+  var seenOrders = {};
+  // First pass: group by orderId
+  payments.forEach(function(p) {
+    var oid = String(p.orderId);
+    if (!seenOrders[oid]) {
+      seenOrders[oid] = p;
+    } else {
+      // Keep the most recent
+      if (new Date(p.date) > new Date(seenOrders[oid].date)) seenOrders[oid] = p;
+    }
+  });
+  // Sync with live order data (for balance/status accuracy)
+  var consolidated = Object.values(seenOrders).map(function(p) {
+    var o = orders.find(function(x){ return String(x.id) === String(p.orderId); });
+    if (o) {
+      return Object.assign({}, p, {
+        totalAmount: o.total_amount || p.totalAmount,
+        downpayment: o.downpayment || p.downpayment,
+        balance: o.balance !== undefined ? o.balance : p.balance,
+        paymentStatus: o.payment_status || p.paymentStatus,
+      });
+    }
+    return p;
   });
 
-  var isPrint = (getState().currentUser||{}).role === 'print';
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = [...consolidated].sort(function(a,b){ return new Date(b.date)-new Date(a.date); }).filter(function (p) {
+    return !q
+      || (p.businessName || '').toLowerCase().indexOf(q) !== -1
+      || String(p.orderNumber || '').indexOf(q) !== -1;
+  });
 
-  var rows = filtered.map(function(p){
+  var isPrint = (getState().currentUser || {}).role === 'print';
+
+  var rows = filtered.map(function (p) {
     var isPaid = p.paymentStatus === 'Fully Paid';
     var bal = p.balance || 0;
     return '<tr>'
       + '<td class="xs">' + omDate(p.date) + '</td>'
-      + '<td class="fw7 xs">#' + String(p.orderNumber||p.orderId||'').padStart(6,'0') + '</td>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName||'\u2014') + '</div>'
-        + (p.contactPerson ? '<div class="cell-sub">' + omEsc(p.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="fw7 xs">#' + String(p.orderNumber || p.orderId || '').padStart(6, '0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName || '\u2014') + '</div>'
+      + (p.contactPerson ? '<div class="cell-sub">' + omEsc(p.contactPerson) + '</div>' : '') + '</td>'
       + '<td class="fw7 maroon xs">\u20B1' + omFmt(p.totalAmount) + '</td>'
       + '<td class="xs">\u20B1' + omFmt(p.downpayment) + '</td>'
-      + '<td class="xs ' + (bal>0?'danger':'success') + '">\u20B1' + omFmt(bal) + '</td>'
+      + '<td class="xs ' + (bal > 0 ? 'danger' : 'success') + '">\u20B1' + omFmt(bal) + '</td>'
       + '<td>' + omPayStatusBadge(p.paymentStatus) + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(p.note||'') + '">' + omEsc(p.note||'\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(p.note || '') + '">' + omEsc(p.note || '\u2014') + '</td>'
       + '<td class="actions-cell">'
-        + (isPrint
-          ? (isPaid ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>' : '<span style="color:var(--ink-40);font-size:12px;">View Only</span>')
-          : (isPaid
-              ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>'
-              : '<button class="btn btn-sm btn-maroon" onclick="omUpdatePaymentModal(\'' + p.id + '\')">+ Pay</button>'))
+      + (isPrint
+        ? (isPaid ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>' : '<span style="color:var(--ink-40);font-size:12px;">View Only</span>')
+        : (isPaid
+          ? '<button class="btn btn-sm btn-outline" onclick="omPrintReceipt(\'' + p.id + '\')">\uD83D\uDDA8\uFE0F Receipt</button>'
+          : '<button class="btn btn-sm btn-maroon" onclick="omUpdatePaymentModal(\'' + p.id + '\')">+ Pay</button>'))
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="9" class="empty-row">No payment records yet.</td></tr>';
 
   return omToolbar(
-    '<input class="form-control pl34" placeholder="Search payments\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<input class="form-control pl34" placeholder="Search payments\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     isPrint ? '' : '<button class="btn btn-maroon" onclick="omNewPaymentModal()">+ Record Payment</button>'
   )
-  + omTable(
-    '<th class="wfix90">Date</th>'
-    + '<th class="wfix80">Order #</th>'
-    + '<th class="wgrow">Customer</th>'
-    + '<th class="wfix90">Total</th>'
-    + '<th class="wfix80">Paid</th>'
-    + '<th class="wfix80">Balance</th>'
-    + '<th class="wfix100">Pay Status</th>'
-    + '<th class="wgrow-sm">Note</th>'
-    + '<th class="wfix110">Actions</th>',
-    rows
-  );
+    + omTable(
+      '<th class="wfix90">Date</th>'
+      + '<th class="wfix80">Order #</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wfix90">Total</th>'
+      + '<th class="wfix80">Paid</th>'
+      + '<th class="wfix80">Balance</th>'
+      + '<th class="wfix100">Pay Status</th>'
+      + '<th class="wgrow-sm">Note</th>'
+      + '<th class="wfix110">Actions</th>',
+      rows
+    );
 }
 
 // ── TAB: PRODUCTION ───────────────────────────────────────────────────────────
 function omRenderProductionTab() {
   var prods = getProductionRecords();
-  var q = (_omSearch||'').toLowerCase();
-  var filtered = [...prods].reverse().filter(function(p){
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = [...prods].reverse().filter(function (p) {
     return !q
-      || (p.businessName||'').toLowerCase().indexOf(q) !== -1
-      || String(p.orderNumber||'').indexOf(q) !== -1;
+      || (p.businessName || '').toLowerCase().indexOf(q) !== -1
+      || String(p.orderNumber || '').indexOf(q) !== -1;
   });
 
-  var rows = filtered.map(function(p){
+  var rows = filtered.map(function (p) {
     var pct = p.progress || 0;
-    var pc  = pct>=100 ? 'var(--success)' : pct>=60 ? 'var(--gold)' : 'var(--maroon)';
-    var qcB = p.qcResult==='Pass' ? '<span class="badge badge-success">\u2713 Pass</span>'
-            : p.qcResult==='Fail' ? '<span class="badge badge-danger">\u2717 Fail</span>'
-            : '<span class="badge badge-neutral">Pending</span>';
+    var pc = pct >= 100 ? 'var(--success)' : pct >= 60 ? 'var(--gold)' : 'var(--maroon)';
+    var qcB = p.qcResult === 'Pass' ? '<span class="badge badge-success">\u2713 Pass</span>'
+      : p.qcResult === 'Fail' ? '<span class="badge badge-danger">\u2717 Fail</span>'
+        : '<span class="badge badge-neutral">Pending</span>';
     return '<tr>'
-      + '<td class="fw7 xs">#' + String(p.orderNumber||'').padStart(6,'0') + '</td>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName||'\u2014') + '</div></td>'
-      + '<td class="xs">' + omEsc(p.assignedTo||'\u2014') + '</td>'
+      + '<td class="fw7 xs">#' + String(p.orderNumber || '').padStart(6, '0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName || '\u2014') + '</div></td>'
+      + '<td class="xs">' + omEsc(p.assignedTo || '\u2014') + '</td>'
       + '<td style="min-width:110px;">'
-        + '<div style="display:flex;align-items:center;gap:6px;">'
-          + '<div style="flex:1;background:var(--ink-10);border-radius:99px;height:6px;">'
-            + '<div style="width:' + pct + '%;background:' + pc + ';height:6px;border-radius:99px;"></div>'
-          + '</div>'
-          + '<span style="font-size:11px;font-weight:700;color:' + pc + ';white-space:nowrap;">' + pct + '%</span>'
-        + '</div>'
+      + '<div style="display:flex;align-items:center;gap:6px;">'
+      + '<div style="flex:1;background:var(--ink-10);border-radius:99px;height:6px;">'
+      + '<div style="width:' + pct + '%;background:' + pc + ';height:6px;border-radius:99px;"></div>'
+      + '</div>'
+      + '<span style="font-size:11px;font-weight:700;color:' + pc + ';white-space:nowrap;">' + pct + '%</span>'
+      + '</div>'
       + '</td>'
-      + '<td>' + omStatusBadge(p.status||'pending') + '</td>'
+      + '<td>' + omStatusBadge(p.status || 'pending') + '</td>'
       + '<td>' + qcB + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(p.materialsUsed||'') + '">' + omEsc(p.materialsUsed||'\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(p.materialsUsed || '') + '">' + omEsc(p.materialsUsed || '\u2014') + '</td>'
       + '<td class="xs">' + omDate(p.completionDate) + '</td>'
       + '<td class="actions-cell">'
-        + (((getState().currentUser||{}).role === 'staff')
-          ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
-          : '<button class="btn btn-sm btn-outline" onclick="omUpdateProductionModal(\'' + p.id + '\')">Update</button>'
-            + ' <button class="btn btn-sm btn-outline" onclick="omQCModal(\'' + p.id + '\')">QC</button>')
+      + (((getState().currentUser || {}).role === 'staff')
+        ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
+        : '<button class="btn btn-sm btn-outline" onclick="omUpdateProductionModal(\'' + p.id + '\')">Update</button>'
+        + ' <button class="btn btn-sm btn-outline" onclick="omQCModal(\'' + p.id + '\')">QC</button>')
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="9" class="empty-row">No production records yet.</td></tr>';
@@ -5843,77 +6138,77 @@ function omRenderProductionTab() {
   var isPrintUser = (getState().currentUser || {}).role === 'print';
   var isStaffUser = (getState().currentUser || {}).role === 'staff';
   return omToolbar(
-    '<input class="form-control pl34" placeholder="Search production\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<input class="form-control pl34" placeholder="Search production\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     isStaffUser ? '' : '<button class="btn btn-maroon" onclick="omNewProductionModal()">+ Assign Production</button>'
   )
-  + omTable(
-    '<th class="wfix80">Order #</th>'
-    + '<th class="wgrow">Customer</th>'
-    + '<th class="wgrow-sm">Assigned To</th>'
-    + '<th style="min-width:120px;">Progress</th>'
-    + '<th class="wfix110">Status</th>'
-    + '<th class="wfix70">QC</th>'
-    + '<th class="wgrow-sm">Materials</th>'
-    + '<th class="wfix90">Completed</th>'
-    + '<th class="wfix120">Actions</th>',
-    rows
-  );
+    + omTable(
+      '<th class="wfix80">Order #</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wgrow-sm">Assigned To</th>'
+      + '<th style="min-width:120px;">Progress</th>'
+      + '<th class="wfix110">Status</th>'
+      + '<th class="wfix70">QC</th>'
+      + '<th class="wgrow-sm">Materials</th>'
+      + '<th class="wfix90">Completed</th>'
+      + '<th class="wfix120">Actions</th>',
+      rows
+    );
 }
 
 // ── TAB: DAILY DISPATCH ───────────────────────────────────────────────────────
 function omRenderDispatchTab() {
   var dispatches = getDispatchRecords();
-  var q = (_omSearch||'').toLowerCase();
-  var filtered = [...dispatches].reverse().filter(function(d){
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = [...dispatches].reverse().filter(function (d) {
     return !q
-      || (d.businessName||'').toLowerCase().indexOf(q) !== -1
-      || String(d.orderNumber||'').indexOf(q) !== -1;
+      || (d.businessName || '').toLowerCase().indexOf(q) !== -1
+      || String(d.orderNumber || '').indexOf(q) !== -1;
   });
 
-  function dsBadge(s){
-    if (s==='Delivered') return '<span class="badge badge-success">\u2713 Delivered</span>';
-    if (s==='Dispatched') return '<span class="badge badge-info">\u2192 Dispatched</span>';
+  function dsBadge(s) {
+    if (s === 'Delivered') return '<span class="badge badge-success">\u2713 Delivered</span>';
+    if (s === 'Dispatched') return '<span class="badge badge-info">\u2192 Dispatched</span>';
     return '<span class="badge badge-warning">Scheduled</span>';
   }
 
-  var rows = filtered.map(function(d){
+  var rows = filtered.map(function (d) {
     return '<tr>'
       + '<td class="xs">' + omDate(d.date) + '</td>'
-      + '<td class="fw7 xs">#' + String(d.orderNumber||'').padStart(6,'0') + '</td>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(d.businessName||'\u2014') + '</div></td>'
+      + '<td class="fw7 xs">#' + String(d.orderNumber || '').padStart(6, '0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(d.businessName || '\u2014') + '</div></td>'
       + '<td class="center xs">' + (d.customerNotified
-          ? '<span class="success fw7">\u2713 Yes</span>'
-          : '<span class="danger">\u2717 No</span>') + '</td>'
+        ? '<span class="success fw7">\u2713 Yes</span>'
+        : '<span class="danger">\u2717 No</span>') + '</td>'
       + '<td>' + omPayStatusBadge(d.paymentStatus) + '</td>'
-      + '<td><span class="badge badge-neutral">' + omEsc(d.dispatchMethod||'\u2014') + '</span></td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(d.dispatchMethod || '\u2014') + '</span></td>'
       + '<td>' + dsBadge(d.dispatchStatus) + '</td>'
-      + '<td class="truncate xs" title="' + omEsc(d.notes||'') + '">' + omEsc(d.notes||'\u2014') + '</td>'
+      + '<td class="truncate xs" title="' + omEsc(d.notes || '') + '">' + omEsc(d.notes || '\u2014') + '</td>'
       + '<td class="actions-cell">'
-        + '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">Update</button>'
-        + (d.paymentStatus==='Fully Paid'
-          ? ' <button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F</button>'
-          : '')
+      + '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">Update</button>'
+      + (d.paymentStatus === 'Fully Paid'
+        ? ' <button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F</button>'
+        : '')
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="9" class="empty-row">No dispatch records yet.</td></tr>';
 
   var isStaffUser2 = (getState().currentUser || {}).role === 'staff';
   return omToolbar(
-    '<input class="form-control pl34" placeholder="Search dispatch\u2026" value="' + (_omSearch||'') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<input class="form-control pl34" placeholder="Search dispatch\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     isStaffUser2 ? '' : '<button class="btn btn-maroon" onclick="omNewDispatchModal()">+ Schedule Dispatch</button>'
   )
-  + omTable(
-    '<th class="wfix90">Date</th>'
-    + '<th class="wfix80">Order #</th>'
-    + '<th class="wgrow">Customer</th>'
-    + '<th class="wfix70 center">Notified</th>'
-    + '<th class="wfix100">Pay Status</th>'
-    + '<th class="wfix90">Method</th>'
-    + '<th class="wfix100">Status</th>'
-    + '<th class="wgrow-sm">Notes</th>'
-    + '<th class="wfix110">Actions</th>',
-    rows
-  );
+    + omTable(
+      '<th class="wfix90">Date</th>'
+      + '<th class="wfix80">Order #</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wfix70 center">Notified</th>'
+      + '<th class="wfix100">Pay Status</th>'
+      + '<th class="wfix90">Method</th>'
+      + '<th class="wfix100">Status</th>'
+      + '<th class="wgrow-sm">Notes</th>'
+      + '<th class="wfix110">Actions</th>',
+      rows
+    );
 }
 
 // ORDER MODALS
@@ -5925,10 +6220,13 @@ function confirmOrder() { omConfirmNewOrder(); }
 function omGetBranchInventory(branchId) {
   var s = getState();
   var items = [];
-  (s.products || []).forEach(function(p) {
+  (s.products || []).forEach(function (p) {
     if (!p.active) return;
-    (p.variants || []).forEach(function(v) {
-      var qty = (v.branchStocks && v.branchStocks[branchId]) || 0;
+    (p.variants || []).forEach(function (v) {
+      // Use per-branch stock if the branch key exists; otherwise fall back to
+      // total v.stock so variants not yet split across branches still show up.
+      var hasBranchEntry = v.branchStocks && typeof v.branchStocks[branchId] === 'number';
+      var qty = hasBranchEntry ? v.branchStocks[branchId] : (v.stock || 0);
       if (qty > 0) {
         items.push({
           productId: p.id,
@@ -5949,17 +6247,18 @@ function omBuildProductCategoryField(branchId) {
   var s = getState();
   var cats = [];
   var seen = {};
-  (s.products || []).forEach(function(p) {
+  (s.products || []).forEach(function (p) {
     if (!p.active) return;
     var cat = p.category || p.name;
-    if (!seen[cat] && (p.variants || []).some(function(v) {
-      return ((v.branchStocks && v.branchStocks[branchId]) || 0) > 0;
+    if (!seen[cat] && (p.variants || []).some(function (v) {
+      var hasBranchEntry = v.branchStocks && typeof v.branchStocks[branchId] === 'number';
+      return (hasBranchEntry ? v.branchStocks[branchId] : (v.stock || 0)) > 0;
     })) {
       seen[cat] = true;
       cats.push(cat);
     }
   });
-  var datalist = '<datalist id="om-prod-cat-list">' + cats.map(function(c) { return '<option value="' + c + '">'; }).join('') + '</datalist>';
+  var datalist = '<datalist id="om-prod-cat-list">' + cats.map(function (c) { return '<option value="' + c + '">'; }).join('') + '</datalist>';
   return '<div class="form-row-2">'
     + '<div class="form-group" style="position:relative">'
     + '<label>Product Category</label>'
@@ -5968,9 +6267,8 @@ function omBuildProductCategoryField(branchId) {
     + '</div>'
     + '<div class="form-group" style="position:relative">'
     + '<label>Product Type / Size <span style="color:var(--danger)">*</span></label>'
-    + '<input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz" autocomplete="off" oninput="omOnTypeInput(this.value)">'
-    + '<datalist id="om-prod-type-list"></datalist>'
-    + '<div id="om-inv-badge" style="display:none;position:absolute;right:10px;top:38px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--success-light,#e6f9ee);color:var(--success,#1a8a4a);border:1px solid var(--success,#1a8a4a);pointer-events:none"></div>'
+    + '<input id="om-prod-type" class="form-control" placeholder="e.g. Ripple Wall Cup 8oz" autocomplete="off" oninput="omOnTypeInput(this.value)" onfocus="omOnTypeInput(this.value)" onblur="setTimeout(function(){var d=document.getElementById(\'om-type-dropdown\');if(d)d.style.display=\'none\';},180)">'
+    + '<div id="om-type-dropdown" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 2px);background:#fff;border:1.5px solid var(--ink-20,#ddd);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.10);z-index:9999;max-height:220px;overflow-y:auto;"></div>'
     + '</div>'
     + '</div>'
     + '<div id="om-inv-warn" style="display:none;margin-bottom:10px;padding:8px 13px;background:#fff3cd;border:1.5px solid #f0c040;border-radius:8px;font-size:12.5px;color:#7a5c00">'
@@ -5983,58 +6281,94 @@ function omBuildProductTypeField() {
   return '';
 }
 
-// Called when category input changes — refresh the type datalist
+// Called when category input changes — refresh the type suggestions
 function omOnCatInput(catVal) {
   var s = getState();
   var currentUser = s.currentUser || {};
   var branchId = getActiveBranchId(s, currentUser);
   var items = omGetBranchInventory(branchId);
   var q = (catVal || '').toLowerCase().trim();
-  var filtered = q ? items.filter(function(i) { return i.category.toLowerCase().indexOf(q) !== -1; }) : items;
-  var typeList = document.getElementById('om-prod-type-list');
-  if (typeList) {
-    typeList.innerHTML = filtered.map(function(i) {
-      return '<option value="' + i.variantName + '" data-stock="' + i.stock + '" data-price="' + i.price + '" data-vid="' + i.variantId + '">';
-    }).join('');
-  }
+  // Store current filtered items for the type dropdown to use
+  window._omCatFilteredItems = q ? items.filter(function (i) { return i.category.toLowerCase().indexOf(q) !== -1; }) : items;
   omOnTypeInput(document.getElementById('om-prod-type') ? document.getElementById('om-prod-type').value : '');
 }
 
-// Called when type/variant input changes — show stock badge and warn if not found
+// Render the custom dropdown with matching variants and their stock counts
+function omRenderTypeDropdown(items, q) {
+  var dd = document.getElementById('om-type-dropdown');
+  if (!dd) return;
+  var filtered = q
+    ? items.filter(function (i) { return i.variantName.toLowerCase().indexOf(q) !== -1; })
+    : items;
+  if (!filtered.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = '';
+  filtered.forEach(function (i) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:9px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;';
+    row.addEventListener('mouseover', function () { row.style.background = '#f5f5f5'; });
+    row.addEventListener('mouseout', function () { row.style.background = ''; });
+    row.addEventListener('mousedown', function () { omSelectType(i.variantId, i.variantName, i.stock, i.price); });
+    var nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'font-weight:500;color:var(--ink)';
+    nameSpan.textContent = i.variantName;
+    var stockColor = i.stock === 0 ? 'var(--danger)' : i.stock <= 10 ? '#b45309' : '#1a8a4a';
+    var stockBg = i.stock === 0 ? '#fee2e2' : i.stock <= 10 ? '#fef3c7' : '#dcfce7';
+    var badge = document.createElement('span');
+    badge.style.cssText = 'font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:' + stockBg + ';color:' + stockColor;
+    badge.textContent = i.stock + ' in stock';
+    row.appendChild(nameSpan);
+    row.appendChild(badge);
+    dd.appendChild(row);
+  });
+  dd.style.display = '';
+}
+
+// Called when user picks a suggestion from the dropdown
+function omSelectType(variantId, variantName, stock, price) {
+  var typeEl = document.getElementById('om-prod-type');
+  if (typeEl) { typeEl.value = variantName; typeEl.dataset.variantId = variantId; }
+  var dd = document.getElementById('om-type-dropdown');
+  if (dd) dd.style.display = 'none';
+  var warn = document.getElementById('om-inv-warn');
+  if (warn) warn.style.display = 'none';
+  // Auto-fill unit price if empty or zero
+  var priceEl = document.getElementById('om-unit-price');
+  if (priceEl && (parseFloat(priceEl.value) || 0) === 0 && price > 0) {
+    priceEl.value = price;
+    omCalcTotal();
+  }
+}
+
+// Called when type/variant input changes — show custom dropdown with stock counts
 function omOnTypeInput(typeVal) {
   var s = getState();
   var currentUser = s.currentUser || {};
   var branchId = getActiveBranchId(s, currentUser);
-  var items = omGetBranchInventory(branchId);
+  var items = window._omCatFilteredItems || omGetBranchInventory(branchId);
   var q = (typeVal || '').toLowerCase().trim();
-  var badge = document.getElementById('om-inv-badge');
   var warn = document.getElementById('om-inv-warn');
+
+  // Always show dropdown when field is focused (even empty = show all)
+  omRenderTypeDropdown(items, q);
+
   if (!q) {
-    if (badge) badge.style.display = 'none';
     if (warn) warn.style.display = 'none';
+    var typeEl0 = document.getElementById('om-prod-type');
+    if (typeEl0) delete typeEl0.dataset.variantId;
     return;
   }
-  var match = items.find(function(i) { return i.variantName.toLowerCase() === q; });
+  // Check for exact match to update warn and auto-fill price
+  var match = items.find(function (i) { return i.variantName.toLowerCase() === q; });
   if (match) {
-    if (badge) {
-      badge.textContent = match.stock + ' in stock';
-      badge.style.display = '';
-      badge.style.background = match.stock <= 10 ? '#fff3cd' : '#e6f9ee';
-      badge.style.color = match.stock <= 10 ? '#7a5c00' : '#1a8a4a';
-      badge.style.borderColor = match.stock <= 10 ? '#f0c040' : '#1a8a4a';
-    }
     if (warn) warn.style.display = 'none';
-    // Auto-fill unit price if empty or zero
     var priceEl = document.getElementById('om-unit-price');
     if (priceEl && (parseFloat(priceEl.value) || 0) === 0 && match.price > 0) {
       priceEl.value = match.price;
       omCalcTotal();
     }
-    // Store matched variantId for deduction later
     var typeEl = document.getElementById('om-prod-type');
     if (typeEl) typeEl.dataset.variantId = match.variantId;
   } else {
-    if (badge) badge.style.display = 'none';
     if (warn) warn.style.display = '';
     var typeEl2 = document.getElementById('om-prod-type');
     if (typeEl2) delete typeEl2.dataset.variantId;
@@ -6064,34 +6398,35 @@ function omNewOrderModal() {
 
     // ── Customer Info ──
     + '<div class="om-modal-section-label">\uD83D\uDC65 Customer Information</div>'
-    + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Select Existing Customer <span class="text-xs text-muted">(or type a new name below)</span></label>'
-    +     '<div class="form-select-wrap"><select id="om-cust-sel" class="form-control" onchange="omAutofillCustomer(this.value)">'
-    +       '<option value="">\u2014 New Customer \u2014</option>' + custOptions
-    +     '</select></div>'
-    +   '</div>'
-    +   '<div class="form-group"><label>Order Date</label><input id="om-order-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div>'
+    + '<div class="form-row-2" style="align-items:flex-end">'
+    + '<div class="form-group" style="margin-bottom:0"><label>Customer <span style="color:var(--danger)">*</span></label>'
+    + '<div class="form-select-wrap"><select id="om-cust-sel" class="form-control" onchange="omAutofillCustomer(this.value)">'
+    + '<option value="new">\u2728 New Customer</option>' + custOptions
+    + '</select></div>'
     + '</div>'
-    + '<div id="om-new-customer-notice" style="display:none;margin-bottom:10px;padding:9px 13px;background:linear-gradient(135deg,#fff8e1,#fff3cd);border:1.5px solid #f0c040;border-radius:8px;font-size:12.5px;color:#7a5c00;display:flex;align-items:center;gap:8px">'
-    +   '<span style="font-size:15px">\u2728</span>'
-    +   '<span><strong>New customer detected!</strong> This customer will be automatically added to Customer Records when you create the order.</span>'
+    + '<div class="form-group" style="margin-bottom:0"><label>Due Date</label><input id="om-due-date" type="date" class="form-control"></div>'
+    + '</div>'
+    + '<div id="om-new-customer-notice" style="margin-top:10px;margin-bottom:0;padding:9px 13px;background:linear-gradient(135deg,#fff8e1,#fff3cd);border:1.5px solid #f0c040;border-radius:8px;font-size:12.5px;color:#7a5c00;display:flex;align-items:center;gap:8px">'
+    + '<span style="font-size:15px">\u2728</span>'
+    + '<span><strong>New customer</strong> — fill in their details below. They will be saved to Customer Records automatically.</span>'
+    + '</div>'
+    + '<div id="om-cust-fields" style="margin-top:12px">'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Business or company name\u2026"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="om-contact" class="form-control" placeholder="Full name"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Business Name <span style="color:var(--danger)">*</span></label><input id="om-business" class="form-control" placeholder="Type business or company name\u2026" oninput="omCheckNewCustomerNotice()"></div>'
-    +   '<div class="form-group"><label>Contact Person</label><input id="om-contact" class="form-control" placeholder="Full name"></div>'
-    + '</div>'
-    + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Phone</label><input id="om-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
-    +   '<div class="form-group"><label>Email</label><input id="om-email" type="email" class="form-control" placeholder="email@example.com"></div>'
+    + '<div class="form-group"><label>Phone</label><input id="om-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
+    + '<div class="form-group"><label>Email</label><input id="om-email" type="email" class="form-control" placeholder="email@example.com"></div>'
     + '</div>'
     + '<div class="form-group"><label>Address</label><input id="om-address" class="form-control" placeholder="Business address"></div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="om-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
-    +   '<div class="form-group"><label>Mode of Delivery</label><input id="om-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
+    + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="om-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option></select></div></div>'
+    + '<div class="form-group"><label>Mode of Delivery</label><input id="om-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
-    +   '<div class="form-group"><label>Due Date</label><input id="om-due-date" type="date" class="form-control"></div>'
+    + '<div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
+    + '</div>'
     + '</div>'
 
     + '<hr class="divider" style="margin:16px 0">'
@@ -6101,45 +6436,45 @@ function omNewOrderModal() {
     + omBuildProductCategoryField(branchId)
     + omBuildProductTypeField()
     + '<div class="form-row-3">'
-    +   '<div class="form-group"><label>Quantity <span style="color:var(--danger)">*</span></label><input id="om-qty" type="number" class="form-control" min="1" value="1" oninput="omCalcTotal()"></div>'
-    +   '<div class="form-group"><label>Unit Price (per pc)</label><input id="om-unit-price" type="number" class="form-control" min="0" value="0" oninput="omCalcTotal()"></div>'
-    +   '<div class="form-group"><label>Print Color</label><input id="om-print-color" class="form-control" placeholder="e.g. 1-color, Full Color"></div>'
+    + '<div class="form-group"><label>Quantity <span style="color:var(--danger)">*</span></label><input id="om-qty" type="number" class="form-control" min="1" value="1" oninput="omCalcTotal()"></div>'
+    + '<div class="form-group"><label>Unit Price (per pc)</label><input id="om-unit-price" type="number" class="form-control" min="0" value="0" oninput="omCalcTotal()"></div>'
+    + '<div class="form-group"><label>Print Color</label><input id="om-print-color" class="form-control" placeholder="e.g. 1-color, Full Color"></div>'
     + '</div>'
 
     // ── Plate Section ──
     + '<div class="om-modal-section-label" style="margin-top:12px">\uD83C\uDFAF Plate Charge</div>'
     + '<div style="background:var(--cream);border:1.5px solid var(--ink-10);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">'
-    +   '<div class="form-row-3">'
-    +     '<div class="form-group" style="margin-bottom:0">'
-    +       '<label>Customer Type</label>'
-    +       '<div class="form-select-wrap"><select id="om-cust-type" class="form-control" onchange="omCalcTotal()">'
-    +         '<option value="new">New Customer</option>'
-    +         '<option value="old">Old Customer</option>'
-    +       '</select></div>'
-    +     '</div>'
-    +     '<div class="form-group" style="margin-bottom:0">'
-    +       '<label>New Logo? <span class="text-xs text-muted">(old customers)</span></label>'
-    +       '<div class="form-select-wrap"><select id="om-new-logo" class="form-control" onchange="omCalcTotal()">'
-    +         '<option value="0">No \u2014 Reuse existing</option>'
-    +         '<option value="1">Yes \u2014 New logo</option>'
-    +       '</select></div>'
-    +     '</div>'
-    +     '<div class="form-group" style="margin-bottom:0">'
-    +       '<label>Product Fee</label>'
-    +       '<input id="om-product-fee" type="number" class="form-control" min="0" value="0" placeholder="0.00" oninput="omCalcTotal()">'
-    +     '</div>'
-    +   '</div>'
-    +   '<div style="margin-top:10px;padding:10px 12px;background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--ink-10);font-size:13px">'
-    +     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-    +       '<span style="color:var(--ink-60)">Plate Charge:</span>'
-    +       '<strong id="om-plate-charge-display" style="color:var(--maroon)">\u20B10.00</strong>'
-    +     '</div>'
-    +     '<div id="om-plate-note-auto" class="text-xs text-muted"></div>'
-    +   '</div>'
-    +   '<div class="form-group" style="margin-top:10px;margin-bottom:0">'
-    +     '<label>Plate Note <span class="text-xs text-muted">(auto-filled, editable)</span></label>'
-    +     '<input id="om-plate-note" class="form-control" placeholder="e.g. New plate, Re-use">'
-    +   '</div>'
+    + '<div class="form-row-3">'
+    + '<div class="form-group" style="margin-bottom:0">'
+    + '<label>Customer Type</label>'
+    + '<div class="form-select-wrap"><select id="om-cust-type" class="form-control" onchange="omCalcTotal()">'
+    + '<option value="new">New Customer</option>'
+    + '<option value="old">Old Customer</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:0">'
+    + '<label>New Logo? <span class="text-xs text-muted">(old customers)</span></label>'
+    + '<div class="form-select-wrap"><select id="om-new-logo" class="form-control" onchange="omCalcTotal()">'
+    + '<option value="0">No \u2014 Reuse existing</option>'
+    + '<option value="1">Yes \u2014 New logo</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:0">'
+    + '<label>Product Fee</label>'
+    + '<input id="om-product-fee" type="number" class="form-control" min="0" value="0" placeholder="0.00" oninput="omCalcTotal()">'
+    + '</div>'
+    + '</div>'
+    + '<div style="margin-top:10px;padding:10px 12px;background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--ink-10);font-size:13px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+    + '<span style="color:var(--ink-60)">Plate Charge:</span>'
+    + '<strong id="om-plate-charge-display" style="color:var(--maroon)">\u20B10.00</strong>'
+    + '</div>'
+    + '<div id="om-plate-note-auto" class="text-xs text-muted"></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-top:10px;margin-bottom:0">'
+    + '<label>Plate Note <span class="text-xs text-muted">(auto-filled, editable)</span></label>'
+    + '<input id="om-plate-note" class="form-control" placeholder="e.g. New plate, Re-use">'
+    + '</div>'
     + '</div>'
 
     + '<div class="form-group"><label>Order Notes</label><textarea id="om-notes" class="form-control" rows="2" placeholder="Special instructions\u2026"></textarea></div>'
@@ -6149,22 +6484,22 @@ function omNewOrderModal() {
     // ── Payment Details ──
     + '<div class="om-modal-section-label">\uD83D\uDCB3 Payment Details</div>'
     + '<div style="background:var(--cream);border:1.5px solid var(--ink-10);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">'
-    +   '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
-    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Products Subtotal</div><div id="om-summary-products" style="font-weight:700;font-size:14px">\u20B10.00</div></div>'
-    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Plate Charge</div><div id="om-summary-plate" style="font-weight:700;font-size:14px;color:var(--maroon)">\u20B10.00</div></div>'
-    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Discount</div><div id="om-summary-discount" style="font-weight:700;font-size:14px;color:var(--success)">- \u20B10.00</div></div>'
-    +     '<div><div class="text-xs text-muted" style="margin-bottom:2px">Total</div><div id="om-summary-total" style="font-weight:800;font-size:16px;color:var(--maroon)">\u20B10.00</div></div>'
-    +   '</div>'
-    +   '<div id="om-discount-note" class="text-xs" style="color:var(--success);margin-bottom:8px;display:none"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
+    + '<div><div class="text-xs text-muted" style="margin-bottom:2px">Products Subtotal</div><div id="om-summary-products" style="font-weight:700;font-size:14px">\u20B10.00</div></div>'
+    + '<div><div class="text-xs text-muted" style="margin-bottom:2px">Plate Charge</div><div id="om-summary-plate" style="font-weight:700;font-size:14px;color:var(--maroon)">\u20B10.00</div></div>'
+    + '<div><div class="text-xs text-muted" style="margin-bottom:2px">Discount</div><div id="om-summary-discount" style="font-weight:700;font-size:14px;color:var(--success)">- \u20B10.00</div></div>'
+    + '<div><div class="text-xs text-muted" style="margin-bottom:2px">Total</div><div id="om-summary-total" style="font-weight:800;font-size:16px;color:var(--maroon)">\u20B10.00</div></div>'
+    + '</div>'
+    + '<div id="om-discount-note" class="text-xs" style="color:var(--success);margin-bottom:8px;display:none"></div>'
     + '</div>'
     + '<div class="form-row-3">'
-    +   '<div class="form-group"><label>Total Amount</label><input id="om-total" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()" style="font-weight:700"></div>'
-    +   '<div class="form-group"><label>Downpayment</label><input id="om-downpayment" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()"></div>'
-    +   '<div class="form-group"><label>Balance</label><input id="om-balance" type="number" class="form-control" readonly style="background:var(--cream)"></div>'
+    + '<div class="form-group"><label>Total Amount</label><input id="om-total" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()" style="font-weight:700"></div>'
+    + '<div class="form-group"><label>Downpayment</label><input id="om-downpayment" type="number" class="form-control" min="0" value="0" oninput="omCalcBalance()"></div>'
+    + '<div class="form-group"><label>Balance</label><input id="om-balance" type="number" class="form-control" readonly style="background:var(--cream)"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    +   '<div class="form-group"><label>Payment Status</label><div class="form-select-wrap"><select id="om-pay-status" class="form-control"><option value="Pending">Pending</option><option value="30%">30% Downpayment</option><option value="Partial">Partial</option><option value="Fully Paid">Fully Paid</option></select></div></div>'
-    +   '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="om-order-status" class="form-control"><option value="pending">Pending</option><option value="production">In Production</option></select></div></div>'
+    + '<div class="form-group"><label>Payment Status</label><div class="form-select-wrap"><select id="om-pay-status" class="form-control" onchange="omOnPayStatusChange()"><option value="Pending">Pending</option><option value="30%">30% Downpayment</option><option value="Partial">Partial</option><option value="Fully Paid">Fully Paid</option></select></div></div>'
+    + '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="om-order-status" class="form-control"><option value="pending">Pending</option><option value="production">In Production</option></select></div></div>'
     + '</div>'
 
     + '</div>'
@@ -6172,19 +6507,81 @@ function omNewOrderModal() {
   );
 
   // Auto-select current user in staff dropdown & init inventory suggestions
-  setTimeout(function() {
+  setTimeout(function () {
     var staffSel = document.getElementById('om-staff');
     if (staffSel && currentUser && currentUser.name) {
       staffSel.value = currentUser.name;
     }
-    // Populate type datalist with all branch items initially
+    // Default to new customer state on open
+    omAutofillCustomer('new');
+    // Populate type dropdown with all branch items initially
     omOnCatInput('');
     omCalcTotal();
+
+    // ── SESSION STORAGE DRAFT RESTORE ──
+    try {
+      var draft = JSON.parse(sessionStorage.getItem('om_new_order_draft') || 'null');
+      if (draft) {
+        function sr(id, v) { var el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; }
+        // Restore customer selection first so autofill + lock/unlock runs correctly
+        var custSelEl = document.getElementById('om-cust-sel');
+        if (custSelEl && draft.custSel) custSelEl.value = draft.custSel;
+        omAutofillCustomer(draft.custSel || 'new');
+        // Override with saved draft field values
+        sr('om-business', draft.business);
+        sr('om-contact', draft.contact);
+        sr('om-phone', draft.phone);
+        sr('om-email', draft.email);
+        sr('om-address', draft.address);
+        sr('om-mop', draft.mop);
+        sr('om-staff', draft.staff);
+        sr('om-due-date', draft.dueDate);
+        sr('om-prod-cat', draft.prodCat);
+        sr('om-prod-type', draft.prodType);
+        sr('om-qty', draft.qty);
+        sr('om-unit-price', draft.unitPrice);
+        sr('om-print-color', draft.printColor);
+        sr('om-cust-type', draft.custType);
+        sr('om-new-logo', draft.newLogo);
+        sr('om-product-fee', draft.productFee);
+        sr('om-notes', draft.notes);
+        sr('om-pay-status', draft.payStatus);
+        sr('om-order-status', draft.orderStatus);
+        omOnCatInput(draft.prodCat || '');
+        omCalcTotal();
+        if (draft.payStatus) omOnPayStatusChange();
+        showToast('\uD83D\uDCDD Draft restored from your last session!', 'info');
+      }
+    } catch(e) {}
+
+    // Attach draft-saving listeners to all form fields
+    var draftFields = ['om-business','om-contact','om-phone','om-email','om-address','om-mop','om-staff','om-due-date','om-prod-cat','om-prod-type','om-qty','om-unit-price','om-print-color','om-cust-type','om-new-logo','om-product-fee','om-notes','om-pay-status','om-order-status','om-cust-sel'];
+    draftFields.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', omSaveNewOrderDraft);
+      if (el && el.tagName === 'INPUT') el.addEventListener('input', omSaveNewOrderDraft);
+    });
   }, 50);
 }
 
 // Pricing constants
 var OM_PLATE_PER_COLOR = 550;
+
+// Save new order form to sessionStorage so draft survives accidental close
+function omSaveNewOrderDraft() {
+  try {
+    function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+    sessionStorage.setItem('om_new_order_draft', JSON.stringify({
+      custSel: gv('om-cust-sel'), business: gv('om-business'), contact: gv('om-contact'),
+      phone: gv('om-phone'), email: gv('om-email'), address: gv('om-address'),
+      mop: gv('om-mop'), staff: gv('om-staff'), dueDate: gv('om-due-date'),
+      prodCat: gv('om-prod-cat'), prodType: gv('om-prod-type'),
+      qty: gv('om-qty'), unitPrice: gv('om-unit-price'), printColor: gv('om-print-color'),
+      custType: gv('om-cust-type'), newLogo: gv('om-new-logo'), productFee: gv('om-product-fee'),
+      notes: gv('om-notes'), payStatus: gv('om-pay-status'), orderStatus: gv('om-order-status'),
+    }));
+  } catch(e) {}
+}
 var OM_DISCOUNT_THRESHOLD = 3000;
 var OM_DISCOUNT_RATE = 0.05; // 5% — adjust as needed
 
@@ -6193,11 +6590,11 @@ function omCalcTotal() {
   function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v; }
   function st(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
 
-  var qty      = parseInt(gv('om-qty')) || 0;
+  var qty = parseInt(gv('om-qty')) || 0;
   var unitPrice = parseFloat(gv('om-unit-price')) || 0;
   var productFee = parseFloat(gv('om-product-fee')) || 0;
   var custType = gv('om-cust-type'); // 'new' or 'old'
-  var newLogo  = gv('om-new-logo') === '1';
+  var newLogo = gv('om-new-logo') === '1';
 
   // Product subtotal
   var productsSub = qty * unitPrice;
@@ -6207,18 +6604,18 @@ function omCalcTotal() {
   // Old customer, new logo → product fee + 550
   // Old customer, reuse logo → 0
   var plateCharge = 0;
-  var plateNote   = '';
+  var plateNote = '';
   if (custType === 'new') {
     plateCharge = productFee + OM_PLATE_PER_COLOR;
-    plateNote   = 'New customer: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
+    plateNote = 'New customer: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
     sv('om-plate-note', 'New plate \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge');
   } else if (newLogo) {
     plateCharge = productFee + OM_PLATE_PER_COLOR;
-    plateNote   = 'New logo: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
+    plateNote = 'New logo: Product fee (\u20B1' + omFmt(productFee) + ') + Plate (\u20B1' + OM_PLATE_PER_COLOR + ')';
     sv('om-plate-note', 'New logo \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge');
   } else {
     plateCharge = 0;
-    plateNote   = 'Old customer \u2014 no plate charge';
+    plateNote = 'Old customer \u2014 no plate charge';
     sv('om-plate-note', 'Re-use existing plate');
   }
 
@@ -6229,7 +6626,7 @@ function omCalcTotal() {
   var discountAmt = 0;
   var discountNote = '';
   if (productsSub >= OM_DISCOUNT_THRESHOLD) {
-    discountAmt  = Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100;
+    discountAmt = Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100;
     discountNote = '\u2714 5% discount applied \u2014 order total \u20B1' + omFmt(productsSub) + ' \u2265 \u20B1' + omFmt(OM_DISCOUNT_THRESHOLD);
   }
 
@@ -6256,91 +6653,122 @@ function omCalcTotal() {
   var totalEl = document.getElementById('om-total');
   if (totalEl) { totalEl.value = total.toFixed(2); }
 
+  // Re-run pay status logic (e.g. if status is 30%, update downpayment)
+  omOnPayStatusChange();
   omCalcBalance();
 }
 
 function omCalcBalance() {
   var total = parseFloat((document.getElementById('om-total') || {}).value) || 0;
-  var down  = parseFloat((document.getElementById('om-downpayment') || {}).value) || 0;
+  var down = parseFloat((document.getElementById('om-downpayment') || {}).value) || 0;
   var balEl = document.getElementById('om-balance');
   if (balEl) balEl.value = Math.max(0, total - down).toFixed(2);
 }
 
+// Auto-compute downpayment when payment status is set to 30%
+function omOnPayStatusChange() {
+  var status = (document.getElementById('om-pay-status') || {}).value;
+  var total = parseFloat((document.getElementById('om-total') || {}).value) || 0;
+  var downEl = document.getElementById('om-downpayment');
+  if (!downEl) return;
+  if (status === '30%' && total > 0) {
+    downEl.value = (total * 0.3).toFixed(2);
+    omCalcBalance();
+  } else if (status === 'Fully Paid' && total > 0) {
+    downEl.value = total.toFixed(2);
+    omCalcBalance();
+  } else if (status === 'Pending') {
+    downEl.value = '0.00';
+    omCalcBalance();
+  }
+}
+
 function omAutofillCustomer(customerId) {
-  if (!customerId) {
-    // Reset to new customer
-    var ct = document.getElementById('om-cust-type');
+  var isNew = !customerId || customerId === 'new';
+  var noticeEl = document.getElementById('om-new-customer-notice');
+  var fieldsEl = document.getElementById('om-cust-fields');
+  var ct = document.getElementById('om-cust-type');
+
+  function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
+  function setReadonly(id, readonly) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (readonly) {
+      el.setAttribute('readonly', true);
+      el.style.background = 'var(--cream)';
+      el.style.color = 'var(--ink-60)';
+      el.style.cursor = 'not-allowed';
+    } else {
+      el.removeAttribute('readonly');
+      el.style.background = '';
+      el.style.color = '';
+      el.style.cursor = '';
+    }
+  }
+
+  if (isNew) {
+    // New customer — show notice, clear fields, make all editable
+    if (noticeEl) noticeEl.style.display = 'flex';
+    sv('om-business', ''); sv('om-contact', ''); sv('om-phone', '');
+    sv('om-email', ''); sv('om-address', '');
+    ['om-business','om-contact','om-phone','om-email','om-address'].forEach(function(id) { setReadonly(id, false); });
+    var mopSel = document.getElementById('om-mop'); if (mopSel) mopSel.disabled = false;
     if (ct) ct.value = 'new';
-    omCheckNewCustomerNotice();
     omCalcTotal();
     return;
   }
+
+  // Existing customer — autofill and lock fields
   var crs = getCustomerRecords();
   var c = crs.find(function (x) { return x.id === customerId; });
   if (!c) return;
-  function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; }
+
   sv('om-business', c.businessName);
   sv('om-contact', c.contactPerson);
   sv('om-phone', c.phone);
   sv('om-email', c.email);
   sv('om-address', c.address);
-  var mopSel = document.getElementById('om-mop'); if (mopSel && c.modeOfPayment) mopSel.value = c.modeOfPayment;
-  var staffSel = document.getElementById('om-staff'); if (staffSel && c.branchStaff) staffSel.value = c.branchStaff;
-  // Mark as old customer since they exist in records
-  var ct = document.getElementById('om-cust-type'); if (ct) ct.value = 'old';
-  // Hide notice since this is an existing customer
-  var noticeEl = document.getElementById('om-new-customer-notice');
+  var mopSel = document.getElementById('om-mop');
+  if (mopSel) { if (c.modeOfPayment) mopSel.value = c.modeOfPayment; mopSel.disabled = false; }
+  var staffSel = document.getElementById('om-staff');
+  if (staffSel && c.branchStaff) staffSel.value = c.branchStaff;
+
+  // Lock the info fields so user can't accidentally edit an existing customer's record
+  ['om-business','om-contact','om-phone','om-email','om-address'].forEach(function(id) { setReadonly(id, true); });
+
   if (noticeEl) noticeEl.style.display = 'none';
+  if (ct) ct.value = 'old';
   omCalcTotal();
 }
 
-function omCheckNewCustomerNotice() {
-  var custSelEl = document.getElementById('om-cust-sel');
-  var businessEl = document.getElementById('om-business');
-  var noticeEl = document.getElementById('om-new-customer-notice');
-  if (!custSelEl || !businessEl || !noticeEl) return;
-
-  var selectedId = custSelEl.value;
-  var typedName = businessEl.value.trim().toLowerCase();
-
-  // If a customer is selected from dropdown, no notice needed
-  if (selectedId) { noticeEl.style.display = 'none'; return; }
-
-  // If no name typed yet, no notice
-  if (!typedName) { noticeEl.style.display = 'none'; return; }
-
-  // Check if typed name matches any existing customer record
-  var crs = getCustomerRecords();
-  var exists = crs.some(function(c) {
-    return (c.businessName || '').toLowerCase().trim() === typedName;
-  });
-
-  noticeEl.style.display = exists ? 'none' : 'flex';
-}
+// Kept as no-op for compatibility (no longer needed with combined dropdown)
+function omCheckNewCustomerNotice() {}
 
 function omConfirmNewOrder() {
+  var _u = getState().currentUser; if (!_u || !['admin','staff'].includes(_u.role)) { showToast('Access denied.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var businessName = gv('om-business').trim();
   var qty = parseInt(gv('om-qty')) || 0;
   if (!businessName) { showToast('Business name is required.', 'error'); return; }
-  if (qty <= 0)       { showToast('Quantity must be at least 1.', 'error'); return; }
+  if (qty <= 0) { showToast('Quantity must be at least 1.', 'error'); return; }
   // Capture the matched inventory variantId (if user selected from suggestions)
   var prodTypeEl = document.getElementById('om-prod-type');
   var linkedVariantId = (prodTypeEl && prodTypeEl.dataset && prodTypeEl.dataset.variantId) ? prodTypeEl.dataset.variantId : null;
 
-  var total   = parseFloat(gv('om-total'))       || 0;
-  var down    = parseFloat(gv('om-downpayment')) || 0;
+  var total = parseFloat(gv('om-total')) || 0;
+  var down = parseFloat(gv('om-downpayment')) || 0;
   var balance = Math.max(0, total - down);
   var customerRecordId = gv('om-cust-sel');
+  if (customerRecordId === 'new') customerRecordId = ''; // 'new' means no existing record yet
 
   var orders = getOrders();
-  var maxId  = orders.length ? Math.max.apply(null, orders.map(function (o) { return Number(o.id) || 0; })) : 0;
+  var maxId = orders.length ? Math.max.apply(null, orders.map(function (o) { return Number(o.id) || 0; })) : 0;
 
   // Gather pricing breakdown for record-keeping
-  var unitPrice  = parseFloat(gv('om-unit-price')) || 0;
+  var unitPrice = parseFloat(gv('om-unit-price')) || 0;
   var productFee = parseFloat(gv('om-product-fee')) || 0;
-  var custType   = gv('om-cust-type');
-  var newLogo    = gv('om-new-logo') === '1';
+  var custType = gv('om-cust-type');
+  var newLogo = gv('om-new-logo') === '1';
   var productsSub = qty * unitPrice;
   var plateCharge = (custType === 'new' || newLogo) ? (productFee + OM_PLATE_PER_COLOR) : 0;
   var discountAmt = productsSub >= OM_DISCOUNT_THRESHOLD ? Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100 : 0;
@@ -6348,56 +6776,56 @@ function omConfirmNewOrder() {
   var newOrder = {
     id: maxId + 1,
     customer_record_id: customerRecordId,
-    customer_name:   businessName,
-    contact_person:  gv('om-contact'),
-    phone:           gv('om-phone'),
-    email:           gv('om-email'),
-    address:         gv('om-address'),
+    customer_name: businessName,
+    contact_person: gv('om-contact'),
+    phone: gv('om-phone'),
+    email: gv('om-email'),
+    address: gv('om-address'),
     mode_of_payment: gv('om-mop'),
     mode_of_delivery: gv('om-mod'),
-    branch_staff:    gv('om-staff'),
-    notes:           gv('om-notes'),
+    branch_staff: gv('om-staff'),
+    notes: gv('om-notes'),
     product_category: gv('om-prod-cat'),
-    product_type:    gv('om-prod-type'),
-    quantity:        qty,
-    unit_price:      unitPrice,
-    product_fee:     productFee,
-    plate_charge:    plateCharge,
+    product_type: gv('om-prod-type'),
+    quantity: qty,
+    unit_price: unitPrice,
+    product_fee: productFee,
+    plate_charge: plateCharge,
     discount_amount: discountAmt,
-    customer_type:   custType,
-    print_color:     gv('om-print-color'),
-    plate_note:      gv('om-plate-note'),
-    total_amount:    total,
-    status:          gv('om-order-status') || 'pending',
-    downpayment:     down,
-    balance:         balance,
-    payment_mode:    gv('om-mop'),
-    payment_status:  gv('om-pay-status') || 'Pending',
-    due_date:        gv('om-due-date'),
-    order_date:      gv('om-order-date'),
-    created_at:      new Date().toISOString(),
+    customer_type: custType,
+    print_color: gv('om-print-color'),
+    plate_note: gv('om-plate-note'),
+    total_amount: total,
+    status: gv('om-order-status') || 'pending',
+    downpayment: down,
+    balance: balance,
+    payment_mode: gv('om-mop'),
+    payment_status: gv('om-pay-status') || 'Pending',
+    due_date: gv('om-due-date'),
+    order_date: new Date().toISOString().slice(0, 10),
+    created_at: new Date().toISOString(),
     linked_variant_id: linkedVariantId || null,
-    linked_branch_id:  linkedVariantId ? getActiveBranchId(getState(), getState().currentUser) : null,
-    stock_deducted:    false,
+    linked_branch_id: linkedVariantId ? getActiveBranchId(getState(), getState().currentUser) : null,
+    stock_deducted: false,
   };
 
   // Save to DB first to get the real MySQL AUTO_INCREMENT id back
-  DB.saveOrder(newOrder).then(function(result) {
+  DB.saveOrder(newOrder).then(function (result) {
     if (result && result.id) {
       newOrder.id = result.id;
-      var idx = orders.findIndex(function(o) { return o.id === maxId + 1; });
+      var idx = orders.findIndex(function (o) { return o.id === maxId + 1; });
       if (idx !== -1) orders[idx].id = result.id;
       saveOrders(orders);
     }
-  }).catch(function() {});
+  }).catch(function () { });
   orders.push(newOrder);
   saveOrders(orders);
 
   // ── Auto-add new customer to Customer Records if not already there ──
   var crs = getCustomerRecords();
   var alreadyExists = customerRecordId
-    ? crs.some(function(c) { return c.id === customerRecordId; })
-    : crs.some(function(c) { return (c.businessName || '').toLowerCase().trim() === businessName.toLowerCase().trim(); });
+    ? crs.some(function (c) { return c.id === customerRecordId; })
+    : crs.some(function (c) { return (c.businessName || '').toLowerCase().trim() === businessName.toLowerCase().trim(); });
 
   if (!alreadyExists) {
     var newCR = {
@@ -6411,13 +6839,29 @@ function omConfirmNewOrder() {
       modeOfDelivery: gv('om-mod') || '',
       branchStaff: gv('om-staff') || '',
       notes: '',
+      branchId: getActiveBranchId(getState(), getState().currentUser) || null,
       createdAt: new Date().toISOString()
     };
     crs.push(newCR);
     saveCustomerRecords(crs);
+    // ── FIX: also persist new OM customer to the server DB ──
+    DB.saveOMCustomer({
+      id: newCR.id,
+      businessName: newCR.businessName,
+      contactPerson: newCR.contactPerson || '',
+      phone: newCR.phone || '',
+      email: newCR.email || '',
+      address: newCR.address || '',
+      modeOfPayment: newCR.modeOfPayment || '',
+      modeOfDelivery: newCR.modeOfDelivery || '',
+      branchStaff: newCR.branchStaff || '',
+      notes: newCR.notes || '',
+      branchId: newCR.branchId,
+      createdAt: newCR.createdAt,
+    });
     newOrder.customer_record_id = newCR.id;
     // Update order with new customer record id
-    var oIdx = orders.findIndex(function(o) { return o.id === newOrder.id; });
+    var oIdx = orders.findIndex(function (o) { return o.id === newOrder.id; });
     if (oIdx !== -1) orders[oIdx].customer_record_id = newCR.id;
     saveOrders(orders);
     showToast('\u2728 New customer \u201c' + businessName + '\u201d added to Customer Records!', 'info');
@@ -6457,29 +6901,35 @@ function omConfirmNewOrder() {
   });
   saveProductionRecords(prods);
 
-  // ── Auto-create Dispatch record (Scheduled status) ──
+  // ── Auto-create Dispatch record (Scheduled status) — only if none exists yet ──
+  // FIX 4: Guard against duplicate dispatch records (order creation vs manual schedule)
   var dispatches = getDispatchRecords();
-  dispatches.push({
-    id: omGenId('disp'),
-    orderId: newOrder.id,
-    orderNumber: newOrder.id,
-    customerId: newOrder.customer_record_id || customerRecordId,
-    businessName: businessName,
-    date: new Date().toISOString(),
-    customerNotified: false,
-    paymentStatus: newOrder.payment_status || 'Pending',
-    dispatchMethod: gv('om-mod') || 'Pickup',
-    dispatchStatus: 'Scheduled',
-    notes: '',
-    createdAt: new Date().toISOString()
-  });
-  saveDispatchRecords(dispatches);
+  var alreadyHasDispatch = dispatches.some(function (d) { return String(d.orderId) === String(newOrder.id); });
+  if (!alreadyHasDispatch) {
+    dispatches.push({
+      id: omGenId('disp'),
+      orderId: newOrder.id,
+      orderNumber: newOrder.id,
+      customerId: newOrder.customer_record_id || customerRecordId,
+      businessName: businessName,
+      date: new Date().toISOString(),
+      customerNotified: false,
+      paymentStatus: newOrder.payment_status || 'Pending',
+      dispatchMethod: gv('om-mod') || 'Pickup',
+      dispatchStatus: 'Scheduled',
+      notes: '',
+      createdAt: new Date().toISOString()
+    });
+    saveDispatchRecords(dispatches);
+  }
 
   // Push to POS receipt history if created as fully paid and completed
   omPushToReceiptHistory(newOrder.id);
 
   closeModal();
-  showToast('Order #' + String(newOrder.id).padStart(6,'0') + ' created!', 'success');
+  // ── Clear draft on successful order creation ──
+  try { sessionStorage.removeItem('om_new_order_draft'); } catch(e) {}
+  showToast('Order #' + String(newOrder.id).padStart(6, '0') + ' created!', 'success');
   _omTab = 'orders';
   renderOrders();
 }
@@ -6528,10 +6978,15 @@ function omViewOrderModal(orderId) {
     + '</div></div>'
     + extraHtml
     + '</div>'
-    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-maroon" onclick="closeModal();omEditOrderModal(\'' + o.id + '\')">Edit Order</button></div>');
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Close</button>'
+    + (!(getState().currentUser && getState().currentUser.role === 'print')
+      ? '<button class="btn btn-maroon" onclick="closeModal();omEditOrderModal(\'' + o.id + '\')">Edit Order</button>'
+      : '')
+    + '</div>');
 }
 
 function omEditOrderModal(orderId) {
+  var _u = getState().currentUser; if (!_u || _u.role !== 'admin') { showToast('Admin access required.', 'error'); return; }
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) { showToast('Order not found.', 'error'); return; }
@@ -6554,8 +7009,6 @@ function omEditOrderModal(orderId) {
     + '<div class="form-row-2"><div class="form-group"><label>Pay Mode</label><div class="form-select-wrap"><select id="ome-mop" class="form-control">'
     + '<option value="Cash" ' + (o.payment_mode === 'Cash' ? 'selected' : '') + '>Cash</option>'
     + '<option value="GCash" ' + (o.payment_mode === 'GCash' ? 'selected' : '') + '>GCash</option>'
-    + '<option value="Cash+GCash" ' + (o.payment_mode === 'Cash+GCash' ? 'selected' : '') + '>Cash + GCash</option>'
-    + '<option value="Bank Transfer" ' + (o.payment_mode === 'Bank Transfer' ? 'selected' : '') + '>Bank Transfer</option>'
     + '</select></div></div>'
     + '<div class="form-group"><label>Pay Status</label><div class="form-select-wrap"><select id="ome-pay-status" class="form-control">'
     + '<option value="Pending" ' + (o.payment_status === 'Pending' ? 'selected' : '') + '>Pending</option>'
@@ -6630,19 +7083,37 @@ function omMoveToDispatch(orderId) {
 
 // CUSTOMER RECORD MODALS
 function omNewCustomerModal() {
-  showModal('<div class="modal-header"><h2>' + iconSvg('users') + ' New Customer Record (Print Client)</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
-    + '<div class="modal-body">'
-    + '<div class="form-row-2"><div class="form-group"><label>Name <span style="color:var(--danger)">*</span></label><input id="omcr-business" class="form-control" placeholder="e.g. Juan dela Cruz or ABC Corp"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="omcr-contact" class="form-control" placeholder="Person to contact"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="omcr-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
-    + '<div class="form-group"><label>Email</label><input id="omcr-email" class="form-control"></div></div>'
-    + '<div class="form-group"><label>Address</label><input id="omcr-address" class="form-control"></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omcr-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
-    + '<div class="form-group"><label>Mode of Delivery</label><input id="omcr-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div></div>'
-    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omcr-staff" class="form-control"></div>'
-    + '<div class="form-group"><label>Notes</label><textarea id="omcr-notes" class="form-control" rows="2"></textarea></div>'
+  showModal(
+    '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
+    + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
+    + '<div style="background:linear-gradient(135deg,var(--maroon) 0%,#a02040 100%);padding:20px 24px;margin:-8px 0 0">'
+    + '<div style="display:flex;align-items:center;gap:14px">'
+    + '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.3)">+</div>'
+    + '<div><div style="font-size:16px;font-weight:700;color:#fff">New OM Client</div>'
+    + '<div style="font-size:12px;color:rgba(255,255,255,0.7)">\uD83D\uDCCB Order Management Customer</div></div>'
+    + '</div></div>'
+    + '<div class="modal-body" style="padding:20px 24px">'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Business / Client Name <span style="color:var(--danger)">*</span></label><input id="omcr-business" class="form-control" placeholder="e.g. Juan dela Cruz or ABC Corp"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="omcr-contact" class="form-control" placeholder="Person to contact"></div>'
     + '</div>'
-    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveCustomerRecord()">Save Customer</button></div>');
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Phone</label><input id="omcr-phone" class="form-control" placeholder="0917-xxx-xxxx"></div>'
+    + '<div class="form-group"><label>Email</label><input id="omcr-email" class="form-control" placeholder="email@example.com"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Address</label><input id="omcr-address" class="form-control" placeholder="Street, City"></div>'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omcr-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option><option value="Bank Transfer">Bank Transfer</option></select></div></div>'
+    + '<div class="form-group"><label>Mode of Delivery</label><input id="omcr-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omcr-staff" class="form-control" placeholder="Name of assigned staff"></div>'
+    + '<div class="form-group"><label>Notes</label><textarea id="omcr-notes" class="form-control" rows="2" placeholder="Any additional info..."></textarea></div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn btn-maroon" onclick="omSaveCustomerRecord()">Save Customer</button>'
+    + '</div>'
+  );
 }
 
 function omSaveCustomerRecord() {
@@ -6670,32 +7141,52 @@ function omSaveCustomerRecord() {
     branchId: (u && u.role !== 'admin') ? (u.branchId || null) : null,
     createdAt: newCR.createdAt,
   });
-  closeModal(); showToast('Customer record saved!', 'success'); _omTab = 'customers'; renderOrders();
+  closeModal(); showToast('Customer record saved!', 'success');
+  if (currentPage === 'customer-records') { renderCustomerRecordsManagement(); } else { _omTab = 'orders'; renderOrders(); }
 }
 
 function omEditCustomerModal(customerId) {
   var crs = getCustomerRecords();
-  var c = crs.find(function (x) { return x.id === customerId; });
+  var c = crs.find(function(x){ return x.id === customerId; });
   if (!c) return;
-  showModal('<div class="modal-header"><h2>Edit Customer: ' + c.businessName + '</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
-    + '<div class="modal-body">'
-    + '<div class="form-row-2"><div class="form-group"><label>Business Name</label><input id="omce-business" class="form-control" value="' + (c.businessName || '') + '"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="omce-contact" class="form-control" value="' + (c.contactPerson || '') + '"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="omce-phone" class="form-control" value="' + (c.phone || '') + '"></div>'
-    + '<div class="form-group"><label>Email</label><input id="omce-email" class="form-control" value="' + (c.email || '') + '"></div></div>'
-    + '<div class="form-group"><label>Address</label><input id="omce-address" class="form-control" value="' + (c.address || '') + '"></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omce-mop" class="form-control">'
-    + '<option value="Cash" ' + (c.modeOfPayment === 'Cash' ? 'selected' : '') + '>Cash</option>'
-    + '<option value="GCash" ' + (c.modeOfPayment === 'GCash' ? 'selected' : '') + '>GCash</option>'
-    + '<option value="Cash+GCash" ' + (c.modeOfPayment === 'Cash+GCash' ? 'selected' : '') + '>Cash + GCash</option>'
-    + '<option value="Bank Transfer" ' + (c.modeOfPayment === 'Bank Transfer' ? 'selected' : '') + '>Bank Transfer</option>'
-    + '</select></div></div>'
-    + '<div class="form-group"><label>Mode of Delivery</label><input id="omce-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)">'
-    + '</select></div></div></div>'
-    + '<div class="form-group"><label>Branch Staff</label><input id="omce-staff" class="form-control" value="' + (c.branchStaff || '') + '"></div>'
-    + '<div class="form-group"><label>Notes</label><textarea id="omce-notes" class="form-control" rows="2">' + (c.notes || '') + '</textarea></div>'
+  var displayName = c.businessName || c.contactPerson || 'Unknown';
+  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
+  showModal(
+    '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
+    + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
+    + '<div style="background:linear-gradient(135deg,var(--maroon) 0%,#a02040 100%);padding:20px 24px;margin:-8px 0 0">'
+    + '<div style="display:flex;align-items:center;gap:14px">'
+    + '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.3)">' + initials + '</div>'
+    + '<div><div style="font-size:16px;font-weight:700;color:#fff">' + omEsc(displayName) + '</div>'
+    + '<div style="font-size:12px;color:rgba(255,255,255,0.7)">\uD83D\uDCCB Edit OM Client</div></div>'
+    + '</div></div>'
+    + '<div class="modal-body" style="padding:20px 24px">'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Business / Client Name <span style="color:var(--danger)">*</span></label><input id="omce-business" class="form-control" value="' + omEsc(c.businessName||'') + '"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="omce-contact" class="form-control" value="' + omEsc(c.contactPerson||'') + '"></div>'
     + '</div>'
-    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmEditCustomer(\'' + customerId + '\')">Save</button></div>');
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Phone</label><input id="omce-phone" class="form-control" value="' + omEsc(c.phone||'') + '"></div>'
+    + '<div class="form-group"><label>Email</label><input id="omce-email" class="form-control" value="' + omEsc(c.email||'') + '"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Address</label><input id="omce-address" class="form-control" value="' + omEsc(c.address||'') + '"></div>'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omce-mop" class="form-control">'
+    + '<option value="Cash"' + (c.modeOfPayment==='Cash'?' selected':'') + '>Cash</option>'
+    + '<option value="GCash"' + (c.modeOfPayment==='GCash'?' selected':'') + '>GCash</option>'
+    + '<option value="Cash+GCash"' + (c.modeOfPayment==='Cash+GCash'?' selected':'') + '>Cash + GCash</option>'
+    + '<option value="Bank Transfer"' + (c.modeOfPayment==='Bank Transfer'?' selected':'') + '>Bank Transfer</option>'
+    + '</select></div></div>'
+    + '<div class="form-group"><label>Mode of Delivery</label><input id="omce-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omce-staff" class="form-control" value="' + omEsc(c.branchStaff||'') + '"></div>'
+    + '<div class="form-group"><label>Notes</label><textarea id="omce-notes" class="form-control" rows="2">' + omEsc(c.notes||'') + '</textarea></div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn btn-maroon" onclick="omConfirmEditCustomer(\'' + customerId + '\')">Save Changes</button>'
+    + '</div>'
+  );
 }
 
 function omConfirmEditCustomer(customerId) {
@@ -6707,14 +7198,22 @@ function omConfirmEditCustomer(customerId) {
   c.email = gv('omce-email'); c.address = gv('omce-address'); c.modeOfPayment = gv('omce-mop');
   c.modeOfDelivery = gv('omce-mod'); c.branchStaff = gv('omce-staff'); c.notes = gv('omce-notes');
   c.updatedAt = new Date().toISOString();
-  saveCustomerRecords(crs); closeModal(); showToast('Customer updated!', 'success'); renderOrders();
+  saveCustomerRecords(crs); closeModal(); showToast('Customer updated!', 'success');
+  if (currentPage === 'customer-records') { renderCustomerRecordsManagement(); } else { renderOrders(); }
 }
 
 function omDeleteCustomer(customerId) {
-  if (!confirm('Delete this customer record? Their orders will be unaffected.')) return;
-  saveCustomerRecords(getCustomerRecords().filter(function (c) { return c.id !== customerId; }));
-  DB.deleteOMCustomer(customerId);
-  showToast('Customer deleted.', 'warning'); renderOrders();
+  confirmModal({
+    title: 'Delete Customer Record',
+    message: 'Are you sure you want to delete this customer record? Their existing orders will remain unaffected.',
+    confirmText: 'Delete Customer',
+    icon: '👤',
+    onConfirm: function () {
+      saveCustomerRecords(getCustomerRecords().filter(function (c) { return c.id !== customerId; }));
+      DB.deleteOMCustomer(customerId);
+      showToast('Customer deleted.', 'warning'); renderOrders();
+    }
+  });
 }
 
 // PAYMENT MODALS
@@ -6769,12 +7268,16 @@ function omSavePayment() {
   o.downpayment = (o.downpayment || 0) + amount;
   o.balance = Math.max(0, (o.total_amount || 0) - o.downpayment);
   o.payment_mode = gv('ompay-mop');
-  o.payment_status = gv('ompay-status');
+  // FIX 1: Auto-derive payment_status from actual balance instead of trusting the dropdown
+  // (prevents staff from manually setting "Fully Paid" when balance still exists)
+  o.payment_status = o.balance === 0 ? 'Fully Paid' : (o.downpayment > 0 ? 'Partial' : 'Pending');
   saveOrders(orders);
 
   var payments = getPaymentRecords();
   payments.push({ id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: gv('ompay-note') });
   savePaymentRecords(payments);
+  // Also try pushing to receipt history if order is now fully paid and completed
+  omPushToReceiptHistory(o.id);
   closeModal(); showToast('Payment recorded!', 'success'); _omTab = 'payment'; renderOrders();
 }
 
@@ -6792,7 +7295,7 @@ function omUpdatePaymentModal(paymentId) {
     + '<div class="shift-summary-item"><div class="shift-summary-label">Balance Due</div><div class="shift-summary-value negative">\u20B1' + omFmt(o.balance || 0) + '</div></div>'
     + '</div>'
     + '<div class="form-row-2"><div class="form-group"><label>Payment Amount</label><input id="omupdpay-amount" type="number" class="form-control" value="' + (o.balance || 0) + '" min="0"></div>'
-    + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omupdpay-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option><option value="Cash+GCash">Cash + GCash</option></select></div></div></div>'
+    + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omupdpay-mop" class="form-control"><option value="Cash">Cash</option><option value="GCash">GCash</option></select></div></div></div>'
     + '<div class="form-group"><label>Note</label><input id="omupdpay-note" class="form-control" placeholder="Optional note"></div>'
     + '</div>'
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmUpdatePayment(\'' + p.orderId + '\',\'' + paymentId + '\')">Record Payment</button></div>');
@@ -6935,13 +7438,13 @@ function omQCModal(prodId) {
 // Push completed+paid OM order into POS Receipt History
 function omPushToReceiptHistory(orderId) {
   var orders = getOrders();
-  var o = orders.find(function(x) { return String(x.id) === String(orderId); });
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
   if (o.status !== 'completed') return;
   if (o.payment_status !== 'Fully Paid') return;
   var s = getState();
   var saleKey = 'om_order_' + o.id;
-  if ((s.sales || []).some(function(x) { return x.id === saleKey; })) return;
+  if ((s.sales || []).some(function (x) { return x.id === saleKey; })) return;
   var receiptNo = 'OM-' + String(o.id).padStart(6, '0');
   var sale = {
     id: saleKey,
@@ -6982,7 +7485,7 @@ function omPushToReceiptHistory(orderId) {
 
 function omDeductOrderStock(orderId) {
   var orders = getOrders();
-  var o = orders.find(function(x) { return String(x.id) === String(orderId); });
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o || o.stock_deducted || !o.linked_variant_id || !o.linked_branch_id) return;
   var s = getState();
   var found = findProductAndVariantByVariantId(s, o.linked_variant_id);
@@ -7003,6 +7506,7 @@ function omDeductOrderStock(orderId) {
 }
 
 function omSaveQC(prodId, result) {
+  var _u = getState().currentUser; if (!_u || !['admin','print'].includes(_u.role)) { showToast('Access denied.', 'error'); return; }
   var prods = getProductionRecords();
   var p = prods.find(function (x) { return x.id === prodId; });
   if (!p) return;
@@ -7011,6 +7515,14 @@ function omSaveQC(prodId, result) {
   p.qcDate = new Date().toISOString();
   if (result === 'Pass') {
     p.status = 'completed';
+    // FIX 3: Advance the parent order from 'production' → 'dispatch' on QC pass
+    var qcOrders = getOrders();
+    var qcOrder = qcOrders.find(function (x) { return String(x.id) === String(p.orderId); });
+    if (qcOrder && qcOrder.status === 'production') {
+      qcOrder.status = 'dispatch';
+      saveOrders(qcOrders);
+      DB.updateOrder(qcOrder.id, { status: 'dispatch' });
+    }
     // Auto-deduct branch stock on QC pass
     omDeductOrderStock(p.orderId);
     // Push to receipt history if fully paid
@@ -7051,6 +7563,7 @@ function omAutofillDispatch(orderId) {
 }
 
 function omSaveDispatch() {
+  var _u = getState().currentUser; if (!_u || _u.role !== 'admin') { showToast('Admin access required.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var orderId = gv('omdisp-order');
   if (!orderId) { showToast('Select an order.', 'error'); return; }
@@ -7065,7 +7578,18 @@ function omSaveDispatch() {
   } else if (dispStatus === 'Dispatched') { o.status = 'dispatch'; saveOrders(orders); }
 
   var dispatches = getDispatchRecords();
-  dispatches.push({ id: omGenId('disp'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, date: new Date().toISOString(), customerNotified: !!(document.getElementById('omdisp-notified-yes') || {}).checked, paymentStatus: o.payment_status || 'Pending', dispatchMethod: gv('omdisp-method'), dispatchStatus: dispStatus, notes: gv('omdisp-notes'), createdAt: new Date().toISOString() });
+  // FIX 4: Update the existing 'Scheduled' dispatch record instead of pushing a duplicate
+  var existingDisp = dispatches.find(function (d) { return String(d.orderId) === String(o.id) && d.dispatchStatus === 'Scheduled'; });
+  if (existingDisp) {
+    existingDisp.dispatchStatus = dispStatus;
+    existingDisp.dispatchMethod = gv('omdisp-method');
+    existingDisp.customerNotified = !!(document.getElementById('omdisp-notified-yes') || {}).checked;
+    existingDisp.paymentStatus = o.payment_status || 'Pending';
+    existingDisp.notes = gv('omdisp-notes');
+    existingDisp.updatedAt = new Date().toISOString();
+  } else {
+    dispatches.push({ id: omGenId('disp'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, date: new Date().toISOString(), customerNotified: !!(document.getElementById('omdisp-notified-yes') || {}).checked, paymentStatus: o.payment_status || 'Pending', dispatchMethod: gv('omdisp-method'), dispatchStatus: dispStatus, notes: gv('omdisp-notes'), createdAt: new Date().toISOString() });
+  }
   saveDispatchRecords(dispatches);
   closeModal(); showToast('Dispatch scheduled!', 'success'); _omTab = 'dispatch'; renderOrders();
 }
@@ -7213,7 +7737,7 @@ function branchTransferModal() {
   const firstBranchId = s.branches[0]?.id || '';
   const allVariantsForTransfer = s.products.flatMap(p => (p.variants || []).map(v => ({ pid: p.id, pname: p.name, v })));
   function trVariantOptions(fromBranchId) {
-    return allVariantsForTransfer.map(({pname, v}) => {
+    return allVariantsForTransfer.map(({ pname, v }) => {
       const bStock = (v.branchStocks || {})[fromBranchId] || 0;
       return `<option value="${v.id}">${pname} — ${v.name} (Branch Stock: ${bStock})</option>`;
     }).join('');
@@ -7291,6 +7815,18 @@ function renderUsers() {
     </div></div>`;
 }
 
+function nuUpdatePositions() {
+  const role = document.getElementById('nu-role')?.value;
+  const posSel = document.getElementById('nu-position');
+  if (!posSel) return;
+  const options = {
+    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
+    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+  };
+  const list = options[role] || options.staff;
+  posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
 function addStaffAccountModal() {
   if (!ensureAdminUserManagementAccess()) return;
   const s = getState();
@@ -7320,12 +7856,21 @@ function addStaffAccountModal() {
       <div class="form-row-2">
         <div class="form-group">
           <label>Role <span style="color:var(--danger)">*</span></label>
-          <div class="form-select-wrap"><select id="nu-role" class="form-control"><option value="staff">Branch Staff</option><option value="print">Printing Personnel</option></select></div>
+          <div class="form-select-wrap"><select id="nu-role" class="form-control" onchange="nuUpdatePositions()"><option value="staff">Branch Staff</option><option value="print">Printing Personnel</option></select></div>
         </div>
         <div class="form-group">
-          <label>Branch <span style="color:var(--danger)">*</span></label>
-          <div class="form-select-wrap"><select id="nu-branch" class="form-control">${s.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}</select></div>
+          <label>Position <span style="color:var(--danger)">*</span></label>
+          <div class="form-select-wrap"><select id="nu-position" class="form-control">
+            <option value="Sales Associate">Sales Associate</option>
+            <option value="Cashier">Cashier</option>
+            <option value="Stock Clerk">Stock Clerk</option>
+            <option value="Branch Supervisor">Branch Supervisor</option>
+          </select></div>
         </div>
+      </div>
+      <div class="form-group">
+        <label>Branch <span style="color:var(--danger)">*</span></label>
+        <div class="form-select-wrap"><select id="nu-branch" class="form-control">${s.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}</select></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -7342,6 +7887,7 @@ function confirmAddStaffAccount() {
   const password = document.getElementById('nu-pass').value;
   const confirmPassword = document.getElementById('nu-pass-confirm').value;
   const role = document.getElementById('nu-role').value;
+  const position = document.getElementById('nu-position')?.value || '';
   const branchId = document.getElementById('nu-branch')?.value;
   if (!name || !username || !password || !confirmPassword || !role || !branchId) { showToast('All fields required', 'error'); return; }
   if (password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
@@ -7354,6 +7900,7 @@ function confirmAddStaffAccount() {
     username,
     password,
     role,
+    position,
     branchId,
   };
   s.users.push(newUser);
@@ -7376,6 +7923,12 @@ function editUserModal(uid) {
   const s = getState();
   const u = s.users.find(x => x.id === uid);
   if (!u || u.role === 'admin') return;
+  const positionsByRole = {
+    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
+    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+  };
+  const posOpts = (positionsByRole[u.role] || positionsByRole.staff).map(p =>
+    `<option value="${p}" ${u.position === p ? 'selected' : ''}>${p}</option>`).join('');
   showModal(`<div class="modal-header"><h2>Edit Staff Account</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div style="background:var(--cream);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;">
@@ -7392,6 +7945,22 @@ function editUserModal(uid) {
           <div class="form-select-wrap"><select id="eu-branch" class="form-control">${s.branches.map(b => `<option value="${b.id}" ${b.id === u.branchId ? 'selected' : ''}>${b.name}</option>`).join('')}</select></div>
         </div>
       </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Position</label>
+          <div class="form-select-wrap"><select id="eu-position" class="form-control">
+            <option value="">— Not set —</option>
+            ${posOpts}
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <div class="form-select-wrap"><select id="eu-role" class="form-control">
+            <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Branch Staff</option>
+            <option value="print" ${u.role === 'print' ? 'selected' : ''}>Printing Personnel</option>
+          </select></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
@@ -7406,6 +7975,8 @@ function confirmEditUser(uid) {
   if (!u || u.role === 'admin') return;
   u.name = document.getElementById('eu-name').value.trim();
   u.branchId = document.getElementById('eu-branch').value;
+  u.position = document.getElementById('eu-position')?.value || u.position || '';
+  u.role = document.getElementById('eu-role')?.value || u.role;
   recordAudit(s, {
     action: 'update_user',
     message: `Staff account updated: ${u.username}`,
@@ -7414,7 +7985,7 @@ function confirmEditUser(uid) {
     details: { updatedUserId: u.id },
   });
   saveState(s);
-  DB.updateUser(uid, { name: u.name, branchId: u.branchId });
+  DB.updateUser(uid, { name: u.name, branchId: u.branchId, position: u.position, role: u.role });
   closeModal();
   showToast('User updated!', 'success');
   renderUsers();
@@ -7425,7 +7996,21 @@ function deleteUser(uid) {
   const s = getState();
   const userToDelete = s.users.find(u => u.id === uid);
   if (!userToDelete || userToDelete.role === 'admin') return;
-  if (!confirm('Delete this user?')) return;
+  const userLabel = userToDelete.name || userToDelete.username || 'this user';
+  confirmModal({
+    title: 'Delete User Account',
+    message: `Are you sure you want to delete <strong>${userLabel}</strong>'s account? This action cannot be undone.`,
+    confirmText: 'Delete User',
+    icon: '👤',
+    onConfirm: function () { _deleteUserConfirmed(uid); }
+  });
+  return;
+}
+function _deleteUserConfirmed(uid) {
+  if (!ensureAdminUserManagementAccess()) return;
+  const s = getState();
+  const userToDelete = s.users.find(u => u.id === uid);
+  if (!userToDelete || userToDelete.role === 'admin') return;
   s.users = s.users.filter(u => u.id !== uid);
   recordAudit(s, {
     action: 'delete_user',
@@ -7755,6 +8340,41 @@ function closeModal() {
   modalContainer.innerHTML = '';
 }
 
+/**
+ * confirmModal(options)
+ * Shows a styled confirmation dialog instead of the browser's native confirm().
+ * options = {
+ *   title: string,
+ *   message: string,
+ *   confirmText: string (default 'Confirm'),
+ *   cancelText: string (default 'Cancel'),
+ *   danger: bool (default true) — uses btn-danger for confirm button,
+ *   icon: string (emoji or SVG key),
+ *   onConfirm: function,
+ *   onCancel: function (optional)
+ * }
+ */
+function confirmModal({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = true, icon = '⚠️', onConfirm, onCancel } = {}) {
+  const btnClass = danger ? 'btn btn-danger' : 'btn btn-maroon';
+  const iconHtml = icon ? `<div style="font-size:48px;text-align:center;margin-bottom:16px;line-height:1;">${icon}</div>` : '';
+  showModal(`
+    <div class="modal-header" style="border-bottom:none;padding-bottom:0;">
+      <h2 style="font-size:18px;">${title}</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="text-align:center;padding-top:8px;padding-bottom:8px;">
+      ${iconHtml}
+      <p style="color:var(--ink-60);font-size:14px;line-height:1.6;max-width:340px;margin:0 auto;">${message}</p>
+    </div>
+    <div class="modal-footer" style="justify-content:center;gap:12px;">
+      <button class="btn btn-outline" style="min-width:100px;" onclick="${onCancel ? '_confirmModalCancel()' : 'closeModal()'}">${cancelText}</button>
+      <button class="${btnClass}" style="min-width:120px;" onclick="_confirmModalConfirm()">${confirmText}</button>
+    </div>
+  `);
+  window._confirmModalConfirm = function () { closeModal(); if (typeof onConfirm === 'function') onConfirm(); };
+  window._confirmModalCancel = function () { closeModal(); if (typeof onCancel === 'function') onCancel(); };
+}
+
 function showToast(msg, type = 'success') {
   const c = document.getElementById('toast-container');
   const t = document.createElement('div');
@@ -7859,7 +8479,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (restoredUser) {
     // Ensure role is always valid
-    if (!restoredUser.role || !['admin','staff','print'].includes(restoredUser.role)) {
+    if (!restoredUser.role || !['admin', 'staff', 'print'].includes(restoredUser.role)) {
       restoredUser.role = restoredUser.username === 'admin' ? 'admin' : 'staff';
     }
     // Re-stamp into state and re-save pos_currentUser so it survives future reloads
@@ -7982,13 +8602,21 @@ function addHolidayEntry() {
 }
 
 function removeHoliday(idx) {
-  const s = getState();
-  const cfg = getSystemConfig();
-  cfg.holidays.splice(idx, 1);
-  s.systemConfig = cfg;
-  saveState(s);
-  DB.saveSystemConfig(cfg);
-  showSystemConfigModal();
+  confirmModal({
+    title: 'Remove Holiday',
+    message: 'Are you sure you want to remove this holiday entry?',
+    confirmText: 'Remove Holiday',
+    icon: '🗓️',
+    onConfirm: function () {
+      const s = getState();
+      const cfg = getSystemConfig();
+      cfg.holidays.splice(idx, 1);
+      s.systemConfig = cfg;
+      saveState(s);
+      DB.saveSystemConfig(cfg);
+      showSystemConfigModal();
+    }
+  });
 }
 
 function saveSystemConfig() {
@@ -8465,6 +9093,9 @@ function confirmDelivered(orderId) {
   saveState(s);
   saveOrders(orders);
   DB.updateOrder(orderId, { status: 'completed', delivery_date: o.delivery_date, received_by: o.received_by });
+  // FIX 2: Deduct stock and push to receipt history on delivery (was missing here)
+  omDeductOrderStock(orderId);
+  omPushToReceiptHistory(orderId);
   closeModal();
   showToast('Order marked as delivered!', 'success');
   renderReadyForPickup();
@@ -8912,16 +9543,16 @@ function _renderPrintInventoryPage() {
             <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">
               ${_printInvFilter.search || _printInvFilter.status !== 'all' ? 'No variants match your search.' : 'No printing materials yet. Add materials in Product Management \u2192 Printing Products.'}
             </td></tr>` :
-    filtered.map(({ p, v, reorderLevel }) => {
-      const maxStock = v.maxStock ?? (reorderLevel * 3);
-      const stockColor = v.stock === 0 ? 'var(--danger)' : v.stock <= reorderLevel ? 'var(--warning)' : 'var(--success)';
-      const lastCount = v.lastCountDate
-        ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
-        : '<span class=\\"text-muted\\">\u2014</span>';
-      const colorCell = v.color
-        ? `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:${v.colorHex || '#888'};border:1px solid var(--ink-20);flex-shrink:0"></span>${v.color}</span>`
-        : '<span class=\\"text-muted\\">\u2014</span>';
-      return `<tr>
+      filtered.map(({ p, v, reorderLevel }) => {
+        const maxStock = v.maxStock ?? (reorderLevel * 3);
+        const stockColor = v.stock === 0 ? 'var(--danger)' : v.stock <= reorderLevel ? 'var(--warning)' : 'var(--success)';
+        const lastCount = v.lastCountDate
+          ? new Date(v.lastCountDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+          : '<span class=\\"text-muted\\">\u2014</span>';
+        const colorCell = v.color
+          ? `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:${v.colorHex || '#888'};border:1px solid var(--ink-20);flex-shrink:0"></span>${v.color}</span>`
+          : '<span class=\\"text-muted\\">\u2014</span>';
+        return `<tr>
               <td><strong>${p.materialType || p.name}</strong><div style="font-size:11px;color:var(--ink-50)">${p.name}</div></td>
               <td>${v.size || v.name}</td>
               <td>${colorCell}</td>
@@ -8931,7 +9562,7 @@ function _renderPrintInventoryPage() {
               <td class="td-mono" style="font-size:12px">${lastCount}</td>
               <td>${isAdmin ? '<button class="btn btn-sm btn-outline" onclick="adjustPrintStockModal(\'' + p.id + '\',\'' + v.id + '\')">' + 'Adjust</button>' : '<span class="badge badge-neutral">View Only</span>'}</td>
             </tr>`;
-    }).join('')}
+      }).join('')}
           </tbody>
         </table>
       </div>
@@ -8947,7 +9578,7 @@ function adjustPrintStockModal(pid, vid) {
   const maxStock = v.maxStock ?? ((v.reorderLevel ?? 20) * 3);
   showModal(`<div class="modal-header"><h2>Adjust Stock — ${p.materialType || p.name} · ${v.size || v.name}${v.color ? ' · ' + v.color : ''}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div class="alert alert-info">Current stock: <strong>${v.stock} units</strong>${v.lastCountDate ? ' · Last count: ' + new Date(v.lastCountDate).toLocaleDateString('en-PH', {year:'numeric',month:'short',day:'numeric'}) : ''}</div>
+      <div class="alert alert-info">Current stock: <strong>${v.stock} units</strong>${v.lastCountDate ? ' · Last count: ' + new Date(v.lastCountDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}</div>
       <div class="form-group"><label>Adjustment Type</label><div class="form-select-wrap"><select id="padj-type" class="form-control"><option value="add">Add Stock (+)</option><option value="remove">Remove Stock (−)</option><option value="set">Set Exact Value</option></select></div></div>
       <div class="form-group"><label>Quantity</label><input type="number" id="padj-qty" class="form-control" placeholder="0" min="0"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -9376,138 +10007,281 @@ function confirmOverrideDiscount() {
 }
 
 // BRANCH STAFF — REPORTING (Weekly/Monthly/Performance)
-function renderStaffReports() {
+function buildStaffReportPreview(types) {
   const s = getState();
   const u = s.currentUser;
-  // Print personnel should use their own production reports page
-  if (u && u.role === 'print') { navigateTo('print-reports'); return; }
   const now = new Date();
   const todayStr = now.toDateString();
   const weekStart = getMonday(now);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const mySales = u.role === 'admin' ? s.sales : s.sales.filter(x => x.userId === u.id);
-  const dailySales = mySales.filter(x => !x.voided && new Date(x.createdAt).toDateString() === todayStr);
-  const weeklySales = mySales.filter(x => !x.voided && new Date(x.createdAt) >= weekStart);
-  const monthlySales = mySales.filter(x => !x.voided && new Date(x.createdAt) >= monthStart);
-
-  const dailyRev = dailySales.reduce((a, b) => a + b.total, 0);
-  const weeklyRev = weeklySales.reduce((a, b) => a + b.total, 0);
-  const monthlyRev = monthlySales.reduce((a, b) => a + b.total, 0);
-
+  const mySales = u.role === 'admin' ? s.sales : (s.sales || []).filter(x => x.userId === u.id);
   const orders = getOrders();
-  const myOrders = u.role === 'admin' ? orders : orders.filter(o => o.branch_staff?.toLowerCase().includes(u.name?.toLowerCase()));
-  const balanceDue = myOrders.filter(o => (o.balance || 0) > 0 && o.status !== 'cancelled').reduce((a, b) => a + (b.balance || 0), 0);
-  const discountTotal = mySales.filter(x => !x.voided && x.discountAmount > 0).reduce((a, b) => a + b.discountAmount, 0);
+  const genDate = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  let html = '';
+
+  types.forEach(type => {
+    if (type === 'Sales Report') {
+      const daily = mySales.filter(x => !x.voided && new Date(x.createdAt).toDateString() === todayStr);
+      const weekly = mySales.filter(x => !x.voided && new Date(x.createdAt) >= weekStart);
+      const monthly = mySales.filter(x => !x.voided && new Date(x.createdAt) >= monthStart);
+      const rev = arr => arr.reduce((a, b) => a + (b.total || 0), 0);
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Sales Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--maroon)">₱${fmt(rev(daily))}</div>
+              <div style="font-size:11px;color:var(--ink-60)">Today (${daily.length} txns)</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--maroon)">₱${fmt(rev(weekly))}</div>
+              <div style="font-size:11px;color:var(--ink-60)">This Week (${weekly.length} txns)</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--maroon)">₱${fmt(rev(monthly))}</div>
+              <div style="font-size:11px;color:var(--ink-60)">This Month (${monthly.length} txns)</div>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Receipt #</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Time</th></tr></thead>
+            <tbody>${daily.length ? [...daily].reverse().map(sale => {
+        const payLabel = (sale.payments || []).map(p => `${p.method === 'cash' ? 'Cash' : 'GCash'}: ₱${fmt(p.amount)}`).join(' + ');
+        return `<tr>
+                <td class="td-mono">${sale.id.slice(-6).toUpperCase()}</td>
+                <td>${sale.customerId ? (s.customers.find(c => c.id === sale.customerId)?.companyName || '—') : 'Walk-in'}</td>
+                <td>${(sale.items || []).length}</td>
+                <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(sale.total)}</td>
+                <td class="text-xs">${payLabel}</td>
+                <td class="td-mono">${fmtTime(sale.createdAt)}</td>
+              </tr>`;
+      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No transactions today.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    }
+
+    if (type === 'Inventory Report') {
+      const products = (s.products || []).filter(p => p.active);
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Inventory Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Product</th><th>Variant</th><th>SKU</th><th>Stock</th><th>Reorder Level</th><th>Status</th></tr></thead>
+            <tbody>${products.flatMap(p => (p.variants || []).map(v => {
+        const low = v.stock <= (v.reorderLevel ?? 20);
+        const out = v.stock <= 0;
+        const badge = out ? '<span class="badge badge-danger">Out of Stock</span>' : low ? '<span class="badge badge-warning">Low Stock</span>' : '<span class="badge badge-success">OK</span>';
+        return `<tr>
+                <td>${p.name}</td><td>${v.name}</td><td class="td-mono">${v.sku || '—'}</td>
+                <td class="td-mono" style="${out ? 'color:var(--danger);font-weight:700' : low ? 'color:var(--warning);font-weight:700' : ''}">${v.stock}</td>
+                <td class="td-mono">${v.reorderLevel ?? 20}</td><td>${badge}</td>
+              </tr>`;
+      })).join('') || '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No products found.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    }
+
+    if (type === 'Orders Report') {
+      const myOrders = u.role === 'admin' ? orders : orders.filter(o => o.branch_staff?.toLowerCase().includes(u.name?.toLowerCase()));
+      const statuses = ['pending', 'production', 'dispatch', 'completed'];
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Orders Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+            ${statuses.map(st => `<div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--maroon)">${myOrders.filter(o => o.status === st).length}</div>
+              <div style="font-size:11px;color:var(--ink-60)">${st.charAt(0).toUpperCase() + st.slice(1)}</div>
+            </div>`).join('')}
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Status</th><th>Total</th><th>Balance</th></tr></thead>
+            <tbody>${myOrders.length ? [...myOrders].reverse().map(o => `<tr>
+              <td class="td-mono">#${String(o.id).padStart(6, '0')}</td>
+              <td>${o.customer_name || '—'}</td>
+              <td>${o.product_type || '—'}</td>
+              <td>${omStatusBadge(o.status)}</td>
+              <td class="td-mono">₱${fmt(o.total_amount)}</td>
+              <td class="td-mono" style="${(o.balance || 0) > 0 ? 'color:var(--danger)' : 'color:var(--success)'}">₱${fmt(o.balance || 0)}</td>
+            </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No orders found.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    }
+
+    if (type === 'Payroll Report') {
+      const staffUsers = (s.users || []).filter(x => ['staff', 'print'].includes(x.role) && (!u.branchId || x.branchId === u.branchId));
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Payroll Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Employee</th><th>Role</th><th>Daily Rate</th><th>Shifts This Month</th><th>Gross Pay</th></tr></thead>
+            <tbody>${staffUsers.length ? staffUsers.map(emp => {
+        const empShifts = (s.shifts || []).filter(sh => sh.userId === emp.id && sh.status !== 'open' && new Date(sh.openedAt) >= monthStart);
+        const gross = empShifts.length * (emp.dailyRate || 400);
+        return `<tr>
+                <td>${emp.name || emp.username}</td>
+                <td><span class="badge badge-neutral">${emp.role}</span></td>
+                <td class="td-mono">₱${fmt(emp.dailyRate || 400)}</td>
+                <td>${empShifts.length}</td>
+                <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(gross)}</td>
+              </tr>`;
+      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--ink-60)">No staff found.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    }
+  });
+
+  return html || '<div style="text-align:center;padding:32px;color:var(--ink-40)">Check at least one report type above and click Generate.</div>';
+}
+
+function renderStaffReports() {
+  const s = getState();
+  const u = s.currentUser;
+  if (u && u.role === 'print') { navigateTo('print-reports'); return; }
+
+  const isMainBranch = u.branchId === 'b1';
+  const allSubmitted = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  const printReports = allSubmitted.filter(r => r.type === 'print_dept');
+  const pendingCount = printReports.filter(r => !r.forwardedToAdmin).length;
+
+  // Build print inbox rows
+  let printRows = '';
+  if (printReports.length === 0) {
+    printRows = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No print department reports received yet.</td></tr>';
+  } else {
+    [...printReports].reverse().forEach(r => {
+      const reportBadges = (r.reports || []).map(rp => '<span class="badge badge-info" style="margin-right:4px">' + rp + '</span>').join('');
+      const statusBadge = r.forwardedToAdmin
+        ? '<span class="badge badge-success">&#10003; Forwarded</span>'
+        : '<span class="badge badge-warning">Pending</span>';
+      const fwdBtn = !r.forwardedToAdmin
+        ? '<button class="btn btn-sm btn-maroon" onclick="forwardPrintReportToAdmin(\'' + r.id + '\')">&#128228; Forward to Admin</button>'
+        : '';
+      printRows += '<tr>'
+        + '<td class="td-mono">' + new Date(r.submittedAt).toLocaleString('en-PH') + '</td>'
+        + '<td><strong>' + (r.submitterName || '&mdash;') + '</strong></td>'
+        + '<td>' + reportBadges + '</td>'
+        + '<td style="max-width:160px;font-size:12px;color:var(--ink-60)">' + (r.note || '&mdash;') + '</td>'
+        + '<td>' + statusBadge + '</td>'
+        + '<td style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="viewSubmittedReportStaff(\'' + r.id + '\')">View</button>' + fwdBtn + '</td>'
+        + '</tr>';
+    });
+  }
+
+  const printInboxSection = isMainBranch ? (
+    '<div class="data-card" style="margin-top:20px">'
+    + '<div class="data-card-header" style="align-items:center">'
+    + '<span class="data-card-title">' + iconSvg('printer') + ' Reports Inbox &mdash; From Printing Personnel</span>'
+    + (pendingCount > 0 ? '<span class="badge badge-danger" style="font-size:12px">' + pendingCount + ' pending</span>' : '<span class="badge badge-success">All forwarded</span>')
+    + '</div>'
+    + '<div class="data-card-body no-pad">'
+    + '<table class="data-table"><thead><tr><th>Date &amp; Time</th><th>Submitted By</th><th>Reports</th><th>Note</th><th>Status</th><th>Actions</th></tr></thead>'
+    + '<tbody>' + printRows + '</tbody></table>'
+    + '</div></div>'
+  ) : '';
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
       <h1 class="page-title">Reports</h1>
       <p class="page-subtitle">${u.role === 'admin' ? 'All branches' : 'Your performance & reports'}</p>
     </div>
-    <div class="kpi-grid">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Today's Revenue</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value">₱${fmt(dailyRev)}</div><div style="font-size:12px;color:var(--ink-60);margin-top:4px">${dailySales.length} transactions</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">This Week</div><div class="kpi-icon green">${iconSvg('calendar')}</div></div><div class="kpi-value">₱${fmt(weeklyRev)}</div><div style="font-size:12px;color:var(--ink-60);margin-top:4px">${weeklySales.length} transactions</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">This Month</div><div class="kpi-icon maroon">${iconSvg('chart')}</div></div><div class="kpi-value">₱${fmt(monthlyRev)}</div><div style="font-size:12px;color:var(--ink-60);margin-top:4px">${monthlySales.length} transactions</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Balance Due</div><div class="kpi-icon maroon">${iconSvg('receipt')}</div></div><div class="kpi-value" style="color:var(--danger)">₱${fmt(balanceDue)}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Discounts Given</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value" style="color:var(--warning)">₱${fmt(discountTotal)}</div></div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Payment Collection</span></div>
-        <div class="data-card-body no-pad">
-          <table class="data-table">
-            <thead><tr><th>Period</th><th>Cash</th><th>GCash</th><th>Credit</th><th>Total</th></tr></thead>
-            <tbody>
-              ${[['Today', dailySales], ['This Week', weeklySales], ['This Month', monthlySales]].map(([period, sales]) => {
-    const cash = sales.reduce((a, b) => a + (b.payments?.find(p => p.method === 'cash')?.amount || 0), 0);
-    const gcash = sales.reduce((a, b) => a + (b.payments?.find(p => p.method === 'gcash')?.amount || 0), 0);
-    const credit = sales.reduce((a, b) => a + (b.payments?.find(p => p.method === 'credit')?.amount || 0), 0);
-    return `<tr><td><strong>${period}</strong></td><td class="td-mono">₱${fmt(cash)}</td><td class="td-mono">₱${fmt(gcash)}</td><td class="td-mono">₱${fmt(credit)}</td><td class="td-mono" style="font-weight:700">₱${fmt(cash + gcash + credit)}</td></tr>`;
-  }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Performance Summary</span></div>
-        <div class="data-card-body">
-          ${[['Today', dailySales, dailyRev], ['This Week', weeklySales, weeklyRev], ['This Month', monthlySales, monthlyRev]].map(([period, sales, rev]) => {
-    const avgTxn = sales.length ? rev / sales.length : 0;
-    return `<div style="padding:10px 0;border-bottom:1px solid var(--ink-10)">
-              <div style="display:flex;justify-content:space-between;margin-bottom:4px"><strong style="font-size:13px">${period}</strong><span class="td-mono" style="color:var(--maroon);font-weight:700">₱${fmt(rev)}</span></div>
-              <div class="text-xs text-muted">${sales.length} txns · Avg ₱${fmt(avgTxn)} per txn</div>
-            </div>`;
-  }).join('')}
-        </div>
-      </div>
-    </div>
-
-    <!-- Report Generation & Submission to Admin -->
-    <div class="data-card" style="margin-bottom:16px">
-      <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} Generate &amp; Send Reports to Admin</span></div>
-      <div class="data-card-body">
-        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select the reports you want to generate and send to the Administrator:</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="rpt-sales" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Sales Report</div><div style="font-size:12px;color:var(--ink-60)">Daily transactions & revenue</div></div>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="rpt-inventory" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Inventory Report</div><div style="font-size:12px;color:var(--ink-60)">Current stock levels</div></div>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="rpt-orders" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Orders Report</div><div style="font-size:12px;color:var(--ink-60)">Order status & balances</div></div>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="rpt-payroll" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Payroll Report</div><div style="font-size:12px;color:var(--ink-60)">Staff hours & earnings</div></div>
-          </label>
-        </div>
-        <div class="form-group" style="margin-bottom:12px">
-          <label>Note to Admin (optional)</label>
-          <textarea id="rpt-note" class="form-control" rows="2" placeholder="Add any remarks or context for the admin..."></textarea>
-        </div>
-        <button class="btn btn-maroon" onclick="submitStaffReportsToAdmin()">Submit Selected Reports to Admin</button>
-      </div>
-    </div>
 
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Today's Transactions</span></div>
-      <div class="data-card-body no-pad">
-        <table class="data-table">
-          <thead><tr><th>Receipt #</th><th>Customer</th><th>Items</th><th>Subtotal</th><th>Discount</th><th>Total</th><th>Payment</th><th>Time</th></tr></thead>
-          <tbody>${dailySales.length ? [...dailySales].reverse().map(sale => {
-    const payLabel = sale.payments.map(p => `${p.method === 'cash' ? 'Cash' : 'GCash'}: ₱${fmt(p.amount)}`).join(' + ');
-    return `<tr>
-              <td class="td-mono">${sale.id.slice(-6).toUpperCase()}</td>
-              <td>${sale.customerId ? (s.customers.find(c => c.id === sale.customerId)?.companyName || '—') : 'Walk-in'}</td>
-              <td>${sale.items.length}</td>
-              <td class="td-mono">₱${fmt(sale.subtotal)}</td>
-              <td class="td-mono" style="color:var(--danger)">${sale.discountAmount > 0 ? '-₱' + fmt(sale.discountAmount) : '—'}</td>
-              <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(sale.total)}</td>
-              <td class="text-xs">${payLabel}</td>
-              <td class="td-mono">${fmtTime(sale.createdAt)}</td>
-            </tr>`;
-  }).join('') : '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-60)">No transactions today.</td></tr>'}</tbody>
-        </table>
+      <div class="data-card-header" style="align-items:center">
+        <span class="data-card-title">${iconSvg('clipboard')} Generate &amp; Send Reports to Admin</span>
       </div>
-    </div>`;
+      <div class="data-card-body">
+        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select the type of report you want to generate, then send to the Administrator:</p>
+        <div class="form-row-2" style="margin-bottom:14px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Report Type</label>
+            <div class="form-select-wrap">
+              <select id="rpt-type" class="form-control">
+                <option value="">&mdash; Select a report type &mdash;</option>
+                <option value="Sales Report">Sales Report &mdash; Daily transactions &amp; revenue</option>
+                <option value="Inventory Report">Inventory Report &mdash; Current stock levels</option>
+                <option value="Orders Report">Orders Report &mdash; Order status &amp; balances</option>
+                <option value="Payroll Report">Payroll Report &mdash; Staff hours &amp; earnings</option>
+                <option value="All Reports">All Reports &mdash; Generate all of the above</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Note to Admin (optional)</label>
+            <input id="rpt-note" class="form-control" placeholder="Add any remarks or context for the admin...">
+          </div>
+        </div>
+        <button class="btn btn-maroon" onclick="staffReportPreviewRefresh()" style="font-size:13px">${iconSvg('chart')} Generate Report</button>
+      </div>
+      <div id="staff-rpt-preview" style="display:none;border-top:1px solid var(--ink-10);padding:20px 24px 24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-40)">Report Preview</div>
+          <button class="btn btn-maroon" onclick="submitStaffReportsToAdmin()" style="font-size:13px">&#128228; Send to Admin</button>
+        </div>
+        <div id="staff-rpt-preview-body"></div>
+      </div>
+    </div>
+    ${printInboxSection}`;
+}
+
+function staffReportPreviewRefresh() {
+  const val = document.getElementById('rpt-type')?.value;
+  const preview = document.getElementById('staff-rpt-preview');
+  const body = document.getElementById('staff-rpt-preview-body');
+  if (!preview || !body) return;
+  if (!val) { showToast('Please select a report type first.', 'error'); return; }
+  const types = val === 'All Reports'
+    ? ['Sales Report', 'Inventory Report', 'Orders Report', 'Payroll Report']
+    : [val];
+  body.innerHTML = buildStaffReportPreview(types);
+  preview.style.display = 'block';
 }
 
 function submitStaffReportsToAdmin() {
   const s = getState();
   const u = s.currentUser;
-  const selected = [];
-  if (document.getElementById('rpt-sales')?.checked) selected.push('Sales Report');
-  if (document.getElementById('rpt-inventory')?.checked) selected.push('Inventory Report');
-  if (document.getElementById('rpt-orders')?.checked) selected.push('Orders Report');
-  if (document.getElementById('rpt-payroll')?.checked) selected.push('Payroll Report');
-  if (!selected.length) { showToast('Please select at least one report to submit.', 'error'); return; }
+  const val = document.getElementById('rpt-type')?.value;
+  if (!val) { showToast('Please select a report type first, then click Generate.', 'error'); return; }
+  const selected = val === 'All Reports'
+    ? ['Sales Report', 'Inventory Report', 'Orders Report', 'Payroll Report']
+    : [val];
   const note = document.getElementById('rpt-note')?.value?.trim() || '';
+  // Always regenerate fresh so saved HTML matches the selected type
+  const freshHtml = buildStaffReportPreview(selected);
+  const previewBody = document.getElementById('staff-rpt-preview-body');
+  if (previewBody) previewBody.innerHTML = freshHtml;
+  const reportHtml = freshHtml;
+  // Guard against fallback/empty output
+  if (!reportHtml || reportHtml.includes('Check at least one report type')) {
+    showToast('Please select a report type first, then click Generate.', 'error');
+    return;
+  }
   const entry = {
     id: 'rpt_' + Date.now(),
     submittedBy: u.id,
@@ -9515,6 +10289,7 @@ function submitStaffReportsToAdmin() {
     role: u.role,
     branchId: u.branchId || null,
     reports: selected,
+    reportHtml,
     note,
     submittedAt: new Date().toISOString(),
     type: 'branch_staff',
@@ -9525,6 +10300,70 @@ function submitStaffReportsToAdmin() {
   recordAudit(s, { action: 'reports_submitted', message: `${u.name} submitted reports to admin: ${selected.join(', ')}`, userId: u.id });
   saveState(s);
   showToast('Reports submitted to Admin successfully!', 'success');
+  // Hide preview after send
+  const preview = document.getElementById('staff-rpt-preview');
+  if (preview) preview.style.display = 'none';
+}
+
+function viewSubmittedReportStaff(reportId) {
+  const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  const r = submittedReports.find(x => x.id === reportId);
+  if (!r) return;
+  const reportBadges = (r.reports || []).map(rp => '<span class="badge badge-info" style="margin-right:4px">' + rp + '</span>').join('');
+  const noteHtml = r.note ? '<div style="margin-bottom:12px"><div class="text-xs text-muted" style="margin-bottom:4px">Note</div><div style="background:var(--cream);padding:10px;border-radius:var(--radius);font-size:13px">' + r.note + '</div></div>' : '';
+  const fwdBtnHtml = (!r.forwardedToAdmin && r.type === 'print_dept')
+    ? '<button class="btn btn-maroon" onclick="forwardPrintReportToAdmin(\'' + r.id + '\');closeModal()">&#128228; Forward to Admin</button>'
+    : '';
+  showModal(`
+    <div class="modal-header"><h2>${iconSvg('clipboard')} Report from ${r.submitterName}</h2><button class="btn-close-modal" onclick="closeModal()">&#10005;</button></div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div><div class="text-xs text-muted">Submitted By</div><div style="font-weight:600">${r.submitterName}</div></div>
+        <div><div class="text-xs text-muted">Date &amp; Time</div><div>${new Date(r.submittedAt).toLocaleString('en-PH')}</div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="text-xs text-muted" style="margin-bottom:6px">Reports Included</div>
+        <div>${reportBadges}</div>
+      </div>
+      ${noteHtml}
+      <div style="border-top:1px solid var(--ink-10);padding-top:12px">${r.reportHtml || '<p style="color:var(--ink-40);text-align:center">No report content attached.</p>'}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      ${fwdBtnHtml}
+    </div>`, 'modal-lg');
+}
+
+function forwardPrintReportToAdmin(reportId) {
+  const s = getState();
+  const u = s.currentUser;
+  const existing = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+  const idx = existing.findIndex(r => r.id === reportId);
+  if (idx === -1) { showToast('Report not found.', 'error'); return; }
+  existing[idx].forwardedToAdmin = true;
+  existing[idx].forwardedBy = u.name || u.username;
+  existing[idx].forwardedAt = new Date().toISOString();
+  // Also create a new forwarded entry visible to admin with type branch_staff
+  const orig = existing[idx];
+  const forwardEntry = {
+    id: 'rpt_fwd_' + Date.now(),
+    submittedBy: orig.submittedBy,
+    submitterName: orig.submitterName + ' (via Main Branch)',
+    role: orig.role,
+    branchId: orig.branchId,
+    reports: orig.reports,
+    reportHtml: orig.reportHtml,
+    note: (orig.note ? orig.note + ' | ' : '') + 'Forwarded by Main Branch (' + (u.name || u.username) + ')',
+    submittedAt: new Date().toISOString(),
+    type: 'print_dept_forwarded',
+    originalId: reportId,
+  };
+  existing.push(forwardEntry);
+  localStorage.setItem('submitted_reports', JSON.stringify(existing));
+  recordAudit(s, { action: 'report_forwarded', message: `${u.name} forwarded print dept report to admin (original from ${orig.submitterName})`, userId: u.id });
+  saveState(s);
+  showToast('Report forwarded to Admin successfully!', 'success');
+  renderStaffReports();
 }
 
 // ADMIN DASHBOARD ENHANCEMENTS
@@ -9579,10 +10418,10 @@ function renderPrintPersonnel() {
         <div class="data-card-header"><span class="data-card-title">${iconSvg('users')} My Profile</span></div>
         <div class="data-card-body" style="display:flex;flex-direction:column;gap:0;">
           <div style="display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--ink-10);margin-bottom:8px;">
-            <div style="width:52px;height:52px;border-radius:50%;background:var(--maroon);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700;flex-shrink:0;">${(me.name||me.username||'?')[0].toUpperCase()}</div>
-            <div><div style="font-size:16px;font-weight:700;">${me.name||me.username}</div><div style="font-size:12px;color:var(--ink-60);">Printing Personnel · @${me.username}</div></div>
+            <div style="width:52px;height:52px;border-radius:50%;background:var(--maroon);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700;flex-shrink:0;">${(me.name || me.username || '?')[0].toUpperCase()}</div>
+            <div><div style="font-size:16px;font-weight:700;">${me.name || me.username}</div><div style="font-size:12px;color:var(--ink-60);">Printing Personnel · @${me.username}</div></div>
           </div>
-          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--ink-10)"><span style="color:var(--ink-60);font-size:13px;">Status</span>${myShift?'<span class="badge badge-success">● On Shift</span>':'<span class="badge badge-neutral">Off Shift</span>'}</div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--ink-10)"><span style="color:var(--ink-60);font-size:13px;">Status</span>${myShift ? '<span class="badge badge-success">● On Shift</span>' : '<span class="badge badge-neutral">Off Shift</span>'}</div>
           <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--ink-10)"><span style="color:var(--ink-60);font-size:13px;">This Month</span><strong>${myShiftsThisMonth.length} days</strong></div>
           <div style="display:flex;justify-content:space-between;padding:8px 0;"><span style="color:var(--ink-60);font-size:13px;">Total Shifts</span><strong>${myShiftsTotal.length}</strong></div>
         </div>
@@ -9593,17 +10432,17 @@ function renderPrintPersonnel() {
           <table class="data-table">
             <thead><tr><th>Date</th><th>In</th><th>Out</th><th>Duration</th><th>Status</th></tr></thead>
             <tbody>${recentShifts.length ? recentShifts.map(sh => {
-              const opened = new Date(sh.openedAt);
-              const closed = sh.closedAt ? new Date(sh.closedAt) : null;
-              const dur = closed ? (Math.round((closed-opened)/360000)/10)+'h' : '—';
-              return `<tr>
-                <td>${opened.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</td>
-                <td class="td-mono">${opened.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'})}</td>
-                <td class="td-mono">${closed?closed.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
+    const opened = new Date(sh.openedAt);
+    const closed = sh.closedAt ? new Date(sh.closedAt) : null;
+    const dur = closed ? (Math.round((closed - opened) / 360000) / 10) + 'h' : '—';
+    return `<tr>
+                <td>${opened.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                <td class="td-mono">${opened.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</td>
+                <td class="td-mono">${closed ? closed.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                 <td class="td-mono">${dur}</td>
-                <td>${sh.status==='open'?'<span class="badge badge-success">Open</span>':'<span class="badge badge-neutral">Closed</span>'}</td>
+                <td>${sh.status === 'open' ? '<span class="badge badge-success">Open</span>' : '<span class="badge badge-neutral">Closed</span>'}</td>
               </tr>`;
-            }).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No shift records yet.</td></tr>'}</tbody>
+  }).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No shift records yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
@@ -9615,10 +10454,10 @@ function renderPrintPersonnel() {
           <table class="data-table">
             <thead><tr><th>Filed</th><th>Type</th><th>Date</th><th>Status</th></tr></thead>
             <tbody>${myLeave.length ? [...myLeave].reverse().map(l => `<tr>
-              <td class="xs">${new Date(l.filedAt||l.createdAt||Date.now()).toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</td>
-              <td>${l.type||'Leave'}</td>
-              <td>${l.date||'—'}</td>
-              <td>${l.status==='approved'?'<span class="badge badge-success">Approved</span>':l.status==='rejected'?'<span class="badge badge-danger">Rejected</span>':'<span class="badge badge-warning">Pending</span>'}</td>
+              <td class="xs">${new Date(l.filedAt || l.createdAt || Date.now()).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</td>
+              <td>${l.type || 'Leave'}</td>
+              <td>${l.date || '—'}</td>
+              <td>${l.status === 'approved' ? '<span class="badge badge-success">Approved</span>' : l.status === 'rejected' ? '<span class="badge badge-danger">Rejected</span>' : '<span class="badge badge-warning">Pending</span>'}</td>
             </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--ink-60)">No leave requests yet.</td></tr>'}</tbody>
           </table>
         </div>
@@ -9629,9 +10468,9 @@ function renderPrintPersonnel() {
           <table class="data-table">
             <thead><tr><th>Uploaded</th><th>File</th><th>Period</th></tr></thead>
             <tbody>${timecards.length ? [...timecards].reverse().map(tc => `<tr>
-              <td class="xs">${new Date(tc.uploadedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</td>
-              <td class="truncate" style="max-width:140px;" title="${tc.fileName||''}">${tc.fileName||'—'}</td>
-              <td class="xs">${tc.period||'—'}</td>
+              <td class="xs">${new Date(tc.uploadedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+              <td class="truncate" style="max-width:140px;" title="${tc.fileName || ''}">${tc.fileName || '—'}</td>
+              <td class="xs">${tc.period || '—'}</td>
             </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--ink-60)">No timecards uploaded yet.</td></tr>'}</tbody>
           </table>
         </div>
@@ -9646,7 +10485,7 @@ function printPersonnelLeaveModal() {
         <div class="form-group"><label>Leave Type</label><div class="form-select-wrap"><select id="leave-type" class="form-control">
           <option>Sick Leave</option><option>Vacation Leave</option><option>Emergency Leave</option><option>Others</option>
         </select></div></div>
-        <div class="form-group"><label>Date of Leave</label><input id="leave-date" type="date" class="form-control" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-group"><label>Date of Leave</label><input id="leave-date" type="date" class="form-control" value="${new Date().toISOString().slice(0, 10)}"></div>
       </div>
       <div class="form-group"><label>Reason</label><textarea id="leave-reason" class="form-control" rows="3" placeholder="Brief reason for leave..."></textarea></div>
     </div>
@@ -9660,7 +10499,7 @@ function printPersonnelSaveLeave() {
   const reason = document.getElementById('leave-reason').value.trim();
   if (!date) { showToast('Please select a date.', 'error'); return; }
   s.leaveRequests = s.leaveRequests || [];
-  s.leaveRequests.push({ id: 'leave_'+Date.now(), userId: me.id, type, date, reason, status: 'pending', filedAt: new Date().toISOString() });
+  s.leaveRequests.push({ id: 'leave_' + Date.now(), userId: me.id, type, date, reason, status: 'pending', filedAt: new Date().toISOString() });
   saveState(s); closeModal(); showToast('Leave request submitted.', 'success'); renderPrintPersonnel();
 }
 
@@ -9679,7 +10518,7 @@ function tcReadFile(input) {
   if (!file) return;
   document.getElementById('tc-fname').value = file.name;
   var reader = new FileReader();
-  reader.onload = function(e) { document.getElementById('tc-data').value = e.target.result; };
+  reader.onload = function (e) { document.getElementById('tc-data').value = e.target.result; };
   reader.readAsDataURL(file);
 }
 
@@ -9689,265 +10528,118 @@ function printPersonnelSaveTimecard() {
   if (!fname) { showToast('Please select a file.', 'error'); return; }
   const key = 'timecard_' + me.id;
   const tcs = JSON.parse(localStorage.getItem(key) || '[]');
-  tcs.push({ id: 'tc_'+Date.now(), fileName: fname, period: document.getElementById('tc-period').value.trim(), fileData: document.getElementById('tc-data').value, uploadedAt: new Date().toISOString() });
+  tcs.push({ id: 'tc_' + Date.now(), fileName: fname, period: document.getElementById('tc-period').value.trim(), fileData: document.getElementById('tc-data').value, uploadedAt: new Date().toISOString() });
   localStorage.setItem(key, JSON.stringify(tcs));
   closeModal(); showToast('Timecard uploaded!', 'success'); renderPrintPersonnel();
 }
 
 // ── PRINT PERSONNEL: My Payslip ───────────────────────────────────────────────
+function viewPrintPayslipModal(offset) {
+  const s = getState();
+  const me = s.currentUser;
+  const DAILY_RATE = me.dailyRate || 400;
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+  const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+  const shifts = s.shifts.filter(x =>
+    x.userId === me.id && x.status !== 'open' &&
+    new Date(x.openedAt) >= d && new Date(x.openedAt) <= monthEnd
+  );
+  const basicPay = shifts.length * DAILY_RATE;
+  const gross = basicPay;
+  const sss = Math.round(gross * 0.045);
+  const phil = Math.round(gross * 0.02);
+  const hdmf = Math.min(Math.round(gross * 0.02), 100);
+  const ded = sss + phil + hdmf;
+  const net = Math.max(0, gross - ded);
+  const pLabel = d.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  const payDate = new Date(d.getFullYear(), d.getMonth() + 1, 15).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const empNum = me.employeeNumber || ('BPS-' + String(me.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+
+  const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+    </div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <tbody>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">Printing Personnel</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${pLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDate}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
+      </tbody>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <colgroup><col style="width:34%"><col style="width:10%"><col style="width:14%"><col style="width:3px"><col style="width:auto"><col style="width:14%"></colgroup>
+      <thead><tr>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:3px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(DAILY_RATE)}/day</td><td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${shifts.length}</td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(basicPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${sss > 0 ? '₱' + fmt(sss) : ''}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phil > 0 ? '₱' + fmt(phil) : ''}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td></tr>
+        <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(gross)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(ded)}</td></tr>
+        <tr style="font-weight:700;"><td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(net)}</td></tr>
+      </tfoot>
+    </table>
+  </div>`;
+
+  showModal(`<div class="modal-header"><h2>📄 Payslip — ${pLabel}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="payslip-modal-doc" style="padding:0;max-height:75vh;overflow-y:auto;">${html}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-modal-doc').innerHTML,'Payslip — South Pafps')">${iconSvg('printer')} Print Payslip</button>
+    </div>`);
+}
+
 function renderPrintPayslip() {
+  // FIX 3: Now shows admin-sent payslips instead of hardcoded shift calculation (mirrors renderPayslip)
   const s = getState();
   const me = s.currentUser;
   if (!me || me.role !== 'print') { accessDenied('Payroll'); return; }
 
-  const DAILY_RATE = me.dailyRate || 400;
-  const now = new Date();
-  const empNum = me.employeeNumber || ('BPS-' + String(me.id||'001').replace(/\D/g,'').padStart(3,'0'));
-  const COMPANY = {
-    name: 'SOUTH PAFPS PACKAGING SUPPLIES',
-    address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
-    address2: 'Pasong Buaya 2, Imus, Cavite',
-    tel: 'Tel: (046) 436-9414',
-  };
-
-  // Build 3 months of data for history
-  const months = [0, 1, 2].map(offset => {
-    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-    const shifts = s.shifts.filter(x =>
-      x.userId === me.id && x.status !== 'open' &&
-      new Date(x.openedAt) >= d && new Date(x.openedAt) <= monthEnd
-    );
-    const basicPay = shifts.length * DAILY_RATE;
-    const gross    = basicPay;
-    const sss      = Math.round(gross * 0.045);
-    const phil     = Math.round(gross * 0.02);
-    const hdmf     = Math.min(Math.round(gross * 0.02), 100);
-    const ded      = sss + phil + hdmf;
-    const net      = Math.max(0, gross - ded);
-    // Pay period label: 1st–15th / 16th–end
-    const pLabel   = d.toLocaleDateString('en-PH',{month:'long',year:'numeric'});
-    const payDate  = new Date(d.getFullYear(), d.getMonth() + 1, 15)
-                      .toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'});
-    return { label: pLabel, payDate, days: shifts.length, basicPay, gross, sss, phil, hdmf, ded, net, isCurrent: offset===0 };
-  });
-
-  const cur = months[0];
-  // Format pay period like sample: "Month 1 - 28, Year"
-  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'});
-  const periodEnd = new Date(now.getFullYear(), now.getMonth()+1, 0)
-    .toLocaleDateString('en-PH',{day:'numeric',year:'numeric'});
-  const periodLabel = periodStart + ' - ' + periodEnd;
-
-  document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <div><h1 class="page-title">My Payslip</h1><p class="page-subtitle">${me.name} · Printing Personnel</p></div>
-      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-document').outerHTML,'Payslip — South Pafps')">${iconSvg('printer')} Print</button>
-    </div>
-
-    <!-- PAYSLIP DOCUMENT -->
-    <div class="data-card" id="payslip-document" style="margin-bottom:24px;max-width:860px;">
-      <div class="data-card-body" style="padding:32px 40px;font-family:'Arial',sans-serif;font-size:12px;color:#111;">
-
-        <!-- Header -->
-        <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-          <div style="flex-shrink:0;width:100px;">
-            <img src="logo.png" alt="South Pafps" style="width:100px;height:auto;display:block;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-            <div style="display:none;width:100px;height:76px;background:var(--maroon);border-radius:8px;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;text-align:center;padding:8px;box-sizing:border-box;">SOUTH<br>PAFPS<br><span style="font-size:7px;opacity:.8">PACKAGING SUPPLIES</span></div>
-          </div>
-          <div style="flex:1;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div>
-            <div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div>
-          </div>
-        </div>
-
-        <!-- Title -->
-        <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
-
-        <!-- Employee Info -->
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
-          <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
-          <tbody>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.name||'—'}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber||''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${empNum}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber||''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">Printing Personnel</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber||''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${periodLabel}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber||''}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td>
-              <td style="padding:4px 8px;border:1px solid #999;">${cur.payDate}</td>
-              <td style="padding:4px 8px;border:1px solid #999;"></td>
-              <td style="padding:4px 8px;border:1px solid #999;"></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Earnings / Deductions -->
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
-          <colgroup>
-            <col style="width:34%"><col style="width:10%"><col style="width:14%">
-            <col style="width:3px">
-            <col style="width:auto"><col style="width:14%">
-          </colgroup>
-          <thead>
-            <tr>
-              <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(DAILY_RATE)}/day</td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${cur.days}</td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(cur.basicPay)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.sss>0?'₱'+fmt(cur.sss):''}</td>
-            </tr>
-            <tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.phil>0?'₱'+fmt(cur.phil):''}</td>
-            </tr>
-            <tr>
-              <td style="border-left:1px solid #999;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
-              <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
-              <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${cur.hdmf>0?'₱'+fmt(cur.hdmf):''}</td>
-            </tr>
-            <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
-            <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
-          </tbody>
-          <tfoot>
-            <tr style="font-weight:700;background:#e8e8e8;">
-              <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(cur.gross)}</td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(cur.ded)}</td>
-            </tr>
-            <tr style="font-weight:700;">
-              <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
-              <td style="background:#333;width:3px;padding:0;"></td>
-              <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
-              <td style="border:1px solid #999;padding:6px 8px;text-align:right;color:var(--maroon);">₱${fmt(cur.net)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <div style="margin-top:28px;border-top:2px dashed #ccc;text-align:center;padding-top:4px;font-size:10px;color:#aaa;letter-spacing:2px;">
-          · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
-        </div>
-      </div>
-    </div>
-
-    <!-- History table -->
-    <div class="data-card" style="max-width:860px;">
-      <div class="data-card-header"><span class="data-card-title">Payslip History</span></div>
-      <div class="data-card-body no-pad">
-        <table class="data-table">
-          <thead><tr><th>Period</th><th>Days Worked</th><th>Gross</th><th>Deductions</th><th>Net Pay</th></tr></thead>
-          <tbody>${months.map(m => `<tr ${m.isCurrent?'style="background:var(--cream);"':''}>
-            <td><strong>${m.label}</strong>${m.isCurrent?' <span class="badge badge-maroon" style="font-size:10px;">Current</span>':''}</td>
-            <td>${m.days}</td>
-            <td class="td-mono">₱${fmt(m.gross)}</td>
-            <td class="td-mono" style="color:var(--danger);">– ₱${fmt(m.ded)}</td>
-            <td class="td-mono" style="font-weight:700;color:var(--success);">₱${fmt(m.net)}</td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
-function renderPrintReports() {
-  const s = getState();
-  const u = s.currentUser;
-  const orders = getOrders();
-  const today = new Date().toDateString();
-  const todayCompleted = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === today);
-  const inProd = orders.filter(o => o.status === 'production');
-  const pending = orders.filter(o => o.status === 'pending');
-  const qcPassed = orders.filter(o => o.qc_status === 'passed');
-  const qcFailed = orders.filter(o => o.qc_status === 'failed');
-  const materialsLog = s.materialsLog || [];
+  const myPayslips = (s.payslips || []).filter(p => p.userId === me.id);
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">Production Reports</h1>
-      <p class="page-subtitle">Daily production and quality summary</p>
-    </div>
-    <div class="kpi-grid">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed Today</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${todayCompleted.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProd.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">QC Pass Rate</div><div class="kpi-icon gold">${iconSvg('check')}</div></div><div class="kpi-value">${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(0) + '%' : '—'}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Orders</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${pending.length}</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Today's Completed</span></div>
-        <div class="data-card-body no-pad">
-          <table class="data-table">
-            <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Qty</th></tr></thead>
-            <tbody>${todayCompleted.length ? todayCompleted.map(o => `<tr>
-              <td class="td-mono">${String(o.id).padStart(6, '0')}</td>
-              <td>${o.customer_name || '—'}</td>
-              <td>${o.product_type || o.product_category || '—'}</td>
-              <td>${o.quantity || '—'}</td>
-            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No orders completed today.</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Quality Summary</span></div>
-        <div class="data-card-body">
-          <div style="padding:10px 0;border-bottom:1px solid var(--ink-10);display:flex;justify-content:space-between"><span>QC Passed</span><strong style="color:var(--success)">${qcPassed.length}</strong></div>
-          <div style="padding:10px 0;border-bottom:1px solid var(--ink-10);display:flex;justify-content:space-between"><span>QC Failed</span><strong style="color:var(--danger)">${qcFailed.length}</strong></div>
-          <div style="padding:10px 0;display:flex;justify-content:space-between"><span>Pass Rate</span><strong>${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(1) + '%' : '—'}</strong></div>
-        </div>
-      </div>
+      <h1 class="page-title">My Payslip</h1>
+      <p class="page-subtitle">View and print your payslips sent by the admin</p>
     </div>
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Material Usage (Recent)</span></div>
+      <div class="data-card-header"><span class="data-card-title">${iconSvg('money')} My Payslips</span></div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Date</th><th>Order #</th><th>Material</th><th>Used</th><th>Waste</th></tr></thead>
-          <tbody>${materialsLog.slice(-20).reverse().map(log => `<tr>
-            <td class="td-mono">${fmtTime(log.createdAt)}</td>
-            <td class="td-mono">${log.orderId ? String(log.orderId).padStart(6, '0') : '—'}</td>
-            <td>${log.material}</td>
-            <td>${log.used}</td>
-            <td style="color:var(--warning)">${log.waste || 0}</td>
-          </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--ink-60)">No material logs yet.</td></tr>'}</tbody>
+          <thead><tr><th>Pay Period</th><th>Daily Rate</th><th>Days Present</th><th>Net Pay</th><th>Sent</th><th>Action</th></tr></thead>
+          <tbody>${myPayslips.length
+      ? myPayslips.map(p => `<tr>
+                <td><strong>${p.payPeriod}</strong></td>
+                <td class="td-mono">₱${fmt(p.dailyRate)}</td>
+                <td class="td-mono">${p.daysPresent}</td>
+                <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay)}</td>
+                <td style="font-size:12px;color:var(--ink-60)">${p.sentAt ? fmtTime(p.sentAt) : '—'}</td>
+                <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View &amp; Print</button></td>
+              </tr>`).join('')
+      : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--ink-60)">
+                <div style="font-size:28px;margin-bottom:10px">📄</div>
+                No payslips available yet.<br>
+                <span style="font-size:12px">Payslips will appear here once your admin sends them to you.</span>
+              </td></tr>`
+    }</tbody>
         </table>
       </div>
     </div>`;
 }
+
+// renderPrintReports is defined below near print personnel functions
 
 // GCASH QR / PAYMENT LINK
 function showGCashQRModal(amount) {
@@ -10029,10 +10721,10 @@ function renderCategories() {
         <table class="data-table">
           <thead><tr><th>#</th><th>Category Name</th><th>Products</th></tr></thead>
           <tbody>
-            ${cats.length ? cats.map((c,i) => {
-              const count = s.products.filter(p => p.category === c && p.active).length;
-              return `<tr><td>${i+1}</td><td>${c}</td><td>${count}</td></tr>`;
-            }).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--ink-40);padding:32px">No categories found. Add products with categories first.</td></tr>'}
+            ${cats.length ? cats.map((c, i) => {
+    const count = s.products.filter(p => p.category === c && p.active).length;
+    return `<tr><td>${i + 1}</td><td>${c}</td><td>${count}</td></tr>`;
+  }).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--ink-40);padding:32px">No categories found. Add products with categories first.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -10076,30 +10768,106 @@ function renderEmployeeRows(employees, query) {
   const s = getState();
   const filtered = query
     ? employees.filter(e =>
-        (e.name||'').toLowerCase().includes(query.toLowerCase()) ||
-        (e.position||'').toLowerCase().includes(query.toLowerCase()) ||
-        (e.branchName||'').toLowerCase().includes(query.toLowerCase()))
+      (e.name || '').toLowerCase().includes(query.toLowerCase()) ||
+      (e.position || '').toLowerCase().includes(query.toLowerCase()) ||
+      (e.branchName || '').toLowerCase().includes(query.toLowerCase()))
     : employees;
   if (!filtered.length) return '<div style="text-align:center;color:var(--ink-40);padding:40px">No employee records yet. Click "+ Add Employee" to get started.</div>';
   return `<table class="data-table">
-    <thead><tr><th>Name</th><th>Position</th><th>Branch</th><th>Employment Status</th><th>Status</th><th>Action</th></tr></thead>
+    <thead><tr><th>Name</th><th>Position</th><th>Branch</th><th>Employment Status</th><th>Status</th><th>Account</th><th>Action</th></tr></thead>
     <tbody>
       ${filtered.map(e => {
-        const b = (s.branches||[]).find(b => b.id === e.branchId);
-        return `<tr>
-          <td><strong>${e.name||'—'}</strong>${e.email ? `<div style="font-size:11px;color:var(--ink-50)">${e.email}</div>` : ''}</td>
-          <td>${e.position||'—'}</td>
+    const b = (s.branches || []).find(b => b.id === e.branchId);
+    const linkedUser = (s.users || []).find(u => u.employeeId === e.id);
+    const accountBadge = linkedUser
+      ? `<span class="badge badge-success" style="font-family:var(--font-mono);font-size:10px">@${linkedUser.username}</span>`
+      : `<span class="badge badge-danger" style="font-size:10px;cursor:pointer" onclick="promptLinkAccount('${e.id}')" title="No login account — click to create one">No Account</span>`;
+    return `<tr>
+          <td><strong>${e.name || '—'}</strong>${e.email ? `<div style="font-size:11px;color:var(--ink-50)">${e.email}</div>` : ''}</td>
+          <td>${e.position || '—'}</td>
           <td>${b ? b.name : (e.branchId ? e.branchId : '—')}</td>
-          <td>${e.employmentStatus||'—'}</td>
-          <td><span class="badge ${e.active!==false?'badge-success':'badge-danger'}">${e.active!==false?'Active':'Inactive'}</span></td>
+          <td>${e.employmentStatus || '—'}</td>
+          <td><span class="badge ${e.active !== false ? 'badge-success' : 'badge-danger'}">${e.active !== false ? 'Active' : 'Inactive'}</span></td>
+          <td>${accountBadge}</td>
           <td>
             <button class="btn btn-sm btn-outline" onclick="showEmployeeDetail('${e.id}')">View</button>
             <button class="btn btn-sm btn-outline" onclick="editEmployeeModal('${e.id}')">Edit</button>
           </td>
         </tr>`;
-      }).join('')}
+  }).join('')}
     </tbody>
   </table>`;
+}
+
+function promptLinkAccount(empId) {
+  const s = getState();
+  const e = getEmployees().find(x => x.id === empId);
+  if (!e) return;
+  const eyeSvg = iconSvg('eye');
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('users')} Create Login Account</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--cream);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;">
+        Creating a system login account for <strong>${e.name}</strong>.
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Username <span style="color:var(--danger)">*</span></label>
+          <input class="form-control" id="la-username" placeholder="e.g. juan.delacruz" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label>Password <span style="color:var(--danger)">*</span></label>
+          <div class="pw-wrap">
+            <input id="la-password" type="password" class="form-control" placeholder="Min 6 characters" autocomplete="new-password">
+            <button type="button" class="pw-eye" onclick="togglePwVisibility('la-password', this)" tabindex="-1">${eyeSvg}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="confirmLinkAccount('${empId}')">Create Account</button>
+    </div>
+  `);
+}
+
+function confirmLinkAccount(empId) {
+  const s = getState();
+  const e = getEmployees().find(x => x.id === empId);
+  if (!e) return;
+  const username = document.getElementById('la-username')?.value.trim();
+  const password = document.getElementById('la-password')?.value;
+  if (!username) { showToast('Username is required.', 'error'); return; }
+  if (!password || password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+  if (s.users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
+    showToast('Username already taken.', 'error'); return;
+  }
+  const newUser = {
+    id: 'usr_' + Date.now(),
+    employeeId: empId,
+    name: e.name,
+    username,
+    password,
+    role: e.role || 'staff',
+    position: e.position || '',
+    branchId: e.branchId || '',
+  };
+  s.users.push(newUser);
+  recordAudit(s, {
+    action: 'create_user',
+    message: `Login account linked to existing employee: ${username}`,
+    userId: s.currentUser?.id || null,
+    branchId: e.branchId || null,
+    details: { createdUsername: username, employeeId: empId },
+  });
+  saveState(s);
+  DB.saveUser(newUser);
+  closeModal();
+  showToast(`Login account "@${username}" created for ${e.name}.`, 'success');
+  renderEmployeeRecords();
 }
 
 function filterEmployeeRecords(query) {
@@ -10111,7 +10879,7 @@ function showEmployeeDetail(empId) {
   const s = getState();
   const u = getEmployees().find(x => x.id === empId);
   if (!u) return;
-  const b = (s.branches||[]).find(b => b.id === u.branchId);
+  const b = (s.branches || []).find(b => b.id === u.branchId);
 
   const field = (label, val) =>
     `<div style="background:var(--cream);border-radius:var(--radius-sm);padding:10px 14px;">
@@ -10125,7 +10893,7 @@ function showEmployeeDetail(empId) {
       <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--maroon)">${title}</span>
     </div>`;
 
-  const initials = (u.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  const initials = (u.name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
   showModal(`
     <div class="modal-header">
@@ -10136,19 +10904,19 @@ function showEmployeeDetail(empId) {
       <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,var(--maroon),#a0263e);border-radius:var(--radius);padding:20px 24px;margin-bottom:20px;color:white;">
         <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0;">${initials}</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:20px;font-weight:700;line-height:1.2">${u.name||'—'}</div>
-          <div style="font-size:13px;opacity:0.85;margin-top:3px">${u.position||'—'} &nbsp;·&nbsp; ${b?b.name:'—'}</div>
+          <div style="font-size:20px;font-weight:700;line-height:1.2">${u.name || '—'}</div>
+          <div style="font-size:13px;opacity:0.85;margin-top:3px">${u.position || '—'} &nbsp;·&nbsp; ${b ? b.name : '—'}</div>
         </div>
-        <div>${u.active!==false
-          ? '<span style="background:rgba(255,255,255,0.2);color:white;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">ACTIVE</span>'
-          : '<span style="background:rgba(0,0,0,0.3);color:#fca5a5;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">INACTIVE</span>'
-        }</div>
+        <div>${u.active !== false
+      ? '<span style="background:rgba(255,255,255,0.2);color:white;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">ACTIVE</span>'
+      : '<span style="background:rgba(0,0,0,0.3);color:#fca5a5;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;">INACTIVE</span>'
+    }</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         ${sectionHead('👤', 'Personal Information')}
         ${field('Full Name', u.name)}
         ${field('Email', u.email)}
-        ${field('Birth Date', u.birthdate ? new Date(u.birthdate).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : null)}
+        ${field('Birth Date', u.birthdate ? new Date(u.birthdate).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : null)}
         ${field('Gender', u.gender)}
         ${field('Emergency Contact', u.emergencyContact)}
         <div style="grid-column:1/-1">${field('Home Address', u.address)}</div>
@@ -10156,9 +10924,9 @@ function showEmployeeDetail(empId) {
         ${sectionHead('💼', 'Employment Details')}
         ${field('Position / Title', u.position)}
         ${field('Branch', b ? b.name : '—')}
-        ${field('Date Hired', u.dateHired ? new Date(u.dateHired).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : null)}
+        ${field('Date Hired', u.dateHired ? new Date(u.dateHired).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : null)}
         ${field('Employment Status', u.employmentStatus)}
-        <div style="grid-column:1/-1">${field('Account Status', u.active!==false ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>')}</div>
+        <div style="grid-column:1/-1">${field('Account Status', u.active !== false ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>')}</div>
 
         ${sectionHead('🏛️', 'Government Numbers')}
         ${field('SSS Number', u.sss)}
@@ -10179,12 +10947,12 @@ function editEmployeeModal(empId) {
   const e = getEmployees().find(x => x.id === empId);
   if (!e) return;
   const branches = s.branches || [];
-  const branchOpts = branches.map(b => `<option value="${b.id}" ${b.id===e.branchId?'selected':''}>${b.name}</option>`).join('');
+  const branchOpts = branches.map(b => `<option value="${b.id}" ${b.id === e.branchId ? 'selected' : ''}>${b.name}</option>`).join('');
   const secHead = (title) => `<div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">${title}</div>`;
 
   showModal(`
     <div class="modal-header">
-      <h2>${iconSvg('users')} Edit Employee — ${e.name||''}</h2>
+      <h2>${iconSvg('users')} Edit Employee — ${e.name || ''}</h2>
       <button class="btn-close-modal" onclick="closeModal()">&#x2715;</button>
     </div>
     <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
@@ -10192,31 +10960,31 @@ function editEmployeeModal(empId) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group" style="grid-column:1/-1;">
           <label>Full Name <span style="color:var(--danger)">*</span></label>
-          <input class="form-control" id="ee-name" value="${e.name||''}">
+          <input class="form-control" id="ee-name" value="${e.name || ''}">
         </div>
         <div class="form-group">
           <label>Email Address</label>
-          <input class="form-control" id="ee-email" type="email" value="${e.email||''}">
+          <input class="form-control" id="ee-email" type="email" value="${e.email || ''}">
         </div>
         <div class="form-group">
           <label>Birth Date</label>
-          <input class="form-control" type="date" id="ee-bday" value="${e.birthdate||''}">
+          <input class="form-control" type="date" id="ee-bday" value="${e.birthdate || ''}">
         </div>
         <div class="form-group">
           <label>Gender</label>
           <div class="form-select-wrap"><select class="form-control" id="ee-gender">
             <option value="">Select gender</option>
-            <option ${e.gender==='Male'?'selected':''}>Male</option>
-            <option ${e.gender==='Female'?'selected':''}>Female</option>
+            <option ${e.gender === 'Male' ? 'selected' : ''}>Male</option>
+            <option ${e.gender === 'Female' ? 'selected' : ''}>Female</option>
           </select></div>
         </div>
         <div class="form-group">
           <label>Emergency Contact</label>
-          <input class="form-control" id="ee-emerg" value="${e.emergencyContact||''}">
+          <input class="form-control" id="ee-emerg" value="${e.emergencyContact || ''}">
         </div>
         <div class="form-group" style="grid-column:1/-1;">
           <label>Home Address</label>
-          <input class="form-control" id="ee-addr" value="${e.address||''}">
+          <input class="form-control" id="ee-addr" value="${e.address || ''}">
         </div>
       </div>
 
@@ -10224,7 +10992,7 @@ function editEmployeeModal(empId) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>Position / Job Title</label>
-          <input class="form-control" id="ee-pos" value="${e.position||''}">
+          <input class="form-control" id="ee-pos" value="${e.position || ''}">
         </div>
         <div class="form-group">
           <label>Branch</label>
@@ -10235,31 +11003,31 @@ function editEmployeeModal(empId) {
         </div>
         <div class="form-group">
           <label>Date Hired</label>
-          <input class="form-control" type="date" id="ee-hired" value="${e.dateHired||''}">
+          <input class="form-control" type="date" id="ee-hired" value="${e.dateHired || ''}">
         </div>
         <div class="form-group">
           <label>Employment Status</label>
           <div class="form-select-wrap"><select class="form-control" id="ee-empstatus">
-            <option ${e.employmentStatus==='Regular'?'selected':''}>Regular</option>
-            <option ${e.employmentStatus==='Probationary'?'selected':''}>Probationary</option>
-            <option ${e.employmentStatus==='Contractual'?'selected':''}>Contractual</option>
+            <option ${e.employmentStatus === 'Regular' ? 'selected' : ''}>Regular</option>
+            <option ${e.employmentStatus === 'Probationary' ? 'selected' : ''}>Probationary</option>
+            <option ${e.employmentStatus === 'Contractual' ? 'selected' : ''}>Contractual</option>
           </select></div>
         </div>
         <div class="form-group" style="grid-column:1/-1;">
           <label>Active Status</label>
           <div class="form-select-wrap"><select class="form-control" id="ee-active">
-            <option value="1" ${e.active!==false?'selected':''}>Active</option>
-            <option value="0" ${e.active===false?'selected':''}>Inactive</option>
+            <option value="1" ${e.active !== false ? 'selected' : ''}>Active</option>
+            <option value="0" ${e.active === false ? 'selected' : ''}>Inactive</option>
           </select></div>
         </div>
       </div>
 
       ${secHead('Government Numbers')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-group"><label>SSS Number</label><input class="form-control" id="ee-sss" value="${e.sss||''}"></div>
-        <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ee-phil" value="${e.philhealth||''}"></div>
-        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ee-pagibig" value="${e.pagibig||''}"></div>
-        <div class="form-group"><label>TIN</label><input class="form-control" id="ee-tin" value="${e.tin||''}"></div>
+        <div class="form-group"><label>SSS Number</label><input class="form-control" id="ee-sss" value="${e.sss || ''}"></div>
+        <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ee-phil" value="${e.philhealth || ''}"></div>
+        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ee-pagibig" value="${e.pagibig || ''}"></div>
+        <div class="form-group"><label>TIN</label><input class="form-control" id="ee-tin" value="${e.tin || ''}"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -10276,34 +11044,65 @@ function saveEditEmployee(empId) {
   if (!e) return;
   const name = document.getElementById('ee-name')?.value.trim();
   if (!name) { showToast('Full Name is required.', 'error'); return; }
-  e.name             = name;
-  e.email            = document.getElementById('ee-email')?.value.trim()||'';
-  e.birthdate        = document.getElementById('ee-bday')?.value||'';
-  e.gender           = document.getElementById('ee-gender')?.value||'';
-  e.emergencyContact = document.getElementById('ee-emerg')?.value.trim()||'';
-  e.address          = document.getElementById('ee-addr')?.value.trim()||'';
-  e.position         = document.getElementById('ee-pos')?.value.trim()||'';
-  e.branchId         = document.getElementById('ee-branch')?.value||'';
-  e.dateHired        = document.getElementById('ee-hired')?.value||'';
-  e.employmentStatus = document.getElementById('ee-empstatus')?.value||'';
-  e.active           = document.getElementById('ee-active')?.value === '1';
-  e.sss              = document.getElementById('ee-sss')?.value.trim()||'';
-  e.philhealth       = document.getElementById('ee-phil')?.value.trim()||'';
-  e.pagibig          = document.getElementById('ee-pagibig')?.value.trim()||'';
-  e.tin              = document.getElementById('ee-tin')?.value.trim()||'';
-  e.updatedAt        = new Date().toISOString();
+  e.name = name;
+  e.email = document.getElementById('ee-email')?.value.trim() || '';
+  e.birthdate = document.getElementById('ee-bday')?.value || '';
+  e.gender = document.getElementById('ee-gender')?.value || '';
+  e.emergencyContact = document.getElementById('ee-emerg')?.value.trim() || '';
+  e.address = document.getElementById('ee-addr')?.value.trim() || '';
+  e.position = document.getElementById('ee-pos')?.value.trim() || '';
+  e.branchId = document.getElementById('ee-branch')?.value || '';
+  e.dateHired = document.getElementById('ee-hired')?.value || '';
+  e.employmentStatus = document.getElementById('ee-empstatus')?.value || '';
+  e.active = document.getElementById('ee-active')?.value === '1';
+  e.sss = document.getElementById('ee-sss')?.value.trim() || '';
+  e.philhealth = document.getElementById('ee-phil')?.value.trim() || '';
+  e.pagibig = document.getElementById('ee-pagibig')?.value.trim() || '';
+  e.tin = document.getElementById('ee-tin')?.value.trim() || '';
+  e.updatedAt = new Date().toISOString();
   saveEmployees(employees);
+
+  // Sync name, branch, role to the linked user account if one exists
+  const s = getState();
+  const linkedUser = s.users.find(u => u.employeeId === empId || (u.name === e.name && u.role === e.role));
+  if (linkedUser) {
+    linkedUser.name = e.name;
+    linkedUser.branchId = e.branchId;
+    linkedUser.position = e.position;
+    saveState(s);
+    DB.updateUser(linkedUser.id, { name: linkedUser.name, branchId: linkedUser.branchId, position: linkedUser.position });
+  }
+
   closeModal();
   showToast('Employee record updated!', 'success');
   renderEmployeeRecords();
 }
 
 function deleteEmployee(empId) {
-  if (!confirm('Delete this employee record? This cannot be undone.')) return;
+  confirmModal({
+    title: 'Delete Employee Record',
+    message: 'Are you sure you want to delete this employee record? This cannot be undone.',
+    confirmText: 'Delete Employee',
+    icon: '👤',
+    onConfirm: function () { _deleteEmployeeConfirmed(empId); }
+  });
+  return;
+}
+function _deleteEmployeeConfirmed(empId) {
   const employees = getEmployees().filter(x => x.id !== empId);
   saveEmployees(employees);
+
+  // Also delete the linked system login account
+  const s = getState();
+  const linkedUser = s.users.find(u => u.employeeId === empId);
+  if (linkedUser) {
+    s.users = s.users.filter(u => u.id !== linkedUser.id);
+    saveState(s);
+    DB.deleteUser(linkedUser.id);
+  }
+
   closeModal();
-  showToast('Employee record deleted.', 'warning');
+  showToast('Employee record and login account deleted.', 'warning');
   renderEmployeeRecords();
 }
 
@@ -10354,8 +11153,20 @@ function showAddEmployeeModal() {
       ${secHead('Employment Details')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
-          <label>Position / Job Title</label>
-          <input class="form-control" id="ae-pos" placeholder="e.g. Cashier, Staff">
+          <label>Role / Department <span style="color:var(--danger)">*</span></label>
+          <div class="form-select-wrap"><select class="form-control" id="ae-role" onchange="aeUpdatePositions()">
+            <option value="staff">Branch Staff</option>
+            <option value="print">Printing Personnel</option>
+          </select></div>
+        </div>
+        <div class="form-group">
+          <label>Position / Job Title <span style="color:var(--danger)">*</span></label>
+          <div class="form-select-wrap"><select class="form-control" id="ae-pos">
+            <option value="Sales Associate">Sales Associate</option>
+            <option value="Cashier">Cashier</option>
+            <option value="Stock Clerk">Stock Clerk</option>
+            <option value="Branch Supervisor">Branch Supervisor</option>
+          </select></div>
         </div>
         <div class="form-group">
           <label>Branch</label>
@@ -10386,6 +11197,24 @@ function showAddEmployeeModal() {
         <div class="form-group"><label>TIN</label><input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX"></div>
       </div>
 
+      ${secHead('System Login Account')}
+      <div style="background:var(--cream);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--ink-60);line-height:1.5;">
+        This will create a login account so the employee can access the system (schedule, time card, leave requests).
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label>Username <span style="color:var(--danger)">*</span></label>
+          <input class="form-control" id="ae-username" placeholder="e.g. juan.delacruz" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label>Password <span style="color:var(--danger)">*</span></label>
+          <div class="pw-wrap">
+            <input id="ae-password" type="password" class="form-control" placeholder="Min 6 characters" autocomplete="new-password">
+            <button type="button" class="pw-eye" onclick="togglePwVisibility('ae-password', this)" tabindex="-1">${iconSvg('eye')}</button>
+          </div>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
@@ -10394,36 +11223,87 @@ function showAddEmployeeModal() {
   `, 'modal-lg');
 }
 
+function aeUpdatePositions() {
+  const role = document.getElementById('ae-role')?.value;
+  const posSel = document.getElementById('ae-pos');
+  if (!posSel) return;
+  const options = {
+    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
+    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+  };
+  const list = options[role] || options.staff;
+  posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
 function saveNewEmployee() {
   const s = getState();
   const name = document.getElementById('ae-name')?.value.trim();
+  const username = document.getElementById('ae-username')?.value.trim();
+  const password = document.getElementById('ae-password')?.value;
+  const role = document.getElementById('ae-role')?.value || 'staff';
+  const branchId = document.getElementById('ae-branch')?.value || '';
+
   if (!name) { showToast('Full Name is required.', 'error'); return; }
+  if (!username) { showToast('Username is required.', 'error'); return; }
+  if (!password || password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+  if (s.users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
+    showToast('Username already taken — please choose another.', 'error'); return;
+  }
+
+  const empId = 'emp_' + Date.now();
 
   const newEmployee = {
-    id: 'emp_' + Date.now(),
+    id: empId,
     name,
-    email:            document.getElementById('ae-email')?.value.trim()||'',
-    birthdate:        document.getElementById('ae-bday')?.value||'',
-    gender:           document.getElementById('ae-gender')?.value||'',
-    emergencyContact: document.getElementById('ae-emerg')?.value.trim()||'',
-    address:          document.getElementById('ae-addr')?.value.trim()||'',
-    position:         document.getElementById('ae-pos')?.value.trim()||'',
-    branchId:         document.getElementById('ae-branch')?.value||'',
-    dateHired:        document.getElementById('ae-hired')?.value||'',
-    employmentStatus: document.getElementById('ae-empstatus')?.value||'',
-    sss:              document.getElementById('ae-sss')?.value.trim()||'',
-    philhealth:       document.getElementById('ae-phil')?.value.trim()||'',
-    pagibig:          document.getElementById('ae-pagibig')?.value.trim()||'',
-    tin:              document.getElementById('ae-tin')?.value.trim()||'',
-    active:           true,
-    createdAt:        new Date().toISOString(),
+    email: document.getElementById('ae-email')?.value.trim() || '',
+    birthdate: document.getElementById('ae-bday')?.value || '',
+    gender: document.getElementById('ae-gender')?.value || '',
+    emergencyContact: document.getElementById('ae-emerg')?.value.trim() || '',
+    address: document.getElementById('ae-addr')?.value.trim() || '',
+    role,
+    position: document.getElementById('ae-pos')?.value || '',
+    branchId,
+    dateHired: document.getElementById('ae-hired')?.value || '',
+    employmentStatus: document.getElementById('ae-empstatus')?.value || '',
+    sss: document.getElementById('ae-sss')?.value.trim() || '',
+    philhealth: document.getElementById('ae-phil')?.value.trim() || '',
+    pagibig: document.getElementById('ae-pagibig')?.value.trim() || '',
+    tin: document.getElementById('ae-tin')?.value.trim() || '',
+    active: true,
+    createdAt: new Date().toISOString(),
   };
 
+  // Create the linked system login account
+  const newUser = {
+    id: 'usr_' + Date.now(),
+    employeeId: empId, // link to employee record
+    name,
+    username,
+    password,
+    role,
+    position: newEmployee.position,
+    branchId,
+  };
+
+  // Save employee record
   const employees = getEmployees();
   employees.push(newEmployee);
   saveEmployees(employees);
+
+  // Save user account
+  s.users.push(newUser);
+  recordAudit(s, {
+    action: 'create_user',
+    message: `Staff account created via Employee Records: ${username}`,
+    userId: s.currentUser?.id || null,
+    branchId,
+    details: { createdRole: role, createdUsername: username, employeeId: empId },
+  });
+  saveState(s);
+  DB.saveUser(newUser);
+
   closeModal();
-  showToast(`Employee "${name}" added successfully.`, 'success');
+  showToast(`Employee "${name}" added with login account.`, 'success');
   renderEmployeeRecords();
 }
 
@@ -10441,8 +11321,8 @@ function renderTimecards() {
       const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
       const yr = d.getFullYear();
       const mo = d.toLocaleString('en-PH', { month: 'short' });
-      const moNum = String(d.getMonth()+1).padStart(2,'0');
-      periods.push({ label: `${mo} 16–${new Date(yr, d.getMonth()+1, 0).getDate()}, ${yr}`, value: `${yr}-${moNum}-2` });
+      const moNum = String(d.getMonth() + 1).padStart(2, '0');
+      periods.push({ label: `${mo} 16–${new Date(yr, d.getMonth() + 1, 0).getDate()}, ${yr}`, value: `${yr}-${moNum}-2` });
       periods.push({ label: `${mo} 1–15, ${yr}`, value: `${yr}-${moNum}-1` });
     }
     return periods;
@@ -10454,7 +11334,7 @@ function renderTimecards() {
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
       <div><h1 class="page-title">${isAdmin ? 'Time Card Review' : 'My Time Card'}</h1>
-      ${!isAdmin ? `<p class="page-subtitle">${u.name} — ${(s.branches||[]).find(b=>b.id===u.branchId)?.name||'Unassigned'}</p>` : '<p class="page-subtitle">Review and approve submitted time cards</p>'}
+      ${!isAdmin ? `<p class="page-subtitle">${u.name} — ${(s.branches || []).find(b => b.id === u.branchId)?.name || 'Unassigned'}</p>` : '<p class="page-subtitle">Review and approve submitted time cards</p>'}
       </div>
       ${!isAdmin ? `<button class="btn btn-maroon" onclick="showUploadTimecardModal()">+ Upload New Time Card</button>` : ''}
     </div>
@@ -10465,24 +11345,24 @@ function renderTimecards() {
           <thead><tr>${isAdmin ? '<th>Full Name</th>' : ''}<th>Username</th><th>Branch</th><th>Period</th><th>Date Uploaded</th><th>Image</th><th>Notes</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
             ${myCards.length ? myCards.map(tc => {
-              const emp = (s.users||[]).find(x => x.id === tc.userId);
-              const br = (s.branches||[]).find(b => b.id === (emp?.branchId||tc.branchId));
-              const statusCls = {pending:'badge-neutral',approved:'badge-success',rejected:'badge-danger'}[tc.status||'pending']||'badge-neutral';
-              return `<tr>
-                ${isAdmin ? `<td>${emp?.name||'—'}</td>` : ''}
-                <td>${emp?.username||tc.username||'—'}</td>
-                <td>${br?.name||'—'}</td>
-                <td>${tc.period||'—'}</td>
+    const emp = (s.users || []).find(x => x.id === tc.userId);
+    const br = (s.branches || []).find(b => b.id === (emp?.branchId || tc.branchId));
+    const statusCls = { pending: 'badge-neutral', approved: 'badge-success', rejected: 'badge-danger' }[tc.status || 'pending'] || 'badge-neutral';
+    return `<tr>
+                ${isAdmin ? `<td>${emp?.name || '—'}</td>` : ''}
+                <td>${emp?.username || tc.username || '—'}</td>
+                <td>${br?.name || '—'}</td>
+                <td>${tc.period || '—'}</td>
                 <td>${tc.dateUploaded ? new Date(tc.dateUploaded).toLocaleDateString('en-PH') : '—'}</td>
                 <td>${tc.imageUrl ? `<a href="${tc.imageUrl}" target="_blank" class="btn btn-sm btn-outline">View</a>` : '—'}</td>
-                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tc.notes||'—'}</td>
-                <td><span class="badge ${statusCls}">${tc.status||'pending'}</span></td>
+                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tc.notes || '—'}</td>
+                <td><span class="badge ${statusCls}">${tc.status || 'pending'}</span></td>
                 <td>${isAdmin && tc.status === 'pending' ? `
                   <button class="btn btn-sm btn-outline" onclick="approveTimecard('${tc.id}')">Approve</button>
                   <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="rejectTimecard('${tc.id}')">Reject</button>
                 ` : '—'}</td>
               </tr>`;
-            }).join('') : `<tr><td colspan="${isAdmin?9:8}" style="text-align:center;color:var(--ink-40);padding:32px">No time cards found.</td></tr>`}
+  }).join('') : `<tr><td colspan="${isAdmin ? 9 : 8}" style="text-align:center;color:var(--ink-40);padding:32px">No time cards found.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -10492,7 +11372,7 @@ function renderTimecards() {
 function showUploadTimecardModal() {
   const s = getState();
   const u = s.currentUser;
-  const br = (s.branches||[]).find(b => b.id === u.branchId);
+  const br = (s.branches || []).find(b => b.id === u.branchId);
 
   function getPayPeriods() {
     const periods = [];
@@ -10501,8 +11381,8 @@ function showUploadTimecardModal() {
       const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
       const yr = d.getFullYear();
       const mo = d.toLocaleString('en-PH', { month: 'long' });
-      const moNum = String(d.getMonth()+1).padStart(2,'0');
-      const lastDay = new Date(yr, d.getMonth()+1, 0).getDate();
+      const moNum = String(d.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(yr, d.getMonth() + 1, 0).getDate();
       periods.push({ label: `${mo} 16–${lastDay}, ${yr}`, value: `${yr}-${moNum}-2` });
       periods.push({ label: `${mo} 1–15, ${yr}`, value: `${yr}-${moNum}-1` });
     }
@@ -10517,7 +11397,7 @@ function showUploadTimecardModal() {
       <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px;">
         <div><span style="color:var(--ink-50)">Full Name</span><div style="font-weight:600;margin-top:2px">${u.name}</div></div>
         <div><span style="color:var(--ink-50)">Username</span><div style="font-weight:600;margin-top:2px">${u.username}</div></div>
-        <div style="grid-column:1/-1"><span style="color:var(--ink-50)">Branch</span><div style="font-weight:600;margin-top:2px">${br?.name||'Unassigned'}</div></div>
+        <div style="grid-column:1/-1"><span style="color:var(--ink-50)">Branch</span><div style="font-weight:600;margin-top:2px">${br?.name || 'Unassigned'}</div></div>
       </div>
       <div class="form-group">
         <label>Pay Period <span style="color:var(--danger)">*</span></label>
@@ -10576,7 +11456,7 @@ function submitTimecard() {
 
 function approveTimecard(id) {
   const s = getState();
-  const tc = (s.timecards||[]).find(x => x.id === id);
+  const tc = (s.timecards || []).find(x => x.id === id);
   if (tc) {
     tc.status = 'approved';
     tc.reviewedAt = new Date().toISOString();
@@ -10590,7 +11470,7 @@ function approveTimecard(id) {
 
 function rejectTimecard(id) {
   const s = getState();
-  const tc = (s.timecards||[]).find(x => x.id === id);
+  const tc = (s.timecards || []).find(x => x.id === id);
   if (tc) {
     tc.status = 'rejected';
     tc.reviewedAt = new Date().toISOString();
@@ -10613,9 +11493,9 @@ function renderLeaveManagement() {
     const leaves = s.leaves || [];
     const activeFilter = window._leaveFilter || 'pending';
 
-    const pending   = leaves.filter(l => l.status === 'pending');
-    const approved  = leaves.filter(l => l.status === 'approved');
-    const rejected  = leaves.filter(l => l.status === 'rejected');
+    const pending = leaves.filter(l => l.status === 'pending');
+    const approved = leaves.filter(l => l.status === 'approved');
+    const rejected = leaves.filter(l => l.status === 'rejected');
 
     const filtered = activeFilter === 'all' ? leaves
       : leaves.filter(l => l.status === activeFilter);
@@ -10624,10 +11504,10 @@ function renderLeaveManagement() {
     const sorted = [...filtered].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
 
     const filterBtns = [
-      { id: 'pending',  label: `Pending`,  count: pending.length,  cls: 'badge-gold' },
+      { id: 'pending', label: `Pending`, count: pending.length, cls: 'badge-gold' },
       { id: 'approved', label: `Approved`, count: approved.length, cls: 'badge-success' },
       { id: 'rejected', label: `Rejected`, count: rejected.length, cls: 'badge-danger' },
-      { id: 'all',      label: `All`,      count: leaves.length,   cls: 'badge-neutral' },
+      { id: 'all', label: `All`, count: leaves.length, cls: 'badge-neutral' },
     ].map(f => `
       <button class="btn btn-sm ${activeFilter === f.id ? 'btn-maroon' : 'btn-outline'}"
         onclick="window._leaveFilter='${f.id}';renderLeaveManagement()">
@@ -10636,7 +11516,7 @@ function renderLeaveManagement() {
 
     const rows = sorted.length ? sorted.map(l => {
       const emp = (s.users || []).find(x => x.id === l.userId);
-      const br  = (s.branches || []).find(b => b.id === (emp?.branchId));
+      const br = (s.branches || []).find(b => b.id === (emp?.branchId));
       const roleLabel = { staff: 'Branch Staff', print: 'Print Dept', admin: 'Admin' }[emp?.role] || '—';
       const statusCls = { pending: 'badge-gold', approved: 'badge-success', rejected: 'badge-danger' }[l.status || 'pending'] || 'badge-neutral';
       const reviewedBy = l.reviewedBy ? (s.users || []).find(x => x.id === l.reviewedBy)?.name || '—' : '—';
@@ -10676,24 +11556,24 @@ function renderLeaveManagement() {
       </div>
 
       <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
-        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='pending'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='pending';renderLeaveManagement()">
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter === 'pending' ? '2px solid var(--maroon)' : '2px solid transparent'}" onclick="window._leaveFilter='pending';renderLeaveManagement()">
           <div class="kpi-header"><div class="kpi-label">Pending Approval</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
-          <div class="kpi-value" style="color:${pending.length>0?'var(--warning)':'inherit'}">${pending.length}</div>
+          <div class="kpi-value" style="color:${pending.length > 0 ? 'var(--warning)' : 'inherit'}">${pending.length}</div>
           <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Awaiting your decision</div>
         </div>
-        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='approved'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='approved';renderLeaveManagement()">
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter === 'approved' ? '2px solid var(--maroon)' : '2px solid transparent'}" onclick="window._leaveFilter='approved';renderLeaveManagement()">
           <div class="kpi-header"><div class="kpi-label">Approved</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
           <div class="kpi-value" style="color:var(--success)">${approved.length}</div>
           <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Total approved this period</div>
         </div>
-        <div class="kpi-card" style="cursor:pointer;border:${activeFilter==='rejected'?'2px solid var(--maroon)':'2px solid transparent'}" onclick="window._leaveFilter='rejected';renderLeaveManagement()">
+        <div class="kpi-card" style="cursor:pointer;border:${activeFilter === 'rejected' ? '2px solid var(--maroon)' : '2px solid transparent'}" onclick="window._leaveFilter='rejected';renderLeaveManagement()">
           <div class="kpi-header"><div class="kpi-label">Rejected</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div>
           <div class="kpi-value" style="color:var(--danger)">${rejected.length}</div>
           <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Total rejected this period</div>
         </div>
       </div>
 
-      ${pending.length > 0 ? `<div class="alert alert-warning" style="margin-bottom:16px">${iconSvg('warning')} <strong>${pending.length}</strong> leave application${pending.length>1?'s':''} waiting for your review.</div>` : ''}
+      ${pending.length > 0 ? `<div class="alert alert-warning" style="margin-bottom:16px">${iconSvg('warning')} <strong>${pending.length}</strong> leave application${pending.length > 1 ? 's' : ''} waiting for your review.</div>` : ''}
 
       <div class="data-card">
         <div class="data-card-header">
@@ -10722,18 +11602,18 @@ function renderLeaveManagement() {
   }
 
   // ── STAFF / PRINT VIEW: My Leave Applications ──────────────────────────────
-  const leaves     = s.leaves || [];
-  const myLeaves   = leaves.filter(l => l.userId === u.id);
+  const leaves = s.leaves || [];
+  const myLeaves = leaves.filter(l => l.userId === u.id);
   const activeFilter = window._leaveFilter || 'all';
-  const filtered   = activeFilter === 'all' ? myLeaves : myLeaves.filter(l => l.status === activeFilter);
-  const sorted     = [...filtered].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+  const filtered = activeFilter === 'all' ? myLeaves : myLeaves.filter(l => l.status === activeFilter);
+  const sorted = [...filtered].sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
 
-  const pending  = myLeaves.filter(l => l.status === 'pending').length;
+  const pending = myLeaves.filter(l => l.status === 'pending').length;
   const approved = myLeaves.filter(l => l.status === 'approved').length;
   const rejected = myLeaves.filter(l => l.status === 'rejected').length;
 
-  const filterBtns = ['all','pending','approved','rejected'].map(f =>
-    `<button class="btn btn-sm ${activeFilter===f?'btn-maroon':'btn-outline'}" onclick="window._leaveFilter='${f}';renderLeaveManagement()">${f.charAt(0).toUpperCase()+f.slice(1)}</button>`
+  const filterBtns = ['all', 'pending', 'approved', 'rejected'].map(f =>
+    `<button class="btn btn-sm ${activeFilter === f ? 'btn-maroon' : 'btn-outline'}" onclick="window._leaveFilter='${f}';renderLeaveManagement()">${f.charAt(0).toUpperCase() + f.slice(1)}</button>`
   ).join('');
 
   const branch = (s.branches || []).find(b => b.id === u.branchId);
@@ -10747,7 +11627,7 @@ function renderLeaveManagement() {
       <td>${l.type || '—'}</td>
       <td style="font-size:12px;color:var(--ink-60);max-width:200px">${l.notes || '<span style="color:var(--ink-30)">—</span>'}</td>
       <td><span class="badge ${statusCls}" style="text-transform:capitalize">${l.status || 'pending'}</span></td>
-      <td style="font-size:12px;color:var(--ink-50)">${reviewedBy ? `<div>${reviewedBy}</div><div>${l.reviewedAt ? new Date(l.reviewedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>` : '—'}</td>
+      <td style="font-size:12px;color:var(--ink-50)">${reviewedBy ? `<div>${reviewedBy}</div><div>${l.reviewedAt ? new Date(l.reviewedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : ''}</div>` : '—'}</td>
       <td>${l.status === 'pending' ? `<button class="btn btn-sm btn-danger" onclick="cancelLeave('${l.id}')">Cancel</button>` : '—'}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--ink-40)">No leave applications yet.</td></tr>`;
@@ -10764,7 +11644,7 @@ function renderLeaveManagement() {
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
       <div class="kpi-card">
         <div class="kpi-header"><div class="kpi-label">Pending</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div>
-        <div class="kpi-value" style="color:${pending>0?'var(--warning)':'inherit'}">${pending}</div>
+        <div class="kpi-value" style="color:${pending > 0 ? 'var(--warning)' : 'inherit'}">${pending}</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-header"><div class="kpi-label">Approved</div><div class="kpi-icon green">${iconSvg('check')}</div></div>
@@ -10797,7 +11677,7 @@ function showApplyLeaveModal() {
   const u = s.currentUser;
   // BUGFIX: br was undefined — resolve branch from state
   const br = (s.branches || []).find(b => b.id === u.branchId);
-  const roleLabel = {admin:'Administrator',staff:'Branch Staff',print:'Printing Personnel'}[u.role] || u.role;
+  const roleLabel = { admin: 'Administrator', staff: 'Branch Staff', print: 'Printing Personnel' }[u.role] || u.role;
   const positionValue = u.position || u.employmentStatus || roleLabel;
   showModal(`<div class="modal-header"><h2>Apply for Leave</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
@@ -10920,44 +11800,76 @@ function revertLeave(id) {
   const s = getState();
   const l = (s.leaves || []).find(x => x.id === id);
   if (!l) return;
-  if (!confirm('Revert this leave back to Pending status?')) return;
-  l.status = 'pending';
-  l.reviewedAt = null;
-  l.reviewedBy = null;
-  l.rejectReason = null;
-  saveState(s);
-  if (typeof DB !== 'undefined') DB.reviewLeave(id, 'pending', null);
-  showToast('Leave reverted to Pending.', 'success');
-  renderLeaveManagement();
+  confirmModal({
+    title: 'Revert Leave to Pending',
+    message: 'Are you sure you want to revert this leave back to <strong>Pending</strong> status?',
+    confirmText: 'Revert to Pending',
+    cancelText: 'Cancel',
+    icon: '🔄',
+    danger: false,
+    onConfirm: function () {
+      l.status = 'pending';
+      l.reviewedAt = null;
+      l.reviewedBy = null;
+      l.rejectReason = null;
+      saveState(s);
+      if (typeof DB !== 'undefined') DB.reviewLeave(id, 'pending', null);
+      showToast('Leave reverted to Pending.', 'success');
+      renderLeaveManagement();
+    }
+  });
 }
 
 function cancelLeave(id) {
   const s = getState();
   const l = (s.leaves || []).find(x => x.id === id);
   if (!l || l.status !== 'pending') return;
-  if (!confirm('Cancel this leave application?')) return;
-  s.leaves = s.leaves.filter(x => x.id !== id);
-  saveState(s);
-  if (typeof DB !== 'undefined') DB.deleteLeave(id);
-  showToast('Leave application cancelled.', 'success');
-  renderLeaveManagement();
+  confirmModal({
+    title: 'Cancel Leave Application',
+    message: 'Are you sure you want to cancel this leave application? This action cannot be undone.',
+    confirmText: 'Cancel Leave',
+    icon: '📋',
+    onConfirm: function () {
+      s.leaves = s.leaves.filter(x => x.id !== id);
+      saveState(s);
+      if (typeof DB !== 'undefined') DB.deleteLeave(id);
+      showToast('Leave application cancelled.', 'success');
+      renderLeaveManagement();
+    }
+  });
 }
 
 // ── PAYSLIP HISTORY ───────────────────────────────────────────────
 function renderPayslipHistory() {
+  // FIX 4: Added role guard and scoped payslip history to current user only
   const s = getState();
   const u = s.currentUser;
+  if (!u || !['staff', 'print'].includes(u.role)) { accessDenied('Payslip History'); return; }
+
+  const myPayslips = (s.payslips || []).filter(p => p.userId === u.id);
+
+  const rows = myPayslips.length
+    ? myPayslips.map(p => `<tr>
+        <td><strong>${p.payPeriod}</strong></td>
+        <td class="td-mono">${p.daysPresent || '—'}</td>
+        <td class="td-mono">₱${fmt(p.grossPay || 0)}</td>
+        <td class="td-mono" style="color:var(--danger)">₱${fmt(p.deductions || 0)}</td>
+        <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay || 0)}</td>
+        <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:var(--ink-40);padding:40px">No payslip history available yet.</td></tr>';
+
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">Payslip History</h1><p class="page-subtitle">${u.name}</p></div>
     <div class="data-card">
       <div class="data-card-header">
         <span class="data-card-title">All Pay Periods</span>
-        <select class="form-control" style="max-width:160px" onchange=""><option>All Years</option></select>
+        <span class="badge badge-neutral">${myPayslips.length} payslip${myPayslips.length !== 1 ? 's' : ''}</span>
       </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
           <thead><tr><th>Period</th><th>Days Worked</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
-          <tbody><tr><td colspan="6" style="text-align:center;color:var(--ink-40);padding:40px">No payslip history available yet.</td></tr></tbody>
+          <tbody>${rows}</tbody>
         </table>
       </div>
     </div>`;
@@ -10969,24 +11881,24 @@ function renderPosOverview() {
   if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('POS Overview'); return; }
   const branches = s.branches || [];
   const today = new Date().toDateString();
-  const todaySales = (s.sales||[]).filter(x => !x.voided && new Date(x.createdAt).toDateString() === today);
+  const todaySales = (s.sales || []).filter(x => !x.voided && new Date(x.createdAt).toDateString() === today);
 
   const branchCards = branches.map(b => {
     const bSales = todaySales.filter(x => x.branchId === b.id);
     const bRevenue = bSales.reduce((a, x) => a + x.total, 0);
-    const activeShift = (s.shifts||[]).find(sh => sh.branchId === b.id && sh.status === 'open');
+    const activeShift = (s.shifts || []).find(sh => sh.branchId === b.id && sh.status === 'open');
     return `
       <div class="data-card" style="flex:1;min-width:280px;cursor:pointer" onclick="navigateTo('pos')">
         <div class="data-card-header">
           <span class="data-card-title">${b.name}</span>
-          <span class="badge ${activeShift?'badge-success':'badge-danger'}">${activeShift?'Shift Open':'No Active Shift'}</span>
+          <span class="badge ${activeShift ? 'badge-success' : 'badge-danger'}">${activeShift ? 'Shift Open' : 'No Active Shift'}</span>
         </div>
         <div class="data-card-body">
           <div class="kpi-grid" style="grid-template-columns:1fr 1fr;gap:12px;">
             <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Sales Today</div><div class="kpi-icon green">${iconSvg('cart')}</div></div><div class="kpi-value">${bSales.length}</div></div>
             <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Revenue Today</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value">₱${fmt(bRevenue)}</div></div>
           </div>
-          <div style="margin-top:12px;font-size:13px;color:var(--ink-60)">${iconSvg('pin')} ${b.address||'—'}</div>
+          <div style="margin-top:12px;font-size:13px;color:var(--ink-60)">${iconSvg('pin')} ${b.address || '—'}</div>
         </div>
       </div>`;
   });
@@ -11005,14 +11917,14 @@ function renderBranchInvOverview() {
   const branches = s.branches || [];
   const products = s.products || [];
 
-  const rows = products.flatMap(p => (p.variants||[]).map(v => {
-    const totalStock = Object.values(v.branchStocks||{}).reduce((a,b)=>a+b,0) || v.stock || 0;
+  const rows = products.flatMap(p => (p.variants || []).map(v => {
+    const totalStock = Object.values(v.branchStocks || {}).reduce((a, b) => a + b, 0) || v.stock || 0;
     return `<tr>
       <td>${p.name}</td>
-      <td>${v.name||'—'}</td>
-      ${branches.map(b => `<td style="text-align:center">${(v.branchStocks||{})[b.id]??'—'}</td>`).join('')}
+      <td>${v.name || '—'}</td>
+      ${branches.map(b => `<td style="text-align:center">${(v.branchStocks || {})[b.id] ?? '—'}</td>`).join('')}
       <td style="text-align:center;font-weight:600">${totalStock}</td>
-      <td style="text-align:center"><span class="badge ${totalStock <= (v.reorderLevel||20)?'badge-danger':'badge-success'}">${totalStock <= (v.reorderLevel||20)?'Low':'OK'}</span></td>
+      <td style="text-align:center"><span class="badge ${totalStock <= (v.reorderLevel || 20) ? 'badge-danger' : 'badge-success'}">${totalStock <= (v.reorderLevel || 20) ? 'Low' : 'OK'}</span></td>
     </tr>`;
   }));
 
@@ -11021,8 +11933,8 @@ function renderBranchInvOverview() {
     <div class="data-card">
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Product</th><th>Variant</th>${branches.map(b=>`<th style="text-align:center">${b.name}</th>`).join('')}<th style="text-align:center">Total</th><th style="text-align:center">Status</th></tr></thead>
-          <tbody>${rows.join('')||'<tr><td colspan="'+(4+branches.length)+'" style="text-align:center;color:var(--ink-40);padding:40px">No products found.</td></tr>'}</tbody>
+          <thead><tr><th>Product</th><th>Variant</th>${branches.map(b => `<th style="text-align:center">${b.name}</th>`).join('')}<th style="text-align:center">Total</th><th style="text-align:center">Status</th></tr></thead>
+          <tbody>${rows.join('') || '<tr><td colspan="' + (4 + branches.length) + '" style="text-align:center;color:var(--ink-40);padding:40px">No products found.</td></tr>'}</tbody>
         </table>
       </div>
     </div>`;
@@ -11034,34 +11946,39 @@ function renderBranchReports() {
   if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Branch Reports'); return; }
   const branches = s.branches || [];
   const today = new Date().toDateString();
-  const todaySales = (s.sales||[]).filter(x => !x.voided && new Date(x.createdAt).toDateString() === today);
+  const todaySales = (s.sales || []).filter(x => !x.voided && new Date(x.createdAt).toDateString() === today);
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">Branch Reports</h1><p class="page-subtitle">Daily performance by branch</p></div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;">
       ${branches.map(b => {
-        const bSales = todaySales.filter(x => x.branchId === b.id);
-        const bRevenue = bSales.reduce((a, x) => a + x.total, 0);
-        return `<div class="data-card" style="flex:1;min-width:260px;">
+    const bSales = todaySales.filter(x => x.branchId === b.id);
+    const bRevenue = bSales.reduce((a, x) => a + x.total, 0);
+    return `<div class="data-card" style="flex:1;min-width:260px;">
           <div class="data-card-header"><span class="data-card-title">${b.name}</span></div>
           <div class="data-card-body">
             <div style="font-size:28px;font-weight:700;color:var(--maroon)">₱${fmt(bRevenue)}</div>
             <div style="color:var(--ink-60);font-size:13px;margin-top:4px">${bSales.length} transactions today</div>
           </div>
         </div>`;
-      }).join('')}
+  }).join('')}
     </div>
     <div style="margin-top:16px;text-align:center;color:var(--ink-40);font-size:13px">Full historical branch reports available under Reports → Sales Reports</div>`;
 }
 
 // ── SALES REPORTS ─────────────────────────────────────────────────
 function renderSalesReports() {
+  // If admin, show in the tabbed admin reports page
+  const s = getState();
+  if (s.currentUser && s.currentUser.role === 'admin') { _adminReportsTab = 'sales'; renderAdminReports('sales'); return; }
   if (typeof renderReports === 'function') { renderReports(); return; }
   document.getElementById('page-content').innerHTML = '<div class="page-header"><h1 class="page-title">Sales Reports</h1></div>';
 }
 
 // ── INVENTORY REPORTS ─────────────────────────────────────────────
 function renderInventoryReports() {
+  const s = getState();
+  if (s.currentUser && s.currentUser.role === 'admin') { _adminReportsTab = 'inventory'; renderAdminReports('inventory'); return; }
   if (typeof renderInventory === 'function') { renderInventory(); return; }
   document.getElementById('page-content').innerHTML = '<div class="page-header"><h1 class="page-title">Inventory Reports</h1></div>';
 }
@@ -11085,7 +12002,7 @@ function renderCustomReports() {
           </select></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div class="form-group"><label>From</label><input class="form-control" type="date" id="cr-from"></div>
+          <div class="form-group"><label>From</label><input class="form-control" type="date" id="cr-from" value="${new Date(new Date().setDate(1)).toISOString().split('T')[0]}"></div>
           <div class="form-group"><label>To</label><input class="form-control" type="date" id="cr-to" value="${new Date().toISOString().split('T')[0]}"></div>
         </div>
         <div class="form-group"><label>Branch</label>
@@ -11104,119 +12021,170 @@ function generateCustomReport() {
   const s = getState();
   const type = document.getElementById('cr-type')?.value;
   const from = document.getElementById('cr-from')?.value;
-  const to   = document.getElementById('cr-to')?.value;
+  const to = document.getElementById('cr-to')?.value;
   const branchId = document.getElementById('cr-branch')?.value;
-  const branch = branchId ? (s.branches||[]).find(b=>b.id===branchId) : null;
+  const branch = branchId ? (s.branches || []).find(b => b.id === branchId) : null;
   const branchLabel = branch ? branch.name : 'All Branches';
 
   const fromDate = from ? new Date(from + 'T00:00:00') : null;
-  const toDate   = to   ? new Date(to + 'T23:59:59')   : null;
+  const toDate = to ? new Date(to + 'T23:59:59') : null;
 
   function inRange(dateStr) {
-    if (!dateStr) return true;
+    if (!dateStr) return !fromDate; // no date = only include if no from filter
     const d = new Date(dateStr);
     if (fromDate && d < fromDate) return false;
-    if (toDate   && d > toDate)   return false;
+    if (toDate && d > toDate) return false;
     return true;
   }
 
   function matchBranch(item) {
     if (!branchId) return true;
-    return item.branchId === branchId || item.branch_id === branchId;
+    return (item.branchId === branchId || item.branch_id === branchId);
   }
 
-  let html = '';
   const title = { sales: 'Sales Report', inventory: 'Inventory Report', orders: 'Orders Report', payroll: 'Payroll Summary' }[type] || 'Report';
-  const rangeLabel = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Time';
+  const rangeLabel = from && to ? from + ' \u2013 ' + to : from ? 'From ' + from : to ? 'Up to ' + to : 'All Time';
+  const genDate = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  html += `<div class="data-card" style="margin-top:20px">
-    <div class="data-card-header">
-      <span class="data-card-title">${iconSvg('clipboard')} ${title} — ${branchLabel}</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span class="text-sm text-muted">${rangeLabel}</span>
-        <button class="btn btn-sm btn-outline" onclick="printContent(document.getElementById('cr-report-body').innerHTML,'${title} — South Pafps')">${iconSvg('printer')} Print</button>
-      </div>
-    </div>
-    <div class="data-card-body" id="cr-report-body">`;
+  let html = '<div class="data-card" style="margin-top:20px">'
+    + '<div class="data-card-header">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex:1">'
+    + '<img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display=\'none\'">'
+    + '<div><div style="font-weight:700;font-size:14px;color:var(--maroon)">' + title + ' \u2014 ' + branchLabel + '</div>'
+    + '<div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies \u00b7 ' + rangeLabel + ' \u00b7 Generated ' + genDate + '</div></div>'
+    + '</div>'
+    + '<button class="btn btn-sm btn-outline" onclick="printContent(document.getElementById(\'cr-report-body\').innerHTML,\'' + title + ' \u2014 South Pafps\')">'
+    + iconSvg('printer') + ' Print</button>'
+    + '</div>'
+    + '<div class="data-card-body" id="cr-report-body">';
 
   if (type === 'sales') {
     const sales = (s.sales || []).filter(sale => !sale.voided && inRange(sale.createdAt) && matchBranch(sale));
     const total = sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
-    const cash  = sales.reduce((sum, sale) => sum + (sale.cashReceived || sale.total || 0), 0);
-    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Transactions</div></div><div class="kpi-value">${sales.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div></div><div class="kpi-value">₱${fmt(total)}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Cash Collected</div></div><div class="kpi-value">₱${fmt(cash)}</div></div>
-    </div>
-    <table class="data-table"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th></tr></thead><tbody>
-    ${sales.length ? sales.map(sale => `<tr>
-      <td class="td-mono">${new Date(sale.createdAt).toLocaleString('en-PH')}</td>
-      <td class="td-mono">${sale.receiptNumber||sale.id||'—'}</td>
-      <td>${sale.customerName||'Walk-in'}</td>
-      <td>${(sale.items||[]).length}</td>
-      <td class="td-mono">₱${fmt(sale.total||0)}</td>
-      <td>${sale.paymentMode||'Cash'}</td>
-    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found for the selected filters.</td></tr>'}</tbody></table>`;
+    const cashAmt = sales.reduce((sum, sale) => sum + ((sale.payments || []).find(p => p.method === 'cash')?.amount || 0), 0);
+    const gcash = sales.reduce((sum, sale) => sum + ((sale.payments || []).find(p => p.method === 'gcash')?.amount || 0), 0);
+    html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Transactions</div></div><div class="kpi-value">' + sales.length + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div></div><div class="kpi-value">\u20b1' + fmt(total) + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Cash</div></div><div class="kpi-value">\u20b1' + fmt(cashAmt) + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">GCash</div></div><div class="kpi-value">\u20b1' + fmt(gcash) + '</div></div>'
+      + '</div>';
+    html += '<table class="data-table"><thead><tr><th>Date &amp; Time</th><th>Receipt #</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th></tr></thead><tbody>';
+    if (sales.length) {
+      [...sales].reverse().forEach(sale => {
+        const payLabel = (sale.payments || []).map(p => (p.method === 'cash' ? 'Cash' : 'GCash') + ': \u20b1' + fmt(p.amount)).join(' + ') || (sale.paymentMode || 'Cash');
+        html += '<tr>'
+          + '<td class="td-mono">' + new Date(sale.createdAt).toLocaleString('en-PH') + '</td>'
+          + '<td class="td-mono">' + (sale.receiptNumber || sale.id || '\u2014') + '</td>'
+          + '<td>' + (sale.customerName || (sale.customerId ? ((s.customers || []).find(c => c.id === sale.customerId)?.companyName || 'Customer') : 'Walk-in')) + '</td>'
+          + '<td>' + (sale.items || []).length + '</td>'
+          + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(sale.total || 0) + '</td>'
+          + '<td class="text-xs">' + payLabel + '</td>'
+          + '</tr>';
+      });
+    } else {
+      html += '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No sales found for the selected filters.</td></tr>';
+    }
+    html += '</tbody></table>';
 
   } else if (type === 'inventory') {
-    const products = (s.products || []).filter(p => !branchId || p.branchId === branchId);
-    const lowStock = products.filter(p => (p.stock||0) <= (p.lowStockThreshold||5));
-    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Products</div></div><div class="kpi-value">${products.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div></div><div class="kpi-value" style="color:var(--danger)">${lowStock.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Value</div></div><div class="kpi-value">₱${fmt(products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0))}</div></div>
-    </div>
-    <table class="data-table"><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>
-    ${products.length ? products.map(p => `<tr>
-      <td><strong>${p.name||'—'}</strong></td>
-      <td>${p.category||'—'}</td>
-      <td class="td-mono">₱${fmt(p.price||0)}</td>
-      <td class="td-mono ${(p.stock||0)<=(p.lowStockThreshold||5)?'style="color:var(--danger);font-weight:700"':''}">${p.stock||0}</td>
-      <td>${(p.stock||0)<=(p.lowStockThreshold||5)?'<span class="badge badge-danger">Low Stock</span>':'<span class="badge badge-success">OK</span>'}</td>
-    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No products found.</td></tr>'}</tbody></table>`;
+    // Products store stock inside variants[], not on the product itself
+    const products = (s.products || []).filter(p => p.active !== false);
+    let totalVariants = 0, lowCount = 0, outCount = 0;
+    products.forEach(p => { (p.variants || []).forEach(v => { totalVariants++; if (v.stock <= 0) outCount++; else if (v.stock <= (v.reorderLevel ?? 20)) lowCount++; }); });
+    html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total SKUs</div></div><div class="kpi-value">' + totalVariants + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div></div><div class="kpi-value" style="color:var(--warning)">' + lowCount + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Out of Stock</div></div><div class="kpi-value" style="color:var(--danger)">' + outCount + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Products</div></div><div class="kpi-value">' + products.length + '</div></div>'
+      + '</div>';
+    html += '<table class="data-table"><thead><tr><th>Product</th><th>Variant</th><th>SKU</th><th>Price</th><th>Stock</th><th>Reorder At</th><th>Status</th></tr></thead><tbody>';
+    let hasRows = false;
+    products.forEach(p => {
+      (p.variants || []).forEach(v => {
+        hasRows = true;
+        const out = v.stock <= 0;
+        const low = !out && v.stock <= (v.reorderLevel ?? 20);
+        const badge = out ? '<span class="badge badge-danger">Out of Stock</span>' : low ? '<span class="badge badge-warning">Low Stock</span>' : '<span class="badge badge-success">OK</span>';
+        html += '<tr>'
+          + '<td><strong>' + (p.name || '\u2014') + '</strong></td>'
+          + '<td>' + (v.name || '\u2014') + '</td>'
+          + '<td class="td-mono">' + (v.sku || '\u2014') + '</td>'
+          + '<td class="td-mono">\u20b1' + fmt(v.price || p.price || 0) + '</td>'
+          + '<td class="td-mono" style="' + (out ? 'color:var(--danger);font-weight:700' : low ? 'color:var(--warning);font-weight:700' : '') + '">' + (v.stock ?? 0) + '</td>'
+          + '<td class="td-mono">' + (v.reorderLevel ?? 20) + '</td>'
+          + '<td>' + badge + '</td>'
+          + '</tr>';
+      });
+    });
+    if (!hasRows) html += '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No products found.</td></tr>';
+    html += '</tbody></table>';
 
   } else if (type === 'orders') {
-    const orders = (s.orders || []).filter(o => inRange(o.created_at) && matchBranch(o));
-    const totalRev = orders.reduce((sum,o)=>sum+(o.total_amount||0),0);
-    const totalBal = orders.reduce((sum,o)=>sum+(o.balance||0),0);
-    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Orders</div></div><div class="kpi-value">${orders.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div></div><div class="kpi-value">₱${fmt(totalRev)}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Balance Due</div></div><div class="kpi-value" style="color:var(--danger)">₱${fmt(totalBal)}</div></div>
-    </div>
-    <table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Date</th><th>Total</th><th>Balance</th><th>Status</th></tr></thead><tbody>
-    ${orders.length ? orders.map(o => `<tr>
-      <td class="td-mono">#${String(o.id).padStart(6,'0')}</td>
-      <td>${o.customer_name||'—'}</td>
-      <td class="td-mono">${o.created_at ? new Date(o.created_at).toLocaleDateString('en-PH') : '—'}</td>
-      <td class="td-mono">₱${fmt(o.total_amount||0)}</td>
-      <td class="td-mono" style="color:var(--danger)">₱${fmt(o.balance||0)}</td>
-      <td>${o.status||'—'}</td>
-    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No orders found.</td></tr>'}</tbody></table>`;
+    // Orders are in localStorage 'orders', NOT in state
+    const allOrders = getOrders();
+    const orders = allOrders.filter(o => inRange(o.created_at || o.createdAt) && matchBranch(o));
+    const totalRev = orders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+    const totalBal = orders.reduce((sum, o) => sum + (o.balance || 0), 0);
+    const byStatus = {};
+    orders.forEach(o => { byStatus[o.status] = (byStatus[o.status] || 0) + 1; });
+    html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Orders</div></div><div class="kpi-value">' + orders.length + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Value</div></div><div class="kpi-value">\u20b1' + fmt(totalRev) + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Balance Due</div></div><div class="kpi-value" style="color:var(--danger)">\u20b1' + fmt(totalBal) + '</div></div>'
+      + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed</div></div><div class="kpi-value" style="color:var(--success)">' + (byStatus['completed'] || 0) + '</div></div>'
+      + '</div>';
+    html += '<table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Date</th><th>Total</th><th>Balance</th><th>Status</th></tr></thead><tbody>';
+    if (orders.length) {
+      [...orders].reverse().forEach(o => {
+        html += '<tr>'
+          + '<td class="td-mono">#' + String(o.id).padStart(6, '0') + '</td>'
+          + '<td>' + (o.customer_name || '\u2014') + '</td>'
+          + '<td>' + (o.product_type || '\u2014') + '</td>'
+          + '<td class="td-mono">' + (o.created_at ? new Date(o.created_at).toLocaleDateString('en-PH') : '\u2014') + '</td>'
+          + '<td class="td-mono">\u20b1' + fmt(o.total_amount || 0) + '</td>'
+          + '<td class="td-mono" style="color:var(--danger)">\u20b1' + fmt(o.balance || 0) + '</td>'
+          + '<td>' + omStatusBadge(o.status) + '</td>'
+          + '</tr>';
+      });
+    } else {
+      html += '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No orders found for the selected filters.</td></tr>';
+    }
+    html += '</tbody></table>';
 
   } else if (type === 'payroll') {
-    const employees = (s.users||[]).filter(u => u.role !== 'admin' && (!branchId || u.branchId === branchId));
-    html += `<table class="data-table"><thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Daily Rate</th><th>Shifts Worked</th><th>Gross Pay</th></tr></thead><tbody>
-    ${employees.length ? employees.map(emp => {
-      const shifts = (s.shifts||[]).filter(sh => sh.userId === emp.id && sh.status !== 'open' && inRange(sh.openedAt));
-      const gross = shifts.length * (emp.dailyRate||500);
-      const branchName = (s.branches||[]).find(b=>b.id===emp.branchId)?.name || '—';
-      return `<tr>
-        <td><strong>${emp.name||emp.username}</strong></td>
-        <td>${branchName}</td>
-        <td>${{staff:'Branch Staff',print:'Printing Personnel',admin:'Administrator'}[emp.role]||emp.role}</td>
-        <td class="td-mono">₱${fmt(emp.dailyRate||500)}</td>
-        <td class="td-mono">${shifts.length}</td>
-        <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(gross)}</td>
-      </tr>`;
-    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No employees found.</td></tr>'}</tbody></table>`;
+    const employees = (s.users || []).filter(u => u.role !== 'admin' && (!branchId || u.branchId === branchId));
+    let totalGross = 0;
+    html += '<table class="data-table"><thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Daily Rate</th><th>Shifts</th><th>Gross Pay</th></tr></thead><tbody>';
+    if (employees.length) {
+      employees.forEach(emp => {
+        const shifts = (s.shifts || []).filter(sh => sh.userId === emp.id && sh.status !== 'open' && inRange(sh.openedAt));
+        const gross = shifts.length * (emp.dailyRate || 500);
+        totalGross += gross;
+        const branchName = (s.branches || []).find(b => b.id === emp.branchId)?.name || '\u2014';
+        html += '<tr>'
+          + '<td><strong>' + (emp.name || emp.username) + '</strong></td>'
+          + '<td>' + branchName + '</td>'
+          + '<td>' + ({ staff: 'Branch Staff', print: 'Printing Personnel', admin: 'Administrator' }[emp.role] || emp.role) + '</td>'
+          + '<td class="td-mono">\u20b1' + fmt(emp.dailyRate || 500) + '</td>'
+          + '<td class="td-mono">' + shifts.length + '</td>'
+          + '<td class="td-mono" style="color:var(--maroon);font-weight:600">\u20b1' + fmt(gross) + '</td>'
+          + '</tr>';
+      });
+      html += '<tr style="font-weight:700;background:var(--cream)">'
+        + '<td colspan="5" style="text-align:right;padding-right:12px">Total Gross Payroll</td>'
+        + '<td class="td-mono" style="color:var(--maroon)">\u20b1' + fmt(totalGross) + '</td>'
+        + '</tr>';
+    } else {
+      html += '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No employees found.</td></tr>';
+    }
+    html += '</tbody></table>';
   }
 
   html += '</div></div>';
   const el = document.getElementById('cr-result');
   if (el) el.innerHTML = html;
 }
-
 // ── SYSTEM CONFIG ─────────────────────────────────────────────────
 function renderSystemConfig() {
   const s = getState();
@@ -11227,9 +12195,9 @@ function renderSystemConfig() {
     <div class="data-card" style="max-width:560px">
       <div class="data-card-header"><span class="data-card-title">Business Information</span></div>
       <div class="data-card-body" style="display:grid;gap:14px;">
-        <div class="form-group"><label>Business Name</label><input class="form-control" id="cfg-biz-name" value="${cfg.businessName||'South Pafps Packaging Supplies'}"></div>
-        <div class="form-group"><label>Default Currency Symbol</label><input class="form-control" id="cfg-currency" value="${cfg.currency||'₱'}" style="max-width:100px"></div>
-        <div class="form-group"><label>Receipt Footer Note</label><textarea class="form-control" id="cfg-receipt-note" rows="2">${cfg.receiptNote||'Thank you for your business!'}</textarea></div>
+        <div class="form-group"><label>Business Name</label><input class="form-control" id="cfg-biz-name" value="${cfg.businessName || 'South Pafps Packaging Supplies'}"></div>
+        <div class="form-group"><label>Default Currency Symbol</label><input class="form-control" id="cfg-currency" value="${cfg.currency || '₱'}" style="max-width:100px"></div>
+        <div class="form-group"><label>Receipt Footer Note</label><textarea class="form-control" id="cfg-receipt-note" rows="2">${cfg.receiptNote || 'Thank you for your business!'}</textarea></div>
         <button class="btn btn-maroon" style="width:fit-content" onclick="saveSystemConfigLocal()">Save Settings</button>
       </div>
     </div>`;
@@ -11273,10 +12241,10 @@ function renderDispatch() {
           <tbody>
             ${dispatchOrders.length ? dispatchOrders.map(o => `<tr>
               <td>#${o.id}</td>
-              <td>${o.customer_name||'—'}</td>
-              <td>${o.branch||'—'}</td>
-              <td>${(o.items||[]).length} item(s)</td>
-              <td>${o.due_date||'—'}</td>
+              <td>${o.customer_name || '—'}</td>
+              <td>${o.branch || '—'}</td>
+              <td>${(o.items || []).length} item(s)</td>
+              <td>${o.due_date || '—'}</td>
               <td><button class="btn btn-sm btn-maroon" onclick="updateOrderStatus('${o.id}','completed');renderDispatch()">Mark Delivered</button></td>
             </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--ink-40);padding:40px">No orders ready for dispatch today.</td></tr>'}
           </tbody>
@@ -11286,6 +12254,276 @@ function renderDispatch() {
 }
 
 // ── OM CUSTOMER RECORDS (standalone sidebar page) ───────────────────────────
+
+// ── ADMIN + STAFF: Customer Records Management ───────────────────────────────
+var _crFilter = { search: '', tab: 'om' };
+
+function renderCustomerRecordsManagement() {
+  var s = getState();
+  var u = s.currentUser;
+  if (!u || !['admin','staff'].includes(u.role)) { accessDenied('Customer Records'); return; }
+  var isAdmin = u.role === 'admin';
+
+  var omCrs = getCustomerRecords();
+  var posCrs = (s.customers || []).filter(function(c) { return c.source === 'pos' || !c.source; });
+
+  var q = (_crFilter.search || '').toLowerCase();
+  var activeTab = _crFilter.tab || 'om';
+
+  var totalSpentMap = {}, visitCountMap = {}, lastVisitMap = {};
+  (s.sales || []).forEach(function(sale) {
+    if (sale.voided || !sale.customerId) return;
+    totalSpentMap[sale.customerId] = (totalSpentMap[sale.customerId] || 0) + (sale.total || 0);
+    visitCountMap[sale.customerId] = (visitCountMap[sale.customerId] || 0) + 1;
+    if (!lastVisitMap[sale.customerId] || sale.createdAt > lastVisitMap[sale.customerId])
+      lastVisitMap[sale.customerId] = sale.createdAt;
+  });
+
+  var filteredOm = omCrs.filter(function(c) {
+    return !q || (c.businessName||'').toLowerCase().indexOf(q)!==-1
+      || (c.contactPerson||'').toLowerCase().indexOf(q)!==-1
+      || (c.phone||'').indexOf(q)!==-1 || (c.email||'').toLowerCase().indexOf(q)!==-1;
+  });
+  var filteredPos = posCrs.filter(function(c) {
+    return !q || (c.companyName||'').toLowerCase().indexOf(q)!==-1
+      || (c.contactPerson||'').toLowerCase().indexOf(q)!==-1
+      || (c.phone||'').indexOf(q)!==-1;
+  });
+
+  var orders = getOrders();
+  var omRows = filteredOm.map(function(c) {
+    var orderCount = orders.filter(function(o){ return o.customer_id === c.id || (o.customer_name && o.customer_name.toLowerCase() === (c.businessName||'').toLowerCase()); }).length;
+    return '<tr>'
+      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.businessName||'\u2014') + '</div>'
+      + (c.contactPerson ? '<div style="font-size:11px;color:var(--ink-50)">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="td-mono">' + omEsc(c.phone||'\u2014') + '</td>'
+      + '<td>' + omEsc(c.email||'\u2014') + '</td>'
+      + '<td>' + omEsc(c.address||'\u2014') + '</td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment||'\u2014') + '</span></td>'
+      + '<td class="td-mono">' + orderCount + '</td>'
+      + '<td style="font-size:12px;color:var(--ink-50)">' + omDate(c.createdAt) + '</td>'
+      + '<td class="actions-cell">'
+      + '<button class="btn btn-sm btn-outline" onclick="crViewOmCustomer(\'' + c.id + '\')">View</button>'
+      + (isAdmin ? ' <button class="btn btn-sm btn-maroon" onclick="omEditCustomerModal(\'' + c.id + '\')">Edit</button>' : '')
+      + (isAdmin ? ' <button class="btn btn-sm btn-danger" onclick="crDeleteOmCustomer(\'' + c.id + '\')">\u00d7</button>' : '')
+      + '</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)"><div style="font-size:28px;margin-bottom:8px">\uD83D\uDCC2</div>No order management customers yet.</td></tr>';
+
+  var posRows = filteredPos.map(function(c) {
+    var balance = c.outstandingBalance || 0;
+    var balCell = balance > 0
+      ? '<span class="td-mono" style="color:var(--danger);font-weight:700">\u20b1' + fmt(balance) + '</span>'
+      : '<span class="badge badge-success">Clear</span>';
+    return '<tr>'
+      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.companyName||c.contactPerson||'Unknown') + '</div>'
+      + (c.contactPerson && c.companyName ? '<div style="font-size:11px;color:var(--ink-50)">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
+      + '<td class="td-mono">' + omEsc(c.phone||'\u2014') + '</td>'
+      + '<td class="td-mono">' + (visitCountMap[c.id]||0) + '</td>'
+      + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(totalSpentMap[c.id]||0) + '</td>'
+      + '<td>' + (lastVisitMap[c.id] ? fmtDate(lastVisitMap[c.id]) : '\u2014') + '</td>'
+      + '<td>' + balCell + '</td>'
+      + '<td class="actions-cell">'
+      + '<button class="btn btn-sm btn-outline" onclick="viewPosCustomerModal(\'' + c.id + '\')">View</button>'
+      + (isAdmin ? ' <button class="btn btn-sm btn-danger" onclick="crDeletePosCustomer(\'' + c.id + '\')">\u00d7</button>' : '')
+      + '</td></tr>';
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)"><div style="font-size:28px;margin-bottom:8px">\uD83C\uDFEA</div>No POS walk-in customers found.</td></tr>';
+
+  var totalOm = omCrs.length, totalPos = posCrs.length;
+  var totalRev = Object.values(totalSpentMap).reduce(function(a,b){return a+b;},0);
+
+  var tabToggle = '<div style="display:flex;gap:0;border:1px solid var(--ink-20);border-radius:var(--radius);overflow:hidden">'
+    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;background:' + (activeTab==='om'?'var(--maroon)':'transparent') + ';color:' + (activeTab==='om'?'#fff':'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'om\';renderCustomerRecordsManagement()">\uD83D\uDCCB OM Clients (' + totalOm + ')</button>'
+    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;border-left:1px solid var(--ink-20);background:' + (activeTab==='pos'?'var(--maroon)':'transparent') + ';color:' + (activeTab==='pos'?'#fff':'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'pos\';renderCustomerRecordsManagement()">\uD83C\uDFEA POS Walk-ins (' + totalPos + ')</button>'
+    + '</div>';
+
+  var tableSection = activeTab === 'om'
+    ? '<div class="data-card-header" style="padding:10px 20px;border-bottom:1px solid var(--ink-10)">'
+      + '<span class="data-card-title">' + iconSvg('clipboard') + ' Order Management Clients</span>'
+      + '<span class="badge badge-neutral">' + filteredOm.length + ' record' + (filteredOm.length!==1?'s':'') + '</span>'
+      + (isAdmin ? '<button class="btn btn-sm btn-maroon" style="margin-left:auto" onclick="omNewCustomerModal()">+ New Client</button>' : '')
+      + '</div>'
+      + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
+      + '<th>Business / Contact</th><th>Phone</th><th>Email</th><th>Address</th><th>Pay Mode</th><th>Orders</th><th>Added</th><th>Actions</th>'
+      + '</tr></thead><tbody>' + omRows + '</tbody></table></div>'
+    : '<div class="data-card-header" style="padding:10px 20px;border-bottom:1px solid var(--ink-10)">'
+      + '<span class="data-card-title">' + iconSvg('users') + ' POS Walk-in Customers</span>'
+      + '<span class="badge badge-neutral">' + filteredPos.length + ' record' + (filteredPos.length!==1?'s':'') + '</span>'
+      + '</div>'
+      + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
+      + '<th>Customer</th><th>Phone</th><th>Visits</th><th>Total Spent</th><th>Last Visit</th><th>AR Balance</th><th>Actions</th>'
+      + '</tr></thead><tbody>' + posRows + '</tbody></table></div>';
+
+  document.getElementById('page-content').innerHTML =
+    '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">'
+    + '<div><h1 class="page-title">Customer Records</h1>'
+    + '<p class="page-subtitle">Manage all customers \u2014 Order Management clients and POS walk-ins</p></div>'
+    + '</div>'
+    + '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">'
+    + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">OM Clients</div><div class="kpi-icon maroon">' + iconSvg('clipboard') + '</div></div><div class="kpi-value">' + totalOm + '</div><div class="kpi-sub">Order management customers</div></div>'
+    + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">POS Walk-ins</div><div class="kpi-icon blue">' + iconSvg('users') + '</div></div><div class="kpi-value">' + totalPos + '</div><div class="kpi-sub">Walk-in customers via POS</div></div>'
+    + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total POS Revenue</div><div class="kpi-icon green">' + iconSvg('money') + '</div></div><div class="kpi-value">\u20b1' + fmt(totalRev) + '</div><div class="kpi-sub">From all walk-in sales</div></div>'
+    + '</div>'
+    + '<div class="data-card">'
+    + '<div class="data-card-body" style="padding:12px 20px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+    + '<input class="form-control" style="flex:1;min-width:200px;max-width:320px" placeholder="Search customers\u2026" value="' + (_crFilter.search||'') + '" oninput="_crFilter.search=this.value;renderCustomerRecordsManagement()">'
+    + tabToggle + '</div>'
+    + tableSection + '</div>';
+}
+
+function crViewOmCustomer(id) {
+  var crs = getCustomerRecords();
+  var c = crs.find(function(x){ return x.id === id; });
+  if (!c) return;
+  var orders = getOrders().filter(function(o){ return o.customer_name && o.customer_name.toLowerCase() === (c.businessName||'').toLowerCase(); });
+  var s = getState();
+  var isAdmin = s.currentUser && s.currentUser.role === 'admin';
+  var displayName = c.businessName || c.contactPerson || 'Unknown';
+  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
+  var totalOrderValue = orders.reduce(function(sum,o){ return sum+(o.total_amount||0); }, 0);
+
+  var ordersHtml = orders.slice(0,8).map(function(o){
+    return '<tr>'
+      + '<td class="td-mono" style="font-weight:600">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td>' + omEsc(o.product_type||'\u2014') + '</td>'
+      + '<td class="td-mono">\u20b1' + omFmt(o.total_amount||0) + '</td>'
+      + '<td>' + omStatusBadge(o.status) + '</td>'
+      + '<td style="font-size:12px;color:var(--ink-50)">' + omDate(o.created_at||o.createdAt) + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-40)"><div style="font-size:24px;margin-bottom:6px">\uD83D\uDCCB</div>No orders yet.</td></tr>';
+
+  showModal(
+    '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
+    + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
+
+    + '<div style="background:linear-gradient(135deg,var(--maroon) 0%,#a02040 100%);padding:28px 28px 22px;margin:-8px 0 0;position:relative;overflow:hidden">'
+    + '<div style="position:absolute;top:-20px;right:-20px;width:120px;height:120px;background:rgba(255,255,255,0.06);border-radius:50%"></div>'
+    + '<div style="display:flex;align-items:center;gap:16px;position:relative">'
+    + '<div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.3)">' + initials + '</div>'
+    + '<div style="flex:1;min-width:0">'
+    + '<div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">' + omEsc(displayName) + '</div>'
+    + (c.contactPerson && c.businessName ? '<div style="font-size:13px;color:rgba(255,255,255,0.72);margin-bottom:6px">' + omEsc(c.contactPerson) + '</div>' : '<div style="margin-bottom:6px"></div>')
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    + '<span style="background:rgba(255,255,255,0.15);color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600">\uD83D\uDCCB OM Client</span>'
+    + (c.modeOfPayment ? '<span style="background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.9);padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600">\uD83D\uDCB3 ' + omEsc(c.modeOfPayment) + '</span>' : '')
+    + '</div>'
+    + '</div></div></div>'
+
+    + '<div class="modal-body" style="padding:20px 24px">'
+
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">'
+    + '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--maroon)">' + orders.length + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Total Orders</div></div>'
+    + '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--maroon)">\u20b1' + omFmt(totalOrderValue) + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Total Value</div></div>'
+    + '<div style="background:var(--cream);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--ink)">' + omDate(c.createdAt) + '</div><div style="font-size:10px;color:var(--ink-50);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px">Since</div></div>'
+    + '</div>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">'
+    + _crInfoField('Phone', c.phone||'\u2014', true)
+    + _crInfoField('Email', c.email||'\u2014')
+    + _crInfoField('Address', c.address||'\u2014')
+    + _crInfoField('Branch Staff', c.branchStaff||'\u2014')
+    + _crInfoField('Mode of Delivery', c.modeOfDelivery||'\u2014')
+    + _crInfoField('Mode of Payment', c.modeOfPayment||'\u2014')
+    + (c.notes ? '<div style="grid-column:span 2">' + _crInfoField('Notes', c.notes) + '</div>' : '')
+    + '</div>'
+
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-40);margin-bottom:8px">Order History</div>'
+    + '<div style="border:1px solid var(--ink-10);border-radius:10px;overflow:hidden">'
+    + '<table class="data-table" style="margin:0"><thead><tr><th>Order #</th><th>Product</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>'
+    + '<tbody>' + ordersHtml + '</tbody></table></div>'
+    + '</div>'
+
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Close</button>'
+    + (isAdmin ? '<button class="btn btn-maroon" onclick="closeModal();omEditCustomerModal(\'' + id + '\')">' + iconSvg('users') + ' Edit Customer</button>' : '')
+    + '</div>'
+    , 'modal-lg');
+}
+
+function _crInfoField(label, value, mono) {
+  return '<div style="background:var(--cream);border-radius:8px;padding:10px 14px">'
+    + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-40);margin-bottom:3px">' + label + '</div>'
+    + '<div style="font-size:13px;color:var(--ink);' + (mono?'font-family:monospace;':'') + '">' + omEsc(String(value)) + '</div>'
+    + '</div>';
+}
+
+function crDeleteOmCustomer(id) {
+  confirmModal({
+    title: 'Delete Client',
+    message: 'Are you sure you want to delete this client? Their existing orders will remain unaffected.',
+    confirmText: 'Delete Client',
+    icon: '👤',
+    onConfirm: function () {
+      saveCustomerRecords(getCustomerRecords().filter(function(c){ return c.id!==id; }));
+      try { DB.deleteOMCustomer(id); } catch(e) {}
+      showToast('Customer deleted.', 'warning');
+      renderCustomerRecordsManagement();
+    }
+  });
+}
+
+function crEditPosCustomer(id) {
+  var s = getState();
+  var c = (s.customers||[]).find(function(x){ return x.id===id; });
+  if (!c) return;
+  var displayName = c.companyName || c.contactPerson || 'Customer';
+  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
+  showModal(
+    '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
+    + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
+    + '<div style="background:linear-gradient(135deg,var(--maroon) 0%,#a02040 100%);padding:20px 24px;margin:-8px 0 0">'
+    + '<div style="display:flex;align-items:center;gap:14px">'
+    + '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.3)">' + initials + '</div>'
+    + '<div><div style="font-size:16px;font-weight:700;color:#fff">' + omEsc(displayName) + '</div>'
+    + '<div style="font-size:12px;color:rgba(255,255,255,0.7)">\uD83C\uDFEA POS Walk-in Customer</div></div>'
+    + '</div></div>'
+    + '<div class="modal-body" style="padding:20px 24px">'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Company / Business Name</label><input id="crpos-company" class="form-control" value="' + omEsc(c.companyName||'') + '" placeholder="Company name (optional)"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="crpos-contact" class="form-control" value="' + omEsc(c.contactPerson||'') + '" placeholder="Full name"></div>'
+    + '</div>'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Phone</label><input id="crpos-phone" class="form-control" value="' + omEsc(c.phone||'') + '" placeholder="09XX-XXX-XXXX"></div>'
+    + '<div class="form-group"><label>Email</label><input id="crpos-email" class="form-control" value="' + omEsc(c.email||'') + '" placeholder="email@example.com"></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Address</label><input id="crpos-address" class="form-control" value="' + omEsc(c.address||'') + '" placeholder="Street, City"></div>'
+    + '<div class="form-group"><label>Notes</label><textarea id="crpos-notes" class="form-control" rows="2" placeholder="Any additional notes...">' + omEsc(c.notes||'') + '</textarea></div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn btn-maroon" onclick="crSavePosCustomer(\'' + id + '\')">Save Changes</button>'
+    + '</div>'
+  );
+}
+
+function crSavePosCustomer(id) {
+  var s = getState();
+  var c = (s.customers||[]).find(function(x){ return x.id===id; });
+  if (!c) return;
+  function gv(eid) { var el = document.getElementById(eid); return el ? el.value.trim() : ''; }
+  c.companyName=gv('crpos-company'); c.contactPerson=gv('crpos-contact');
+  c.phone=gv('crpos-phone'); c.email=gv('crpos-email');
+  c.address=gv('crpos-address'); c.notes=gv('crpos-notes');
+  c.updatedAt=new Date().toISOString();
+  saveState(s); closeModal();
+  showToast('Customer updated!', 'success');
+  renderCustomerRecordsManagement();
+}
+
+function crDeletePosCustomer(id) {
+  confirmModal({
+    title: 'Delete POS Customer',
+    message: 'Are you sure you want to delete this POS customer? Their sales history will remain unaffected.',
+    confirmText: 'Delete Customer',
+    icon: '👤',
+    onConfirm: function () {
+      var s = getState();
+      s.customers = (s.customers||[]).filter(function(c){ return c.id!==id; });
+      saveState(s); showToast('POS customer deleted.', 'warning');
+      renderCustomerRecordsManagement();
+    }
+  });
+}
+
 function renderOmCustomerRecords() {
   var s = getState();
   var u = s.currentUser;
@@ -11309,75 +12547,243 @@ function renderOmPaymentPage() {
 }
 
 // ── ADMIN REPORTS PAGE ───────────────────────────────────────────────────────
-function renderAdminReports() {
+var _adminReportsTab = 'submissions';
+
+function renderAdminReports(tab) {
   const s = getState();
   if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Reports'); return; }
-  const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
-  const staffSubmissions = submittedReports.filter(r => r.type === 'branch_staff');
-  const printSubmissions = submittedReports.filter(r => r.type === 'print_dept');
-  const allSubmissions = [...submittedReports].reverse();
+  if (tab) _adminReportsTab = tab;
+
+  const tabs = [
+    { id: 'submissions', label: iconSvg('clipboard') + ' Submitted Reports' },
+    { id: 'sales', label: iconSvg('money') + ' Sales Reports' },
+    { id: 'inventory', label: iconSvg('box') + ' Inventory' },
+    { id: 'custom', label: iconSvg('chart') + ' Custom Report' },
+  ];
+
+  const tabBar = '<div class="om-tabs" style="margin-bottom:20px">'
+    + tabs.map(t => '<div class="om-tab' + (_adminReportsTab === t.id ? ' active' : '') + '" onclick="renderAdminReports(\'' + t.id + '\')">' + t.label + '</div>').join('')
+    + '</div>';
+
+  let tabContent = '';
+
+  if (_adminReportsTab === 'submissions') {
+    const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
+    const staffSubmissions = submittedReports.filter(r => r.type === 'branch_staff');
+    const printFwdSubmissions = submittedReports.filter(r => r.type === 'print_dept_forwarded');
+    const pendingFwd = submittedReports.filter(r => r.type === 'print_dept' && !r.forwardedToAdmin).length;
+    const allAdminVisible = [...submittedReports].filter(r => r.type === 'branch_staff' || r.type === 'print_dept_forwarded').reverse();
+
+    const warningBanner = pendingFwd > 0
+      ? '<div style="background:var(--warning-l);border:1px solid var(--warning);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--ink-80)">&#9888; <strong>' + pendingFwd + ' print department report(s)</strong> are waiting to be reviewed and forwarded by Main Branch staff. They will appear here once forwarded.</div>'
+      : '';
+
+    let tableRows = '';
+    if (!allAdminVisible.length) {
+      tableRows = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No reports received yet.</td></tr>';
+    } else {
+      allAdminVisible.forEach(r => {
+        const branch = s.branches.find(b => b.id === r.branchId);
+        const isPrint = r.type === 'print_dept_forwarded';
+        const sourceLabel = isPrint
+          ? '<span class="badge badge-info">&#128247; Print Dept (via Main Branch)</span>'
+          : '<span class="badge badge-neutral">&#128101; Branch Staff</span>';
+        const reportBadges = (r.reports || []).map(rp => '<span class="badge badge-info" style="margin-right:4px">' + rp + '</span>').join('');
+        tableRows += '<tr>'
+          + '<td class="td-mono">' + new Date(r.submittedAt).toLocaleString('en-PH') + '</td>'
+          + '<td><strong>' + (r.submitterName || '&mdash;') + '</strong></td>'
+          + '<td>' + sourceLabel + '</td>'
+          + '<td>' + (branch?.name || (isPrint ? 'Print Dept' : 'All')) + '</td>'
+          + '<td>' + reportBadges + '</td>'
+          + '<td style="max-width:200px;font-size:12px;color:var(--ink-60)">' + (r.note || '&mdash;') + '</td>'
+          + '<td><button class="btn btn-sm btn-outline" onclick="viewSubmittedReport(\'' + r.id + '\')">View</button></td>'
+          + '</tr>';
+      });
+    }
+
+    const pendingKpiColor = pendingFwd > 0 ? 'var(--danger)' : 'var(--success)';
+
+    tabContent = `
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Received</div><div class="kpi-icon maroon">${iconSvg('clipboard')}</div></div><div class="kpi-value">${allAdminVisible.length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Branch Staff</div><div class="kpi-icon gold">${iconSvg('users')}</div></div><div class="kpi-value">${staffSubmissions.length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Print Dept (Fwd)</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${printFwdSubmissions.length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Forwarding</div><div class="kpi-icon maroon">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:${pendingKpiColor}">${pendingFwd}</div></div>
+      </div>
+      ${warningBanner}
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} All Received Reports</span><span class="badge badge-neutral">${allAdminVisible.length} total</span></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Date &amp; Time</th><th>Submitted By</th><th>Source</th><th>Branch</th><th>Reports</th><th>Note</th><th>Action</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+  } else if (_adminReportsTab === 'sales') {
+    // Inline sales report content
+    const sales = (s.sales || []).filter(s2 => !s2.voided);
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const salesThisMonth = sales.filter(s2 => new Date(s2.createdAt) >= monthStart);
+    const totalRevenue = sales.reduce((sum, s2) => sum + (s2.total || 0), 0);
+    const monthRevenue = salesThisMonth.reduce((sum, s2) => sum + (s2.total || 0), 0);
+
+    const branchSales = {};
+    sales.forEach(s2 => {
+      const b = s.branches.find(br => br.id === s2.branchId);
+      const bName = b?.name || 'Unknown';
+      branchSales[bName] = (branchSales[bName] || 0) + (s2.total || 0);
+    });
+
+    const branchRows = Object.entries(branchSales).sort((a, b) => b[1] - a[1]).map(([br, rev]) =>
+      `<tr><td><strong>${br}</strong></td><td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(rev)}</td><td class="td-mono">${sales.filter(s2 => (s.branches.find(b => b.id === s2.branchId)?.name || 'Unknown') === br).length}</td></tr>`
+    ).join('') || '<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--ink-60)">No sales data yet.</td></tr>';
+
+    const recentRows = [...sales].reverse().slice(0, 30).map(s2 => {
+      const b = s.branches.find(br => br.id === s2.branchId);
+      const u2 = s.users.find(u2 => u2.id === s2.userId);
+      return `<tr>
+        <td class="td-mono" style="font-size:12px">${fmtTime(s2.createdAt)}</td>
+        <td class="td-mono">${s2.receiptNo || '—'}</td>
+        <td>${b?.name || '—'}</td>
+        <td>${u2?.name || '—'}</td>
+        <td>${s2.paymentMode || '—'}</td>
+        <td class="td-mono" style="font-weight:700;color:var(--maroon)">₱${fmt(s2.total || 0)}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No sales yet.</td></tr>';
+
+    tabContent = `
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Revenue</div><div class="kpi-icon maroon">${iconSvg('money')}</div></div><div class="kpi-value">₱${fmt(totalRevenue)}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">This Month</div><div class="kpi-icon gold">${iconSvg('chart')}</div></div><div class="kpi-value">₱${fmt(monthRevenue)}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Transactions</div><div class="kpi-icon blue">${iconSvg('receipt')}</div></div><div class="kpi-value">${sales.length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">This Month</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${salesThisMonth.length}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="data-card">
+          <div class="data-card-header"><span class="data-card-title">${iconSvg('building')} Revenue by Branch</span></div>
+          <div class="data-card-body no-pad">
+            <table class="data-table">
+              <thead><tr><th>Branch</th><th>Revenue</th><th>Transactions</th></tr></thead>
+              <tbody>${branchRows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="data-card">
+          <div class="data-card-header"><span class="data-card-title">${iconSvg('receipt')} Recent Transactions</span></div>
+          <div class="data-card-body no-pad" style="max-height:400px;overflow-y:auto">
+            <table class="data-table">
+              <thead><tr><th>Date</th><th>Receipt</th><th>Branch</th><th>Staff</th><th>Method</th><th>Total</th></tr></thead>
+              <tbody>${recentRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+
+  } else if (_adminReportsTab === 'inventory') {
+    const products = (s.products || []).filter(p => p.active);
+    let invRows = '';
+    products.forEach(p => {
+      (p.variants || []).forEach(v => {
+        const totalStock = Object.values(v.branchStocks || {}).reduce((a, b2) => a + (b2 || 0), 0);
+        const low = totalStock > 0 && totalStock <= (v.reorderLevel || 20);
+        const out = totalStock <= 0;
+        const badge = out ? '<span class="badge badge-danger">Out of Stock</span>'
+          : low ? '<span class="badge badge-warning">Low Stock</span>'
+          : '<span class="badge badge-success">OK</span>';
+        invRows += `<tr>
+          <td><strong>${p.name}</strong></td>
+          <td>${v.name}</td>
+          <td class="td-mono">${v.sku || '—'}</td>
+          <td class="td-mono" style="${out ? 'color:var(--danger);font-weight:700' : low ? 'color:var(--warning);font-weight:700' : ''}">${totalStock}</td>
+          <td class="td-mono">${v.reorderLevel || 20}</td>
+          <td>₱${fmt(v.price || 0)}</td>
+          <td>${badge}</td>
+        </tr>`;
+      });
+    });
+
+    tabContent = `
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Products</div><div class="kpi-icon maroon">${iconSvg('box')}</div></div><div class="kpi-value">${products.length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div><div class="kpi-icon gold">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:var(--warning)">${products.flatMap(p => p.variants || []).filter(v => { const t = Object.values(v.branchStocks || {}).reduce((a,b2)=>a+(b2||0),0); return t>0 && t<=(v.reorderLevel||20); }).length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Out of Stock</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div><div class="kpi-value" style="color:var(--danger)">${products.flatMap(p => p.variants || []).filter(v => Object.values(v.branchStocks || {}).reduce((a,b2)=>a+(b2||0),0) <= 0).length}</div></div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('box')} All Product Variants</span></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Product</th><th>Variant</th><th>SKU</th><th>Stock</th><th>Reorder Level</th><th>Price</th><th>Status</th></tr></thead>
+            <tbody>${invRows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No products found.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+  } else if (_adminReportsTab === 'custom') {
+    const branchOptions = (s.branches || []).map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+    tabContent = `
+      <div class="data-card" style="max-width:640px">
+        <div class="data-card-header"><span class="data-card-title">${iconSvg('chart')} Custom Report Generator</span></div>
+        <div class="data-card-body" style="display:grid;gap:14px;">
+          <div class="form-group"><label>Report Type</label>
+            <div class="form-select-wrap"><select class="form-control" id="cr-type">
+              <option value="sales">Sales Report</option>
+              <option value="inventory">Inventory Report</option>
+              <option value="orders">Orders Report</option>
+              <option value="payroll">Payroll Summary</option>
+            </select></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="form-group"><label>From</label><input class="form-control" type="date" id="cr-from" value="${new Date(new Date().setDate(1)).toISOString().split('T')[0]}"></div>
+            <div class="form-group"><label>To</label><input class="form-control" type="date" id="cr-to" value="${new Date().toISOString().split('T')[0]}"></div>
+          </div>
+          <div class="form-group"><label>Branch</label>
+            <div class="form-select-wrap"><select class="form-control" id="cr-branch">
+              <option value="">All Branches</option>
+              ${branchOptions}
+            </select></div>
+          </div>
+          <button class="btn btn-maroon" style="width:fit-content" onclick="generateCustomReport()">Generate Report</button>
+        </div>
+      </div>
+      <div id="cr-result"></div>`;
+  }
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h1 class="page-title">Reports</h1><p class="page-subtitle">Report generator & submissions received from staff</p></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-outline" onclick="navigateTo('sales-reports')">${iconSvg('money')} Sales Reports</button>
-        <button class="btn btn-outline" onclick="navigateTo('inventory-reports')">${iconSvg('box')} Inventory</button>
-        <button class="btn btn-outline" onclick="navigateTo('custom-reports')">${iconSvg('clipboard')} Custom Report</button>
-      </div>
+    <div class="page-header">
+      <h1 class="page-title">Reports</h1>
+      <p class="page-subtitle">Analytics, inventory, and report submissions from staff &amp; print department</p>
     </div>
-
-    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Submissions</div><div class="kpi-icon maroon">${iconSvg('clipboard')}</div></div><div class="kpi-value">${allSubmissions.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Branch Staff</div><div class="kpi-icon gold">${iconSvg('users')}</div></div><div class="kpi-value">${staffSubmissions.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">From Print Dept</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${printSubmissions.length}</div></div>
-    </div>
-
-    <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Submitted Reports from Staff</span></div>
-      <div class="data-card-body no-pad">
-        <table class="data-table">
-          <thead><tr><th>Date & Time</th><th>Submitted By</th><th>Role</th><th>Branch</th><th>Reports Included</th><th>Note</th><th>Action</th></tr></thead>
-          <tbody>${allSubmissions.length ? allSubmissions.map(r => {
-    const branch = s.branches.find(b => b.id === r.branchId);
-    const roleLabel = r.role === 'staff' ? 'Branch Staff' : r.role === 'print' ? 'Printing Dept' : r.role;
-    return `<tr>
-      <td class="td-mono">${new Date(r.submittedAt).toLocaleString('en-PH')}</td>
-      <td><strong>${r.submitterName || '—'}</strong></td>
-      <td><span class="badge badge-neutral">${roleLabel}</span></td>
-      <td>${branch?.name || 'All'}</td>
-      <td>${(r.reports || []).map(rp => `<span class="badge badge-info" style="margin-right:4px">${rp}</span>`).join('')}</td>
-      <td style="max-width:200px;font-size:12px;color:var(--ink-60)">${r.note || '—'}</td>
-      <td><button class="btn btn-sm btn-outline" onclick="viewSubmittedReport('${r.id}')">View</button></td>
-    </tr>`;
-  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No reports submitted yet.</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>`;
+    ${tabBar}
+    <div id="admin-reports-tab-content">${tabContent}</div>`;
 }
-
 function viewSubmittedReport(reportId) {
   const submittedReports = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
   const r = submittedReports.find(x => x.id === reportId);
   if (!r) return;
   const s = getState();
   const branch = s.branches.find(b => b.id === r.branchId);
+  const isPrint = r.type === 'print_dept_forwarded';
+  const sourceLabel = isPrint ? 'Print Dept (via Main Branch)' : (r.role === 'staff' ? 'Branch Staff' : r.role);
   showModal(`
-    <div class="modal-header"><h2>${iconSvg('clipboard')} Submitted Report</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-header"><h2>${iconSvg('clipboard')} Submitted Report — ${r.submitterName}</h2><button class="btn-close-modal" onclick="closeModal()">&#10005;</button></div>
     <div class="modal-body">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--ink-10)">
         <div><div class="text-xs text-muted">Submitted By</div><div style="font-weight:600">${r.submitterName}</div></div>
-        <div><div class="text-xs text-muted">Date & Time</div><div>${new Date(r.submittedAt).toLocaleString('en-PH')}</div></div>
-        <div><div class="text-xs text-muted">Role</div><div>${r.role}</div></div>
-        <div><div class="text-xs text-muted">Branch</div><div>${branch?.name || 'N/A'}</div></div>
+        <div><div class="text-xs text-muted">Date &amp; Time</div><div>${new Date(r.submittedAt).toLocaleString('en-PH')}</div></div>
+        <div><div class="text-xs text-muted">Source</div><div>${sourceLabel}</div></div>
+        <div><div class="text-xs text-muted">Branch</div><div>${branch?.name || (isPrint ? 'Print Dept' : 'N/A')}</div></div>
+        <div style="grid-column:span 2"><div class="text-xs text-muted" style="margin-bottom:4px">Reports Included</div><div style="display:flex;flex-wrap:wrap;gap:4px">${(r.reports || []).map(rp => `<span class="badge badge-info">${rp}</span>`).join('')}</div></div>
       </div>
-      <div style="margin-bottom:12px">
-        <div class="text-xs text-muted" style="margin-bottom:6px">Reports Included</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${(r.reports || []).map(rp => `<span class="badge badge-info">${rp}</span>`).join('')}</div>
-      </div>
-      ${r.note ? `<div><div class="text-xs text-muted" style="margin-bottom:4px">Note from Staff</div><div style="background:var(--cream);padding:10px;border-radius:var(--radius);font-size:13px">${r.note}</div></div>` : ''}
+      ${r.note ? `<div style="margin-bottom:14px"><div class="text-xs text-muted" style="margin-bottom:4px">Note</div><div style="background:var(--cream);padding:10px;border-radius:var(--radius);font-size:13px">${r.note}</div></div>` : ''}
+      <div style="border-top:1px solid var(--ink-10);padding-top:14px">${r.reportHtml || '<div style="text-align:center;padding:32px;color:var(--ink-40)">No report content attached.</div>'}</div>
     </div>
-    <div class="modal-footer"><button class="btn btn-maroon" onclick="closeModal()">Close</button></div>`);
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="printContent(document.querySelector('#modal-container .modal-body').innerHTML,'Report — South Pafps')">${iconSvg('printer')} Print</button>
+      <button class="btn btn-maroon" onclick="closeModal()">Close</button>
+    </div>`, 'modal-lg');
 }
 
 // ── ADMIN PAYSLIP GENERATION ─────────────────────────────────────────────────
@@ -11387,11 +12793,32 @@ function renderAdminPayslipGen() {
   const employees = s.users.filter(u => u.role !== 'admin');
   const now = new Date();
   const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  const sentPayslips = s.payslips || [];
+
+  // Helper: check if a payslip was already sent for an employee+period
+  function alreadySent(empId, periodKey) {
+    return sentPayslips.some(p => p.userId === empId && p.periodKey === periodKey);
+  }
+
+  // Compute current pay period key + label for display
+  function currentPeriodInfo() {
+    const d = now;
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const day = d.getDate();
+    const isA = day <= 15;
+    const key = `${y}-${String(m + 1).padStart(2, '0')}-${isA ? 'A' : 'B'}`;
+    const start = isA ? new Date(y, m, 1) : new Date(y, m, 16);
+    const end = isA ? new Date(y, m, 15) : new Date(y, m + 1, 0);
+    const fmt2 = dt => dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+    const label = `${fmt2(start)} – ${fmt2(end)}, ${y}`;
+    return { key, label, isA, y, m };
+  }
+  const currentPeriod = currentPeriodInfo();
 
   const genPayslipRows = () => employees.map(emp => {
     const dailyRate = emp.dailyRate || 500;
     const timecards = (s.timecards || []).filter(tc => tc.userId === emp.id && tc.status === 'approved');
-    const leaves = (s.leaves || []).filter(l => l.userId === emp.id && l.status === 'approved');
     const workingDays = 26;
     const daysPresent = timecards.length;
     const daysAbsent = Math.max(0, workingDays - daysPresent);
@@ -11401,32 +12828,337 @@ function renderAdminPayslipGen() {
     const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
     const deductions = sss + phic + hdmf;
     const netPay = grossPay - deductions;
+    const sent = alreadySent(emp.id, currentPeriod.key);
     return `<tr>
-      <td><strong>${emp.name || emp.username}</strong></td>
+      <td><strong>${emp.name || emp.username}</strong><br><span style="font-size:11px;color:var(--ink-60)">${emp.position || emp.role}</span></td>
       <td class="td-mono">₱${fmt(dailyRate)}</td>
       <td class="td-mono">${daysPresent}</td>
       <td class="td-mono" style="color:var(--danger)">${daysAbsent}</td>
       <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(grossPay)}</td>
       <td class="td-mono" style="color:var(--danger)">₱${fmt(deductions)}</td>
       <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(netPay)}</td>
-      <td><button class="btn btn-sm btn-maroon" onclick="adminGeneratePayslipModal('${emp.id}')">Generate Payslip</button></td>
+      <td>
+        ${sent
+        ? `<span class="badge badge-success" style="font-size:11px">✓ Sent</span>`
+        : `<button class="btn btn-sm btn-maroon" onclick="adminGeneratePayslipModal('${emp.id}')">Generate &amp; Send</button>`
+      }
+      </td>
     </tr>`;
   }).join('');
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">Payslip Generation</h1>
-      <p class="page-subtitle">Generate and print payslips for ${monthLabel}</p>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 class="page-title">Payslip Generation</h1>
+        <p class="page-subtitle">Generate and send payslips — <strong>${currentPeriod.label}</strong></p>
+      </div>
+      <button class="btn btn-maroon" onclick="showPayslipDetailsModal()">
+        ${iconSvg('money')} + Payslip Details
+      </button>
     </div>
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">Employee Payroll — ${monthLabel}</span><span class="text-sm text-muted">26 working days assumed</span></div>
+      <div class="data-card-header">
+        <span class="data-card-title">Employee Payroll — ${monthLabel}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-60)">Pay Period:</span>
+          <span style="background:var(--maroon);color:#fff;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700">${currentPeriod.label}</span>
+        </span>
+      </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Employee</th><th>Daily Rate</th><th>Days Present</th><th>Days Absent</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <th>Employee</th><th>Daily Rate</th><th>Days Present</th>
+            <th>Days Absent</th><th>Gross Pay</th><th>Deductions</th>
+            <th>Net Pay</th><th>Action</th>
+          </tr></thead>
           <tbody>${employees.length ? genPayslipRows() : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">No employees found.</td></tr>'}</tbody>
         </table>
       </div>
+    </div>
+    <div class="data-card" style="margin-top:20px">
+      <div class="data-card-header"><span class="data-card-title">Sent Payslips History</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Employee</th><th>Pay Period</th><th>Net Pay</th><th>Sent At</th><th>Action</th></tr></thead>
+          <tbody>${sentPayslips.length ? [...sentPayslips].map(p => `<tr>
+            <td><strong>${p.employeeName}</strong></td>
+            <td>${p.payPeriod}</td>
+            <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay)}</td>
+            <td class="td-mono" style="font-size:12px">${p.sentAt ? fmtTime(p.sentAt) : '—'}</td>
+            <td>
+              <button class="btn btn-sm btn-outline" onclick="adminViewSentPayslipModal('${p.id}')">View</button>
+              <button class="btn btn-sm btn-danger" onclick="adminDeletePayslip('${p.id}','${(p.employeeName || '').replace(/'/g, '')}')" style="margin-left:4px">Retract</button>
+            </td>
+          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No payslips sent yet.</td></tr>'}</tbody>
+        </table>
+      </div>
     </div>`;
+}
+
+// ── +Payslip Details modal — manual entry form ─────────────────────────────
+function showPayslipDetailsModal() {
+  const s = getState();
+  const employees = s.users.filter(u => u.role !== 'admin');
+
+  // Build pay period options (current + last 3)
+  function getPeriodOptions() {
+    const options = [];
+    const now = new Date();
+    for (let offset = 0; offset < 4; offset++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - Math.floor(offset / 2), 1);
+      const isA = offset % 2 === 0 ? now.getDate() <= 15 : offset % 2 !== 0;
+      const variants = offset === 0 ? [now.getDate() <= 15 ? 'A' : 'B'] : ['A', 'B'];
+      variants.forEach(half => {
+        const y = d.getFullYear(), m = d.getMonth();
+        const start = half === 'A' ? new Date(y, m, 1) : new Date(y, m, 16);
+        const end = half === 'A' ? new Date(y, m, 15) : new Date(y, m + 1, 0);
+        const key = `${y}-${String(m + 1).padStart(2, '0')}-${half}`;
+        const fmt2 = dt => dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+        const label = `${fmt2(start)} – ${fmt2(end)}, ${y}`;
+        if (!options.find(o => o.key === key)) options.push({ key, label });
+      });
+    }
+    return options.slice(0, 6);
+  }
+
+  const periods = getPeriodOptions();
+  const empOptions = employees.map(e => `<option value="${e.id}" data-rate="${e.dailyRate || 500}">${e.name || e.username}</option>`).join('');
+  const periodOptions = periods.map(p => `<option value="${p.key}" data-label="${p.label}">${p.label}</option>`).join('');
+
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('money')} Payslip Details</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;padding:20px 24px">
+      <div style="background:#fff8e1;border:1px solid #f6d860;border-radius:8px;padding:10px 14px;font-size:12px;color:#7a5c00;line-height:1.6">
+        💡 <strong>Incentive:</strong> ₱300 per new customer they get in printed items.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Employee</label>
+          <select id="ps-employee" class="form-control" onchange="psAutoFillRate()">
+            <option value="">Select employee…</option>
+            ${empOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pay Period</label>
+          <select id="ps-period" class="form-control">
+            <option value="">Select period…</option>
+            ${periodOptions}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Daily Rate (₱)</label>
+          <input type="number" id="ps-daily-rate" class="form-control" placeholder="500" min="0" oninput="psRecalc()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Incentives (₱) <span style="font-size:11px;color:var(--ink-60)">₱300/new customer</span></label>
+          <input type="number" id="ps-incentives" class="form-control" placeholder="0" min="0" oninput="psRecalc()">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Days Present</label>
+        <input type="number" id="ps-days-present" class="form-control" placeholder="13" min="0" max="31" oninput="psRecalc()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Days Absent</label>
+        <input type="number" id="ps-days-absent" class="form-control" placeholder="0" min="0" oninput="psRecalc()">
+      </div>
+      <div style="background:var(--cream,#f9f5f0);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span>Gross Pay</span>
+          <strong id="ps-gross" style="color:var(--maroon)">₱0.00</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span style="color:var(--ink-60)">SSS (4.5%)</span>
+          <span id="ps-sss" style="color:var(--danger)">- ₱0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span style="color:var(--ink-60)">PhilHealth (2.5%)</span>
+          <span id="ps-phic" style="color:var(--danger)">- ₱0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span style="color:var(--ink-60)">Pag-IBIG</span>
+          <span id="ps-hdmf" style="color:var(--danger)">- ₱0.00</span>
+        </div>
+        <div style="border-top:1px solid var(--border,#ddd);padding-top:8px;margin-top:4px;display:flex;justify-content:space-between;font-size:15px;font-weight:700">
+          <span>Net Pay</span>
+          <strong id="ps-net" style="color:var(--success,#16a34a)">₱0.00</strong>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes (optional)</label>
+        <input type="text" id="ps-notes" class="form-control" placeholder="e.g. Perfect attendance bonus included">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="psSubmitPayslip()">Send to Employee →</button>
+    </div>`, 'modal-md');
+}
+
+function psAutoFillRate() {
+  const sel = document.getElementById('ps-employee');
+  const opt = sel.options[sel.selectedIndex];
+  const rate = opt ? (opt.dataset.rate || 500) : 500;
+  document.getElementById('ps-daily-rate').value = rate;
+  psRecalc();
+}
+
+function psRecalc() {
+  const dailyRate = parseFloat(document.getElementById('ps-daily-rate')?.value) || 0;
+  const daysPresent = parseFloat(document.getElementById('ps-days-present')?.value) || 0;
+  const incentives = parseFloat(document.getElementById('ps-incentives')?.value) || 0;
+  const basicPay = daysPresent * dailyRate;
+  const grossPay = basicPay + incentives;
+  const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
+  const phic = grossPay > 0 ? Math.round(grossPay * 0.025) : 0;
+  const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
+  const deductions = sss + phic + hdmf;
+  const netPay = grossPay - deductions;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('ps-gross', '₱' + fmt(grossPay));
+  set('ps-sss', '- ₱' + fmt(sss));
+  set('ps-phic', '- ₱' + fmt(phic));
+  set('ps-hdmf', '- ₱' + fmt(hdmf));
+  set('ps-net', '₱' + fmt(netPay));
+}
+
+async function psSubmitPayslip() {
+  const s = getState();
+  const empId = document.getElementById('ps-employee')?.value;
+  const periodKey = document.getElementById('ps-period')?.value;
+  const periodSel = document.getElementById('ps-period');
+  const periodLabel = periodSel?.options[periodSel.selectedIndex]?.dataset.label || periodKey;
+  const dailyRate = parseFloat(document.getElementById('ps-daily-rate')?.value) || 0;
+  const daysPresent = parseInt(document.getElementById('ps-days-present')?.value) || 0;
+  const daysAbsent = parseInt(document.getElementById('ps-days-absent')?.value) || 0;
+  const incentives = parseFloat(document.getElementById('ps-incentives')?.value) || 0;
+  const notes = document.getElementById('ps-notes')?.value?.trim() || '';
+
+  if (!empId) { showToast('Please select an employee.', 'error'); return; }
+  if (!periodKey) { showToast('Please select a pay period.', 'error'); return; }
+  if (!daysPresent && !incentives) { showToast('Please enter days present or incentives.', 'error'); return; }
+
+  const emp = s.users.find(u => u.id === empId);
+  if (!emp) { showToast('Employee not found.', 'error'); return; }
+
+  const grossPay = daysPresent * dailyRate + incentives;
+  const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
+  const phic = grossPay > 0 ? Math.round(grossPay * 0.025) : 0;
+  const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
+  const deductions = sss + phic + hdmf;
+  const netPay = grossPay - deductions;
+  const now = new Date().toISOString();
+
+  const payslip = {
+    id: 'pslip_' + Date.now(),
+    userId: empId,
+    employeeName: emp.name || emp.username,
+    payPeriod: periodLabel,
+    periodKey,
+    dailyRate,
+    daysPresent,
+    daysAbsent,
+    incentives,
+    grossPay,
+    deductions,
+    sss,
+    philhealth: phic,
+    hdmf,
+    netPay,
+    notes,
+    sentBy: s.currentUser?.id || 'admin',
+    sentAt: now,
+    branchId: emp.branchId || null,
+  };
+
+  try {
+    await DB.sendPayslip(payslip);
+    // Update local state
+    s.payslips = [payslip, ...(s.payslips || [])];
+    saveState(s);
+    closeModal();
+    showToast(`Payslip sent to ${emp.name || emp.username} for ${periodLabel}!`, 'success');
+    renderAdminPayslipGen();
+  } catch (e) {
+    showToast('Failed to send payslip: ' + e.message, 'error');
+  }
+}
+
+function adminViewSentPayslipModal(payslipId) {
+  const s = getState();
+  const p = (s.payslips || []).find(x => x.id === payslipId);
+  if (!p) { showToast('Payslip not found.', 'error'); return; }
+  const emp = s.users.find(u => u.id === p.userId) || {};
+  const branch = s.branches.find(b => b.id === (p.branchId || emp.branchId));
+  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const empNum = emp.employeeNumber || ('EMP-' + String(emp.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  // Build a lightweight payslip view from stored data
+  const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+    </div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <tbody>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Branch:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${branch?.name || '—'}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Days Present:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.daysPresent}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Daily Rate:</strong></td><td style="padding:4px 8px;border:1px solid #999;">₱${fmt(p.dailyRate)}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Days Absent:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.daysAbsent}</td></tr>
+      </tbody>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <thead><tr>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">EARNINGS</th>
+        <th style="background:#333;width:3px;padding:0;"></th>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">DEDUCTIONS</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay (${p.daysPresent}d × ₱${fmt(p.dailyRate)})</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(p.daysPresent * p.dailyRate)}</td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.sss > 0 ? '₱' + fmt(p.sss) : '—'}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Incentives</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.incentives > 0 ? '₱' + fmt(p.incentives) : '—'}</td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : '—'}</td></tr>
+        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : '—'}</td></tr>
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="background:#333;width:3px;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTIONS</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#c0392b;">₱${fmt(p.deductions)}</td></tr>
+        <tr style="font-weight:700;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">₱${fmt(p.grossPay)}</td><td style="background:#333;width:3px;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(p.netPay)}</td></tr>
+      </tfoot>
+    </table>
+    ${p.notes ? `<div style="margin-top:10px;font-size:11px;color:#666;border-top:1px solid #eee;padding-top:8px;">Notes: ${p.notes}</div>` : ''}
+    <div style="margin-top:10px;font-size:10px;color:#999;text-align:center;">Sent by admin on ${p.sentAt ? fmtTime(p.sentAt) : '—'}</div>
+  </div>`;
+
+  showModal(`<div class="modal-header"><h2>📄 Payslip — ${p.employeeName}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="payslip-modal-doc" style="padding:0;max-height:75vh;overflow-y:auto;">${html}</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-modal-doc').innerHTML,'Payslip — ${p.employeeName.replace(/'/g, '')}')">${iconSvg('printer')} Print</button>
+    </div>`, 'modal-lg');
+}
+
+async function adminDeletePayslip(payslipId, empName) {
+  confirmModal({
+    title: 'Retract Payslip',
+    message: `Are you sure you want to retract the payslip for <strong>${empName}</strong>? The employee will no longer be able to see this payslip.`,
+    confirmText: 'Retract Payslip',
+    icon: '📄',
+    onConfirm: async function () {
+      const s = getState();
+      try {
+        await DB.deletePayslip(payslipId);
+        s.payslips = (s.payslips || []).filter(p => p.id !== payslipId);
+        saveState(s);
+        showToast('Payslip retracted.', 'success');
+        renderAdminPayslipGen();
+      } catch (e) {
+        showToast('Failed to retract: ' + e.message, 'error');
+      }
+    }
+  });
 }
 
 function adminGeneratePayslipModal(empId) {
@@ -11528,7 +13260,7 @@ function adminGeneratePayslipModal(empId) {
 // ── PRINT JOB MANAGEMENT ──────────────────────────────────────────────────────
 function renderPrintJobManagement() {
   const s = getState();
-  if (!s.currentUser || !['admin','print'].includes(s.currentUser.role)) { accessDenied('Job Management'); return; }
+  if (!s.currentUser || !['admin', 'print'].includes(s.currentUser.role)) { accessDenied('Job Management'); return; }
   const orders = getOrders();
   const inProdOrders = orders.filter(o => o.status === 'production' || o.status === 'pending');
 
@@ -11539,8 +13271,8 @@ function renderPrintJobManagement() {
     </div>
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Active Jobs</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProdOrders.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${orders.filter(o=>o.status==='production').length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Start</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${orders.filter(o=>o.status==='pending').length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon blue">${iconSvg('printer')}</div></div><div class="kpi-value">${orders.filter(o => o.status === 'production').length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Start</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${orders.filter(o => o.status === 'pending').length}</div></div>
     </div>
     <div class="data-card">
       <div class="data-card-header"><span class="data-card-title">Active Print Jobs</span></div>
@@ -11550,7 +13282,7 @@ function renderPrintJobManagement() {
           <tbody>${inProdOrders.length ? [...inProdOrders].reverse().map(o => {
     const isPastDue = o.due_date && new Date(o.due_date) < new Date() && o.status !== 'completed';
     return `<tr ${isPastDue ? 'style="background:var(--danger-l)"' : ''}>
-      <td class="td-mono fw7">#${String(o.id).padStart(6,'0')}</td>
+      <td class="td-mono fw7">#${String(o.id).padStart(6, '0')}</td>
       <td>${o.customer_name || '—'}</td>
       <td>${o.product_type || o.product_category || '—'}</td>
       <td class="td-mono">${o.quantity || '—'}</td>
@@ -11568,95 +13300,186 @@ function renderPrintJobManagement() {
 }
 
 // ── PRINT REPORTS PAGE (with send-to-admin) ───────────────────────────────────
+function buildPrintReportPreview(types) {
+  const s = getState();
+  const orders = getOrders();
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const genDate = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  let html = '';
+
+  types.forEach(type => {
+    if (type === 'Production Report') {
+      const todayCompleted = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === todayStr);
+      const inProd = orders.filter(o => o.status === 'production');
+      const pending = orders.filter(o => o.status === 'pending');
+      const dispatch = orders.filter(o => o.status === 'dispatch');
+      const qcPassed = orders.filter(o => o.qc_status === 'passed');
+      const qcFailed = orders.filter(o => o.qc_status === 'failed');
+      const passRate = (qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(1) + '%' : '—';
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Production Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--success)">${todayCompleted.length}</div>
+              <div style="font-size:11px;color:var(--ink-60)">Completed Today</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--maroon)">${inProd.length}</div>
+              <div style="font-size:11px;color:var(--ink-60)">In Production</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:var(--warning)">${pending.length}</div>
+              <div style="font-size:11px;color:var(--ink-60)">Pending</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:18px;font-weight:700">${passRate}</div>
+              <div style="font-size:11px;color:var(--ink-60)">QC Pass Rate</div>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Qty</th><th>Status</th><th>QC</th></tr></thead>
+            <tbody>${orders.length ? [...orders].reverse().slice(0, 30).map(o => `<tr>
+              <td class="td-mono">#${String(o.id).padStart(6, '0')}</td>
+              <td>${o.customer_name || '—'}</td>
+              <td>${o.product_type || '—'}</td>
+              <td>${o.quantity || '—'}</td>
+              <td>${omStatusBadge(o.status)}</td>
+              <td>${o.qc_status ? `<span class="badge ${o.qc_status === 'passed' ? 'badge-success' : 'badge-danger'}">${o.qc_status}</span>` : '—'}</td>
+            </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No orders found.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    }
+
+    if (type === 'Inventory Report') {
+      const products = (s.products || []).filter(p => p.active);
+      const materialsLog = (s.materialsLog || []).slice(-10).reverse();
+      html += `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid var(--maroon)">
+            <img src="logo.png" alt="South Pafps" style="height:36px;width:auto;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--maroon)">Inventory / Materials Report</div>
+              <div style="font-size:11px;color:var(--ink-60)">South Pafps Packaging Supplies</div>
+            </div>
+            <span style="font-size:11px;color:var(--ink-40);margin-left:auto">Generated ${genDate}</span>
+          </div>
+          <table class="data-table" style="margin-bottom:12px">
+            <thead><tr><th>Product</th><th>Variant</th><th>Stock</th><th>Reorder Level</th><th>Status</th></tr></thead>
+            <tbody>${products.flatMap(p => (p.variants || []).map(v => {
+        const low = v.stock <= (v.reorderLevel ?? 20);
+        const out = v.stock <= 0;
+        const badge = out ? '<span class="badge badge-danger">Out of Stock</span>' : low ? '<span class="badge badge-warning">Low Stock</span>' : '<span class="badge badge-success">OK</span>';
+        return `<tr>
+                <td>${p.name}</td><td>${v.name}</td>
+                <td class="td-mono" style="${out ? 'color:var(--danger);font-weight:700' : low ? 'color:var(--warning);font-weight:700' : ''}">${v.stock}</td>
+                <td class="td-mono">${v.reorderLevel ?? 20}</td><td>${badge}</td>
+              </tr>`;
+      })).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--ink-60)">No products found.</td></tr>'}</tbody>
+          </table>
+          ${materialsLog.length ? `
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--ink-60)">Recent Material Usage</div>
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Order #</th><th>Material</th><th>Used</th><th>Waste</th></tr></thead>
+            <tbody>${materialsLog.map(log => `<tr>
+              <td class="td-mono">${fmtTime(log.createdAt)}</td>
+              <td class="td-mono">${log.orderId ? '#' + String(log.orderId).padStart(6, '0') : '—'}</td>
+              <td>${log.material}</td><td>${log.used}</td>
+              <td style="color:var(--warning)">${log.waste || 0}</td>
+            </tr>`).join('')}</tbody>
+          </table>` : ''}
+        </div>`;
+    }
+  });
+
+  return html || '<div style="text-align:center;padding:32px;color:var(--ink-40)">Check at least one report type above and click Generate.</div>';
+}
+
 function renderPrintReports() {
   const s = getState();
   const u = s.currentUser;
-  if (!u || !['admin','print'].includes(u.role)) { accessDenied('Reports'); return; }
-  const orders = getOrders();
-  const today = new Date().toDateString();
-  const todayCompleted = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === today);
-  const inProd = orders.filter(o => o.status === 'production');
-  const pending = orders.filter(o => o.status === 'pending');
-  const qcPassed = orders.filter(o => o.qc_status === 'passed');
-  const qcFailed = orders.filter(o => o.qc_status === 'failed');
+  if (!u || !['admin', 'print'].includes(u.role)) { accessDenied('Reports'); return; }
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header">
       <h1 class="page-title">Reports</h1>
-      <p class="page-subtitle">Production & inventory reports — Printing Department</p>
-    </div>
-    <div class="kpi-grid">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed Today</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${todayCompleted.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProd.length}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">QC Pass Rate</div><div class="kpi-icon gold">${iconSvg('check')}</div></div><div class="kpi-value">${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(0) + '%' : '—'}</div></div>
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Orders</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${pending.length}</div></div>
+      <p class="page-subtitle">Generate &amp; send your production reports to the Main Branch</p>
     </div>
 
-    <!-- Send Reports to Admin -->
-    <div class="data-card" style="margin-bottom:16px">
-      <div class="data-card-header"><span class="data-card-title">${iconSvg('clipboard')} Send Reports to Admin</span></div>
+    <div class="data-card">
+      <div class="data-card-header" style="align-items:center">
+        <span class="data-card-title">${iconSvg('clipboard')} Generate &amp; Send Reports to Main Branch</span>
+      </div>
       <div class="data-card-body">
-        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select reports to send to the Administrator:</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="prpt-production" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Production Report</div><div style="font-size:12px;color:var(--ink-60)">Job completion & progress</div></div>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--cream);border-radius:var(--radius);cursor:pointer;border:1.5px solid var(--ink-10)">
-            <input type="checkbox" id="prpt-inventory" style="width:16px;height:16px;accent-color:var(--maroon)">
-            <div><div style="font-weight:600;font-size:13px">Inventory Report</div><div style="font-size:12px;color:var(--ink-60)">Printing materials stock levels</div></div>
-          </label>
-        </div>
-        <div class="form-group" style="margin-bottom:12px">
-          <label>Note to Admin (optional)</label>
-          <textarea id="prpt-note" class="form-control" rows="2" placeholder="Any remarks for the admin..."></textarea>
-        </div>
-        <button class="btn btn-maroon" onclick="submitPrintReportsToAdmin()">Submit Reports to Admin</button>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Today's Completed</span></div>
-        <div class="data-card-body no-pad">
-          <table class="data-table">
-            <thead><tr><th>Order #</th><th>Customer</th><th>Product</th><th>Qty</th></tr></thead>
-            <tbody>${todayCompleted.length ? todayCompleted.map(o => `<tr>
-              <td class="td-mono">${String(o.id).padStart(6, '0')}</td>
-              <td>${o.customer_name || '—'}</td>
-              <td>${o.product_type || o.product_category || '—'}</td>
-              <td>${o.quantity || '—'}</td>
-            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No orders completed today.</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-      <div class="data-card">
-        <div class="data-card-header"><span class="data-card-title">Quality Summary</span></div>
-        <div class="data-card-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div style="text-align:center;padding:16px;background:var(--success-l,#ecfdf5);border-radius:8px">
-              <div style="font-size:24px;font-weight:700;color:var(--success)">${qcPassed.length}</div>
-              <div style="font-size:12px;color:var(--ink-60)">QC Passed</div>
-            </div>
-            <div style="text-align:center;padding:16px;background:var(--danger-l,#fef2f2);border-radius:8px">
-              <div style="font-size:24px;font-weight:700;color:var(--danger)">${qcFailed.length}</div>
-              <div style="font-size:12px;color:var(--ink-60)">QC Failed</div>
+        <p style="font-size:13px;color:var(--ink-60);margin-bottom:14px">Select the type of report you want to generate, then send to the Main Branch:</p>
+        <div class="form-row-2" style="margin-bottom:14px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Report Type</label>
+            <div class="form-select-wrap">
+              <select id="prpt-type" class="form-control">
+                <option value="">&#8212; Select a report type &#8212;</option>
+                <option value="Production Report">Production Report &mdash; Job completion &amp; progress</option>
+                <option value="Inventory Report">Inventory Report &mdash; Printing materials &amp; stock levels</option>
+                <option value="All Reports">All Reports &mdash; Generate both of the above</option>
+              </select>
             </div>
           </div>
-          <div style="font-size:13px;color:var(--ink-60)">Overall QC Pass Rate: <strong>${(qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(1) + '%' : '—'}</strong></div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Note to Main Branch (optional)</label>
+            <input id="prpt-note" class="form-control" placeholder="Any remarks for the main branch...">
+          </div>
         </div>
+        <button class="btn btn-maroon" onclick="printReportPreviewRefresh()" style="font-size:13px">${iconSvg('chart')} Generate Report</button>
+      </div>
+      <div id="print-rpt-preview" style="display:none;border-top:1px solid var(--ink-10);padding:20px 24px 24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-40)">Report Preview</div>
+          <button class="btn btn-maroon" onclick="submitPrintReportsToAdmin()" style="font-size:13px">&#128228; Send to Main Branch</button>
+        </div>
+        <div id="print-rpt-preview-body"></div>
       </div>
     </div>`;
+}
+
+function printReportPreviewRefresh() {
+  const val = document.getElementById('prpt-type')?.value;
+  const preview = document.getElementById('print-rpt-preview');
+  const body = document.getElementById('print-rpt-preview-body');
+  if (!preview || !body) return;
+  if (!val) { showToast('Please select a report type first.', 'error'); return; }
+  const types = val === 'All Reports'
+    ? ['Production Report', 'Inventory Report']
+    : [val];
+  body.innerHTML = buildPrintReportPreview(types);
+  preview.style.display = 'block';
 }
 
 function submitPrintReportsToAdmin() {
   const s = getState();
   const u = s.currentUser;
-  const selected = [];
-  if (document.getElementById('prpt-production')?.checked) selected.push('Production Report');
-  if (document.getElementById('prpt-inventory')?.checked) selected.push('Inventory Report');
-  if (!selected.length) { showToast('Please select at least one report.', 'error'); return; }
+  const val = document.getElementById('prpt-type')?.value;
+  if (!val) { showToast('Please select a report type and generate first.', 'error'); return; }
+  const selected = val === 'All Reports'
+    ? ['Production Report', 'Inventory Report']
+    : [val];
   const note = document.getElementById('prpt-note')?.value?.trim() || '';
+  // Always regenerate fresh so saved HTML always matches selected type
+  const freshHtml = buildPrintReportPreview(selected);
+  const previewBody = document.getElementById('print-rpt-preview-body');
+  if (previewBody) previewBody.innerHTML = freshHtml;
+  const reportHtml = freshHtml;
+  if (!reportHtml || reportHtml.includes('Check at least one report type')) {
+    showToast('Please select a report type first.', 'error');
+    return;
+  }
   const entry = {
     id: 'rpt_' + Date.now(),
     submittedBy: u.id,
@@ -11664,14 +13487,19 @@ function submitPrintReportsToAdmin() {
     role: u.role,
     branchId: u.branchId || null,
     reports: selected,
+    reportHtml,
     note,
     submittedAt: new Date().toISOString(),
     type: 'print_dept',
+    forwardedToAdmin: false,
   };
   const existing = JSON.parse(localStorage.getItem('submitted_reports') || '[]');
   existing.push(entry);
   localStorage.setItem('submitted_reports', JSON.stringify(existing));
-  recordAudit(s, { action: 'print_reports_submitted', message: `${u.name} submitted print reports to admin: ${selected.join(', ')}`, userId: u.id });
+  recordAudit(s, { action: 'print_reports_submitted', message: `${u.name} submitted print reports to main branch: ${selected.join(', ')}`, userId: u.id });
   saveState(s);
-  showToast('Reports submitted to Admin successfully!', 'success');
+  showToast('Report sent to Main Branch successfully! The Main Branch staff will review and forward to Admin.', 'success');
+  // Hide preview after send
+  const preview = document.getElementById('print-rpt-preview');
+  if (preview) preview.style.display = 'none';
 }

@@ -87,20 +87,21 @@ window.loadStateFromServer = async function () {
     const localOnlyCms = (local.cashMovements || []).filter(c => !serverCmIds.has(c.id));
     const mergedCashMovements = [...(serverState.cashMovements || []), ...localOnlyCms];
 
-    // Sync om_customers from state response (state.php now returns omCustomers directly)
+    // FIX: Sync om_customers — preserve ALL fields including branchId
     if (serverState.omCustomers && serverState.omCustomers.length >= 0) {
       const omCustomers = (serverState.omCustomers || []).map(c => ({
-        id: c.id,
-        businessName: c.businessName || '',
-        contactPerson: c.contactPerson || '',
-        phone: c.phone || '',
-        email: c.email || '',
-        address: c.address || '',
-        notes: c.notes || '',
-        modeOfPayment: c.modeOfPayment || '',
+        id:             c.id,
+        businessName:   c.businessName   || '',
+        contactPerson:  c.contactPerson  || '',
+        phone:          c.phone          || '',
+        email:          c.email          || '',
+        address:        c.address        || '',
+        notes:          c.notes          || '',
+        modeOfPayment:  c.modeOfPayment  || '',
         modeOfDelivery: c.modeOfDelivery || '',
-        branchStaff: c.branchStaff || '',
-        createdAt: c.createdAt || '',
+        branchStaff:    c.branchStaff    || '',
+        branchId:       c.branchId       || null,   // ← was missing, caused branch filtering to break
+        createdAt:      c.createdAt      || '',
       }));
       localStorage.setItem('om_customers', JSON.stringify(omCustomers));
     }
@@ -108,23 +109,26 @@ window.loadStateFromServer = async function () {
     // Merge shiftSchedules: server is source of truth, but keep any local keys
     // that the server doesn't know about yet (optimistic saves not yet confirmed)
     const serverSchedules = serverState.shiftSchedules || {};
-    const localSchedules = local.shiftSchedules || {};
+    const localSchedules  = local.shiftSchedules || {};
     const mergedSchedules = { ...localSchedules, ...serverSchedules }; // server wins on conflict
 
     const merged = {
       ...serverState,
-      shifts: mergedShifts,
-      sales: mergedSales,
-      cashMovements: mergedCashMovements,
-      shiftSchedules: mergedSchedules,
-      cart: local.cart || [],
-      posDraft: local.posDraft || {},
-      scheduleView: local.scheduleView || 'daily',
-      scheduleDate: local.scheduleDate || null,
+      shifts:          mergedShifts,
+      sales:           mergedSales,
+      cashMovements:   mergedCashMovements,
+      shiftSchedules:  mergedSchedules,
+      cart:            local.cart            || [],
+      posDraft:        local.posDraft        || {},
+      scheduleView:    local.scheduleView    || 'daily',
+      scheduleDate:    local.scheduleDate    || null,
       scheduleWeekStart: local.scheduleWeekStart || null,
-      dashboardPrefs: local.dashboardPrefs || {},
-      currentUser: local.currentUser || null, // restore from localStorage if present
+      dashboardPrefs:  local.dashboardPrefs  || {},
+      currentUser:     local.currentUser     || null, // restore from localStorage if present
     };
+
+    // Payslips come entirely from server — no local merge needed
+    // (employees only see what admin has explicitly sent)
 
     localStorage.setItem('pos_state', JSON.stringify(merged));
     console.log('[DB] State loaded from server ✓');
@@ -213,7 +217,7 @@ DB.saveHandoverNote = async function (note) {
 };
 
 // ─────────────────────────────────────────────
-// Customers
+// Customers (POS)
 // ─────────────────────────────────────────────
 DB.saveCustomer = async function (customer) {
   try {
@@ -228,6 +232,14 @@ DB.updateCustomer = async function (id, payload) {
     await apiPut('/customers/' + id, payload);
   } catch (e) {
     console.error('[DB] updateCustomer failed:', e.message);
+  }
+};
+
+DB.deleteCustomer = async function (id) {
+  try {
+    await apiDelete('/customers/' + id);
+  } catch (e) {
+    console.error('[DB] deleteCustomer failed:', e.message);
   }
 };
 
@@ -270,6 +282,33 @@ DB.deleteProduct = async function (id) {
 };
 
 // ─────────────────────────────────────────────
+// Suppliers
+// ─────────────────────────────────────────────
+DB.saveSupplier = async function (supplier) {
+  try {
+    await apiPost('/suppliers', supplier);
+  } catch (e) {
+    console.error('[DB] saveSupplier failed:', e.message);
+  }
+};
+
+DB.updateSupplier = async function (id, payload) {
+  try {
+    await apiPut('/suppliers/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updateSupplier failed:', e.message);
+  }
+};
+
+DB.deleteSupplier = async function (id) {
+  try {
+    await apiDelete('/suppliers/' + id);
+  } catch (e) {
+    console.error('[DB] deleteSupplier failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
 // Orders
 // ─────────────────────────────────────────────
 DB.saveOrder = async function (order) {
@@ -286,6 +325,63 @@ DB.updateOrder = async function (id, payload) {
     await apiPut('/orders/' + id, payload);
   } catch (e) {
     console.error('[DB] updateOrder failed:', e.message);
+  }
+};
+
+DB.deleteOrder = async function (id) {
+  try {
+    await apiDelete('/orders/' + id);
+  } catch (e) {
+    console.error('[DB] deleteOrder failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Order Payments
+// ─────────────────────────────────────────────
+DB.saveOrderPayment = async function (payment) {
+  try {
+    await apiPost('/order-payments', payment);
+  } catch (e) {
+    console.error('[DB] saveOrderPayment failed:', e.message);
+  }
+};
+
+DB.updateOrderPayment = async function (id, payload) {
+  try {
+    await apiPut('/order-payments/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updateOrderPayment failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Production
+// ─────────────────────────────────────────────
+DB.saveProduction = async function (record) {
+  try {
+    await apiPost('/production', record);
+  } catch (e) {
+    console.error('[DB] saveProduction failed:', e.message);
+  }
+};
+
+DB.updateProduction = async function (id, payload) {
+  try {
+    await apiPut('/production/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updateProduction failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Dispatch
+// ─────────────────────────────────────────────
+DB.saveDispatch = async function (record) {
+  try {
+    await apiPost('/dispatch', record);
+  } catch (e) {
+    console.error('[DB] saveDispatch failed:', e.message);
   }
 };
 
@@ -319,7 +415,6 @@ DB.saveShiftSchedule = async function (userId, date, assignment) {
     await apiPost('/shift-schedules', { userId, date, assignment });
   } catch (e) {
     console.error('[DB] saveShiftSchedule failed:', e.message);
-    // Surface the failure visibly so it's not silently swallowed
     if (window.showToast) showToast('Schedule not saved to server: ' + e.message, 'error');
   }
 };
@@ -419,6 +514,14 @@ DB.updateUser = async function (id, payload) {
   }
 };
 
+DB.deleteUser = async function (id) {
+  try {
+    await apiDelete('/users/' + id);
+  } catch (e) {
+    console.error('[DB] deleteUser failed:', e.message);
+  }
+};
+
 DB.saveBranch = async function (branch) {
   try {
     await apiPost('/branches', branch);
@@ -436,30 +539,7 @@ DB.updateBranch = async function (id, payload) {
 };
 
 // ─────────────────────────────────────────────
-// Added: Delete User (Warning Fix #4)
-// ─────────────────────────────────────────────
-DB.deleteUser = async function (id) {
-  try {
-    await apiDelete('/users/' + id);
-  } catch (e) {
-    console.error('[DB] deleteUser failed:', e.message);
-  }
-};
-
-// ─────────────────────────────────────────────
-// Added: Delete Customer (Warning Fix #5 — merge)
-// ─────────────────────────────────────────────
-DB.deleteCustomer = async function (id) {
-  try {
-    await apiDelete('/customers/' + id);
-  } catch (e) {
-    console.error('[DB] deleteCustomer failed:', e.message);
-  }
-};
-
-
-// ─────────────────────────────────────────────
-// OM Customers (Order Management — separate from POS customers)
+// OM Customers (Order Management)
 // ─────────────────────────────────────────────
 DB.saveOMCustomer = async function (customer) {
   try {
@@ -482,6 +562,27 @@ DB.deleteOMCustomer = async function (id) {
     await apiDelete('/om-customers/' + id);
   } catch (e) {
     console.error('[DB] deleteOMCustomer failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Payslips (admin sends; employees receive)
+// ─────────────────────────────────────────────
+DB.sendPayslip = async function (payslip) {
+  try {
+    return await apiPost('/payslips', payslip);
+  } catch (e) {
+    console.error('[DB] sendPayslip failed:', e.message);
+    throw e; // re-throw so UI can show feedback
+  }
+};
+
+DB.deletePayslip = async function (id) {
+  try {
+    await apiDelete('/payslips/' + id);
+  } catch (e) {
+    console.error('[DB] deletePayslip failed:', e.message);
+    throw e;
   }
 };
 
