@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -13,21 +13,13 @@
   <!--LOGIN PAGE-->
   <div id="login-page">
     <div class="login-bg-texture"></div>
-    <!-- Top-left brand bar -->
-    <div class="login-topbar">
-      <div class="login-topbar-brand">
-        <img src="logo.png" alt="South Pafps Logo" class="login-topbar-logo">
-        <div class="login-topbar-text">
-          <strong>South Pafps</strong>
-          <span>Packaging Supplies</span>
-        </div>
-      </div>
-    </div>
-
     <!-- Title Banner -->
     <div class="login-title-banner">
-      <h1>South Pafps Packaging Supplies</h1>
-      <h2>Integrated Management System</h2>
+      <img src="logo.png" alt="South Pafps Logo" class="login-banner-logo">
+      <div class="login-banner-text-center">
+        <h1>South Pafps Packaging Supplies</h1>
+        <h2>Integrated Management System</h2>
+      </div>
     </div>
 
     <!-- Centered login card -->
@@ -67,6 +59,41 @@
 
   <!--APP SHELL-->
   <div id="app-page" class="hidden">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="sidebar-logo-mark"><img src="logo.png" alt="South Pafps Logo"
+            style="height:30px;width:auto;display:block;border-radius:8px;"></div>
+        <div class="topbar-brand-text">
+          <strong>South Pafps</strong>
+          <span>Packaging Supplies</span>
+        </div>
+      </div>
+      <div class="topbar-title">
+        <div class="topbar-title-app">
+          <span class="topbar-title-main">South Pafps Packaging Supply</span>
+          <span class="topbar-title-sub">Integrated Management System</span>
+        </div>
+        <div class="topbar-title-page">
+          <span class="topbar-title-page-label" id="topbar-page">Dashboard</span>
+          <span class="topbar-title-page-sub" id="topbar-sub"></span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-branch-badge" id="topbar-branch">Main Branch</div>
+        <div class="topbar-date" id="topbar-date"></div>
+        <div class="topbar-account" id="topbar-account">
+          <button class="topbar-account-trigger" id="topbar-account-trigger" onclick="openCurrentUserProfile()">
+            <div class="topbar-account-avatar" id="sb-avatar">A</div>
+            <div class="topbar-account-info">
+              <strong id="sb-name">Admin</strong>
+              <span id="sb-role">Administrator</span>
+            </div>
+            <span class="topbar-account-caret">▾</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
@@ -82,31 +109,6 @@
 
     <!-- Main -->
     <div class="main-area">
-      <div class="topbar">
-        <div class="topbar-breadcrumb">
-          <span class="bc-home">🏠</span>
-          <span class="bc-sep">›</span>
-          <span class="bc-page" id="topbar-page">Dashboard</span>
-          <span class="bc-sub" id="topbar-sub"></span>
-        </div>
-        <div class="topbar-right">
-          <div class="topbar-branch-badge" id="topbar-branch">Main Branch</div>
-          <div class="topbar-date" id="topbar-date"></div>
-          <div class="topbar-account" id="topbar-account">
-            <button class="topbar-account-trigger" id="topbar-account-trigger" onclick="toggleAccountMenu(event)">
-              <div class="topbar-account-avatar" id="sb-avatar">A</div>
-              <div class="topbar-account-info">
-                <strong id="sb-name">Admin</strong>
-                <span id="sb-role">Administrator</span>
-              </div>
-              <span class="topbar-account-caret">▾</span>
-            </button>
-            <div class="topbar-account-menu" id="topbar-account-menu">
-              <button class="topbar-account-signout" onclick="doLogout()">Sign Out</button>
-            </div>
-          </div>
-        </div>
-      </div>
       <div class="page-content" id="page-content"></div>
     </div>
   </div>

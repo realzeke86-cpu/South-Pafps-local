@@ -125,6 +125,8 @@ window.loadStateFromServer = async function () {
       scheduleWeekStart: local.scheduleWeekStart || null,
       dashboardPrefs:  local.dashboardPrefs  || {},
       currentUser:     local.currentUser     || null, // restore from localStorage if present
+      // Employees are localStorage-only (never synced to server) — always preserve local copy
+      employees:       local.employees       || [],
     };
 
     // Payslips come entirely from server — no local merge needed

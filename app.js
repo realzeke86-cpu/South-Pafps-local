@@ -1,4 +1,4 @@
-﻿// --- LocalStorage CRUD for Orders ---
+// --- LocalStorage CRUD for Orders ---
 function smoothScroll(sectionId) {
   const el = document.getElementById(sectionId);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -560,6 +560,48 @@ function closeAccountMenu() {
   const account = document.getElementById('topbar-account');
   if (!account) return;
   account.classList.remove('open');
+}
+
+function openCurrentUserProfile() {
+  const s = getState();
+  const u = s.currentUser;
+  if (!u) return;
+
+  const branch = (s.branches || []).find(b => b.id === u.branchId);
+  const roleLabels = { admin: 'Administrator', staff: 'Branch Staff', print: 'Printing Personnel' };
+  const roleLabel = roleLabels[u.role] || u.role || 'User';
+  const initial = (u.name || u.username || '?')[0].toUpperCase();
+
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('users')} My Profile</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,var(--maroon),#a0263e);border-radius:var(--radius);padding:18px 22px;margin-bottom:18px;color:white;">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0;">${initial}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:18px;font-weight:700;line-height:1.2">${u.name || u.username}</div>
+          <div style="font-size:13px;opacity:0.85;margin-top:3px">${roleLabel}${branch ? ' · ' + branch.name : ''}</div>
+          <div style="font-size:12px;opacity:0.8;margin-top:2px">@${u.username}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;">
+        <div style="background:var(--cream);border-radius:var(--radius-sm);padding:10px 14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--ink-40);margin-bottom:4px">Role</div>
+          <div style="font-size:14px;font-weight:600;color:var(--ink)">${roleLabel}</div>
+        </div>
+        <div style="background:var(--cream);border-radius:var(--radius-sm);padding:10px 14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--ink-40);margin-bottom:4px">Branch</div>
+          <div style="font-size:14px;font-weight:600;color:var(--ink)">${branch ? branch.name : (u.branchId || 'All Branches')}</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="closeModal(); doLogout();">Sign Out</button>
+    </div>
+  `);
 }
 
 // SIDEBAR
@@ -7887,8 +7929,8 @@ function nuUpdatePositions() {
   const posSel = document.getElementById('nu-position');
   if (!posSel) return;
   const options = {
-    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
-    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+    staff: ['Cashier'],
+    print: ['Printing Operator'],
   };
   const list = options[role] || options.staff;
   posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
@@ -7928,10 +7970,7 @@ function addStaffAccountModal() {
         <div class="form-group">
           <label>Position <span style="color:var(--danger)">*</span></label>
           <div class="form-select-wrap"><select id="nu-position" class="form-control">
-            <option value="Sales Associate">Sales Associate</option>
             <option value="Cashier">Cashier</option>
-            <option value="Stock Clerk">Stock Clerk</option>
-            <option value="Branch Supervisor">Branch Supervisor</option>
           </select></div>
         </div>
       </div>
@@ -7991,8 +8030,8 @@ function editUserModal(uid) {
   const u = s.users.find(x => x.id === uid);
   if (!u || u.role === 'admin') return;
   const positionsByRole = {
-    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
-    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+    staff: ['Cashier'],
+    print: ['Printing Operator'],
   };
   const posOpts = (positionsByRole[u.role] || positionsByRole.staff).map(p =>
     `<option value="${p}" ${u.position === p ? 'selected' : ''}>${p}</option>`).join('');
@@ -8052,7 +8091,7 @@ function confirmEditUser(uid) {
     details: { updatedUserId: u.id },
   });
   saveState(s);
-  DB.updateUser(uid, { name: u.name, branchId: u.branchId, position: u.position, role: u.role });
+  DB.updateUser(uid, { name: u.name, branchId: u.branchId, position: u.position, role: u.role, employeeId: u.employeeId || null });
   closeModal();
   showToast('User updated!', 'success');
   renderUsers();
@@ -11276,10 +11315,7 @@ function showAddEmployeeModal() {
         <div class="form-group">
           <label>Position / Job Title <span style="color:var(--danger)">*</span></label>
           <div class="form-select-wrap"><select class="form-control" id="ae-pos">
-            <option value="Sales Associate">Sales Associate</option>
             <option value="Cashier">Cashier</option>
-            <option value="Stock Clerk">Stock Clerk</option>
-            <option value="Branch Supervisor">Branch Supervisor</option>
           </select></div>
         </div>
         <div class="form-group">
@@ -11342,8 +11378,8 @@ function aeUpdatePositions() {
   const posSel = document.getElementById('ae-pos');
   if (!posSel) return;
   const options = {
-    staff: ['Sales Associate', 'Cashier', 'Stock Clerk', 'Branch Supervisor'],
-    print: ['Printing Operator', 'Graphic Artist', 'Press Operator', 'Finishing Staff', 'Print Supervisor'],
+    staff: ['Cashier'],
+    print: ['Printing Operator'],
   };
   const list = options[role] || options.staff;
   posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
