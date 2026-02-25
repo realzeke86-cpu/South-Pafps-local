@@ -3684,12 +3684,12 @@ function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
     .toLocaleDateString('en-PH', { day: 'numeric', year: 'numeric' });
   return `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
-      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+      <div style="flex-shrink:0;width:90px;"><img src="logo.png" alt="South Pafps" style="width:90px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;padding-top:4px;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.8;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
     </div>
-    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 10px;">PAYSLIP</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
-      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
@@ -3699,23 +3699,60 @@ function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
       </tbody>
     </table>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
-      <colgroup><col style="width:34%"><col style="width:10%"><col style="width:14%"><col style="width:3px"><col style="width:auto"><col style="width:14%"></colgroup>
+      <colgroup><col style="width:34%"><col style="width:9%"><col style="width:13%"><col style="width:4px"><col style="width:auto"><col style="width:14%"></colgroup>
       <thead><tr>
-        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
-        <td style="background:#333;width:3px;padding:0;"></td>
-        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:4px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">DEDUCTIONS</th>
       </tr></thead>
       <tbody>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td><td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.totalDays}</td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.basicPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.sss > 0 ? '₱' + fmt(calc.sss) : ''}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱' + fmt(calc.philhealth) : ''}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱' + fmt(calc.hdmf) : ''}</td></tr>
-        <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(calc.dailyRate)}/day</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.totalDays}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(calc.basicPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.sss > 0 ? '₱' + fmt(calc.sss) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${calc.commissionCups > 0 ? 'Commission (Cups)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.commissionCupsQty > 0 ? calc.commissionCupsQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.commissionCups > 0 ? '₱' + fmt(calc.commissionCups) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱' + fmt(calc.philhealth) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${calc.commissionGp > 0 ? 'Commission (GP)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.commissionGpQty > 0 ? calc.commissionGpQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.commissionGp > 0 ? '₱' + fmt(calc.commissionGp) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱' + fmt(calc.hdmf) : ''}</td>
+        </tr>
+        <tr style="height:22px;">
+          <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+          <td style="background:#333;padding:0;"></td>
+          <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
+        </tr>
       </tbody>
       <tfoot>
-        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.grossPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.totalDeductions)}</td></tr>
-        <tr style="font-weight:700;"><td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(calc.netPay)}</td></tr>
+        <tr style="font-weight:700;">
+          <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.grossPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.totalDeductions)}</td>
+        </tr>
+        <tr style="font-weight:700;">
+          <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(calc.netPay)}</td>
+        </tr>
       </tfoot>
     </table>
+    <div style="margin-top:16px;border-top:2px dashed #ccc;padding-top:4px;"></div>
   </div>`;
 }
 
@@ -3728,7 +3765,7 @@ function viewPayslipModal(periodKey) {
   const calc = calcPayslip(me, period, s);
   const positionLabel = me.role === 'staff' ? 'Sales Associate' : 'Printing Personnel';
   const empNum = me.employeeNumber || ('BPS-' + String(me.id || '001').replace(/\D/g, '').padStart(3, '0'));
-  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const COMPANY = getCompanyInfo();
   const html = buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel);
   showModal(`<div class="modal-header"><h2>📄 Payslip — ${period.label}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body" id="payslip-modal-doc" style="padding:0;max-height:75vh;overflow-y:auto;">${html}</div>
@@ -3782,63 +3819,93 @@ function viewSentPayslipModal(payslipId) {
   if (!p) { showToast('Payslip not found.', 'error'); return; }
   const me = s.currentUser;
   const branch = s.branches.find(b => b.id === (p.branchId || me?.branchId));
-  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const COMPANY = getCompanyInfo();
   const empNum = me?.employeeNumber || ('EMP-' + String(me?.id || '001').replace(/\D/g, '').padStart(3, '0'));
   const positionLabel = me?.role === 'staff' ? 'Sales Associate' : me?.role === 'print' ? 'Printing Personnel' : (me?.role || '');
 
+  // Derive pay date from sentAt or notes
+  const payDateStr = p.sentAt ? new Date(p.sentAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
+  // Basic pay portion and commission portions
+  const basicPay = p.daysPresent * p.dailyRate;
+  // Commission (Cups): stored in incentives field; Commission (GP): additional incentive beyond cups
+  // Use incentives as combined; split display as single incentive row if present
+  const commissionCupsQty = p.commissionCupsQty ?? (p.incentives > 0 ? 1 : 0);
+  const commissionCupsAmt = p.commissionCupsAmt ?? (p.incentives > 0 ? p.incentives : 0);
+  const commissionGpQty   = p.commissionGpQty  ?? 0;
+  const commissionGpAmt   = p.commissionGpAmt  ?? 0;
+
   const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
-      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+      <div style="flex-shrink:0;width:90px;"><img src="logo.png" alt="South Pafps" style="width:90px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;padding-top:4px;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.8;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
     </div>
-    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 10px;">PAYSLIP</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
-      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.sss || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth No.:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.philhealth || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG No.:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.pagibig || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.tin || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Branch:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${branch?.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.sssNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.tinNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
     </table>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
-      <colgroup><col style="width:50%"><col style="width:3px"><col style="width:50%"></colgroup>
+      <colgroup><col style="width:34%"><col style="width:9%"><col style="width:13%"><col style="width:4px"><col style="width:auto"><col style="width:14%"></colgroup>
       <thead><tr>
-        <th style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">EARNINGS / INCOME</th>
-        <td style="background:#333;padding:0;"></td>
-        <th style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">DEDUCTIONS</th>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:4px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">DEDUCTIONS</th>
       </tr></thead>
       <tbody>
-        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
-          <span>Basic Pay (${p.daysPresent}d × ₱${fmt(p.dailyRate)})</span><strong>₱${fmt(p.daysPresent * p.dailyRate)}</strong>
-        </td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
-          <span>SSS EE Contribution</span><span>${p.sss > 0 ? '₱' + fmt(p.sss) : '—'}</span>
-        </td></tr>
-        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
-          <span>Incentives</span><strong>${p.incentives > 0 ? '₱' + fmt(p.incentives) : '—'}</strong>
-        </td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
-          <span>PhilHealth (NHIP)</span><span>${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : '—'}</span>
-        </td></tr>
-        <tr><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;height:24px;"></td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;border-right:1px solid #999;padding:5px 8px;display:flex;justify-content:space-between;">
-          <span>Pag-IBIG (HDMF)</span><span>${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : '—'}</span>
-        </td></tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(p.dailyRate)}/day</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${p.daysPresent}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(basicPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.sss > 0 ? '₱' + fmt(p.sss) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${commissionCupsQty > 0 ? 'Commission (Cups)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? commissionCupsQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? '₱' + fmt(commissionCupsAmt) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${commissionGpQty > 0 ? 'Commission (GP)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? commissionGpQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? '₱' + fmt(commissionGpAmt) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : ''}</td>
+        </tr>
+        <tr style="height:22px;">
+          <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+          <td style="background:#333;padding:0;"></td>
+          <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
+        </tr>
       </tbody>
       <tfoot>
-        <tr style="font-weight:700;background:#e8e8e8;">
-          <td style="border:1px solid #999;padding:6px 8px;">GROSS PAY &nbsp;&nbsp; ₱${fmt(p.grossPay)}</td>
-          <td style="background:#333;width:3px;padding:0;"></td>
-          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTIONS &nbsp;&nbsp; ₱${fmt(p.deductions)}</td>
+        <tr style="font-weight:700;">
+          <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.grossPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.deductions)}</td>
         </tr>
         <tr style="font-weight:700;">
-          <td style="border:1px solid #999;padding:8px;background:#fff;"></td>
-          <td style="background:#333;width:3px;padding:0;"></td>
-          <td style="border:1px solid #999;padding:8px;background:#fff7f7;color:#7B1C2E;font-size:14px;">NET PAY &nbsp;&nbsp; ₱${fmt(p.netPay)}</td>
+          <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.netPay)}</td>
         </tr>
       </tfoot>
     </table>
     ${p.notes ? `<div style="margin-top:10px;font-size:11px;color:#666;border-top:1px solid #eee;padding-top:8px;">Notes: ${p.notes}</div>` : ''}
-    <div style="margin-top:12px;text-align:center;font-size:10px;color:#aaa;">This is a system-generated payslip. For concerns, contact your administrator.</div>
+    <div style="margin-top:16px;border-top:2px dashed #ccc;padding-top:4px;"></div>
   </div>`;
 
   showModal(`<div class="modal-header"><h2>📄 Payslip — ${p.payPeriod}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
@@ -8518,6 +8585,16 @@ function getSystemConfig() {
   return s.systemConfig;
 }
 
+function getCompanyInfo() {
+  const cfg = getSystemConfig();
+  return {
+    name:     cfg.businessName  || 'SOUTH PAFPS PACKAGING SUPPLIES',
+    address1: cfg.bizAddress1   || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
+    address2: cfg.bizAddress2   || 'Pasong Buaya 2, Imus, Cavite',
+    tel:      cfg.bizTel        || 'Tel: (046) 436-9414',
+  };
+}
+
 function showSystemConfigModal() {
   const cfg = getSystemConfig();
   showModal(`
@@ -10555,16 +10632,16 @@ function viewPrintPayslipModal(offset) {
   const pLabel = d.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
   const payDate = new Date(d.getFullYear(), d.getMonth() + 1, 15).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const empNum = me.employeeNumber || ('BPS-' + String(me.id || '001').replace(/\D/g, '').padStart(3, '0'));
-  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const COMPANY = getCompanyInfo();
 
   const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
-      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+      <div style="flex-shrink:0;width:90px;"><img src="logo.png" alt="South Pafps" style="width:90px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;padding-top:4px;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.8;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
     </div>
-    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 10px;">PAYSLIP</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
-      <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+      <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
@@ -10574,23 +10651,60 @@ function viewPrintPayslipModal(offset) {
       </tbody>
     </table>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
-      <colgroup><col style="width:34%"><col style="width:10%"><col style="width:14%"><col style="width:3px"><col style="width:auto"><col style="width:14%"></colgroup>
+      <colgroup><col style="width:34%"><col style="width:9%"><col style="width:13%"><col style="width:4px"><col style="width:auto"><col style="width:14%"></colgroup>
       <thead><tr>
-        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">EARNINGS/INCOME</th>
-        <td style="background:#333;width:3px;padding:0;"></td>
-        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;font-weight:700;">DEDUCTIONS</th>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:4px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">DEDUCTIONS</th>
       </tr></thead>
       <tbody>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(DAILY_RATE)}/day</td><td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${shifts.length}</td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(basicPay)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${sss > 0 ? '₱' + fmt(sss) : ''}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phil > 0 ? '₱' + fmt(phil) : ''}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;padding:5px 8px;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td></tr>
-        <tr style="height:22px;"><td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td><td style="background:#333;padding:0;"></td><td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td></tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(DAILY_RATE)}/day</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${shifts.length}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(basicPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${sss > 0 ? '₱' + fmt(sss) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phil > 0 ? '₱' + fmt(phil) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td>
+        </tr>
+        <tr style="height:22px;">
+          <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+          <td style="background:#333;padding:0;"></td>
+          <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
+        </tr>
       </tbody>
       <tfoot>
-        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(gross)}</td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(ded)}</td></tr>
-        <tr style="font-weight:700;"><td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td><td style="background:#333;width:3px;padding:0;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(net)}</td></tr>
+        <tr style="font-weight:700;">
+          <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(gross)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(ded)}</td>
+        </tr>
+        <tr style="font-weight:700;">
+          <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(net)}</td>
+        </tr>
       </tfoot>
     </table>
+    <div style="margin-top:16px;border-top:2px dashed #ccc;padding-top:4px;"></div>
   </div>`;
 
   showModal(`<div class="modal-header"><h2>📄 Payslip — ${pLabel}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
@@ -12196,6 +12310,9 @@ function renderSystemConfig() {
       <div class="data-card-header"><span class="data-card-title">Business Information</span></div>
       <div class="data-card-body" style="display:grid;gap:14px;">
         <div class="form-group"><label>Business Name</label><input class="form-control" id="cfg-biz-name" value="${cfg.businessName || 'South Pafps Packaging Supplies'}"></div>
+        <div class="form-group"><label>Address Line 1</label><input class="form-control" id="cfg-biz-addr1" value="${cfg.bizAddress1 || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road'}" placeholder="Street / Building"></div>
+        <div class="form-group"><label>Address Line 2</label><input class="form-control" id="cfg-biz-addr2" value="${cfg.bizAddress2 || 'Pasong Buaya 2, Imus, Cavite'}" placeholder="City, Province"></div>
+        <div class="form-group"><label>Phone / Tel</label><input class="form-control" id="cfg-biz-tel" value="${cfg.bizTel || 'Tel: (046) 436-9414'}" placeholder="e.g. Tel: (046) 436-9414"></div>
         <div class="form-group"><label>Default Currency Symbol</label><input class="form-control" id="cfg-currency" value="${cfg.currency || '₱'}" style="max-width:100px"></div>
         <div class="form-group"><label>Receipt Footer Note</label><textarea class="form-control" id="cfg-receipt-note" rows="2">${cfg.receiptNote || 'Thank you for your business!'}</textarea></div>
         <button class="btn btn-maroon" style="width:fit-content" onclick="saveSystemConfigLocal()">Save Settings</button>
@@ -12207,8 +12324,11 @@ function saveSystemConfigLocal() {
   const s = getState();
   if (!s.systemConfig) s.systemConfig = {};
   s.systemConfig.businessName = document.getElementById('cfg-biz-name')?.value || '';
-  s.systemConfig.currency = document.getElementById('cfg-currency')?.value || '₱';
-  s.systemConfig.receiptNote = document.getElementById('cfg-receipt-note')?.value || '';
+  s.systemConfig.bizAddress1  = document.getElementById('cfg-biz-addr1')?.value || '';
+  s.systemConfig.bizAddress2  = document.getElementById('cfg-biz-addr2')?.value || '';
+  s.systemConfig.bizTel       = document.getElementById('cfg-biz-tel')?.value || '';
+  s.systemConfig.currency     = document.getElementById('cfg-currency')?.value || '₱';
+  s.systemConfig.receiptNote  = document.getElementById('cfg-receipt-note')?.value || '';
   saveState(s);
   if (typeof DB !== 'undefined') DB.saveSystemConfig(s.systemConfig);
   showToast('System settings saved.', 'success');
@@ -13096,40 +13216,88 @@ function adminViewSentPayslipModal(payslipId) {
   if (!p) { showToast('Payslip not found.', 'error'); return; }
   const emp = s.users.find(u => u.id === p.userId) || {};
   const branch = s.branches.find(b => b.id === (p.branchId || emp.branchId));
-  const COMPANY = { name: 'SOUTH PAFPS PACKAGING SUPPLIES', address1: 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road', address2: 'Pasong Buaya 2, Imus, Cavite', tel: 'Tel: (046) 436-9414' };
+  const COMPANY = getCompanyInfo();
   const empNum = emp.employeeNumber || ('EMP-' + String(emp.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  const positionLabel = emp.role === 'staff' ? 'Sales Associate' : emp.role === 'print' ? 'Printing Personnel' : (emp.role || '');
+  const payDateStr = p.sentAt ? new Date(p.sentAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
+  const basicPay = p.daysPresent * p.dailyRate;
+  const commissionCupsQty = p.commissionCupsQty ?? (p.incentives > 0 ? 1 : 0);
+  const commissionCupsAmt = p.commissionCupsAmt ?? (p.incentives > 0 ? p.incentives : 0);
+  const commissionGpQty   = p.commissionGpQty  ?? 0;
+  const commissionGpAmt   = p.commissionGpAmt  ?? 0;
   // Build a lightweight payslip view from stored data
   const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
-      <div style="flex-shrink:0;width:80px;"><img src="logo.png" alt="South Pafps" style="width:80px;height:auto;display:block;" onerror="this.style.display='none'"></div>
-      <div style="flex:1;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.7;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+      <div style="flex-shrink:0;width:90px;"><img src="logo.png" alt="South Pafps" style="width:90px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;padding-top:4px;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.8;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
     </div>
-    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 14px;">PAYSLIP</div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 10px;">PAYSLIP</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Branch:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${branch?.name || '—'}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Days Present:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.daysPresent}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Daily Rate:</strong></td><td style="padding:4px 8px;border:1px solid #999;">₱${fmt(p.dailyRate)}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Days Absent:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.daysAbsent}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.sss || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.tin || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
     </table>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <colgroup><col style="width:34%"><col style="width:9%"><col style="width:13%"><col style="width:4px"><col style="width:auto"><col style="width:14%"></colgroup>
       <thead><tr>
-        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">EARNINGS</th>
-        <th style="background:#333;width:3px;padding:0;"></th>
-        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;background:#e8e8e8;">DEDUCTIONS</th>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:4px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">DEDUCTIONS</th>
       </tr></thead>
       <tbody>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay (${p.daysPresent}d × ₱${fmt(p.dailyRate)})</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(p.daysPresent * p.dailyRate)}</td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.sss > 0 ? '₱' + fmt(p.sss) : '—'}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;">Incentives</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.incentives > 0 ? '₱' + fmt(p.incentives) : '—'}</td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth Contribution</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : '—'}</td></tr>
-        <tr><td style="border-left:1px solid #999;padding:5px 8px;"></td><td style="border-right:1px solid #999;padding:5px 8px;"></td><td style="background:#333;width:3px;"></td><td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG</td><td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : '—'}</td></tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(p.dailyRate)}/day</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${p.daysPresent}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(basicPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.sss > 0 ? '₱' + fmt(p.sss) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${commissionCupsQty > 0 ? 'Commission (Cups)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? commissionCupsQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? '₱' + fmt(commissionCupsAmt) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">${commissionGpQty > 0 ? 'Commission (GP)' : ''}</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? commissionGpQty : ''}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? '₱' + fmt(commissionGpAmt) : ''}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : ''}</td>
+        </tr>
+        <tr style="height:22px;">
+          <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+          <td style="background:#333;padding:0;"></td>
+          <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
+        </tr>
       </tbody>
       <tfoot>
-        <tr style="font-weight:700;background:#e8e8e8;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td><td style="background:#333;width:3px;"></td><td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTIONS</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#c0392b;">₱${fmt(p.deductions)}</td></tr>
-        <tr style="font-weight:700;"><td colspan="2" style="border:1px solid #999;padding:6px 8px;">₱${fmt(p.grossPay)}</td><td style="background:#333;width:3px;"></td><td style="border:1px solid #999;padding:6px 8px;">NET PAY</td><td style="border:1px solid #999;padding:6px 8px;text-align:right;color:#7B1C2E;">₱${fmt(p.netPay)}</td></tr>
+        <tr style="font-weight:700;">
+          <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.grossPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.deductions)}</td>
+        </tr>
+        <tr style="font-weight:700;">
+          <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(p.netPay)}</td>
+        </tr>
       </tfoot>
     </table>
     ${p.notes ? `<div style="margin-top:10px;font-size:11px;color:#666;border-top:1px solid #eee;padding-top:8px;">Notes: ${p.notes}</div>` : ''}
-    <div style="margin-top:10px;font-size:10px;color:#999;text-align:center;">Sent by admin on ${p.sentAt ? fmtTime(p.sentAt) : '—'}</div>
+    <div style="margin-top:16px;border-top:2px dashed #ccc;padding-top:4px;"></div>
   </div>`;
 
   showModal(`<div class="modal-header"><h2>📄 Payslip — ${p.employeeName}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
@@ -13180,67 +13348,83 @@ function adminGeneratePayslipModal(empId) {
   const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
   const branch = s.branches.find(b => b.id === emp.branchId);
 
-  const payslipHtml = `
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #ddd;border-radius:8px;overflow:hidden">
-      <div style="background:#7c1c3a;color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:18px;font-weight:700">SOUTH PAFPS PACKAGING SUPPLIES</div>
-          <div style="font-size:12px;opacity:0.8">Payslip — ${monthLabel}</div>
-        </div>
-        <div style="text-align:right;font-size:12px;opacity:0.8">
-          <div>${branch?.name || 'Branch'}</div>
-          <div>Generated: ${now.toLocaleDateString('en-PH')}</div>
-        </div>
-      </div>
-      <div style="padding:16px 20px;background:#f9f5f0;border-bottom:1px solid #ddd">
-        <div style="font-weight:600;font-size:15px">${emp.name || emp.username}</div>
-        <div style="font-size:12px;color:#666">${emp.role === 'staff' ? 'Branch Staff' : emp.role === 'print' ? 'Printing Personnel' : emp.role}</div>
-      </div>
-      <div style="padding:16px 20px">
-        <table style="width:100%;border-collapse:collapse">
-          <tr style="background:#f0f0f0">
-            <th style="padding:8px;text-align:left;border:1px solid #ddd;font-size:12px">EARNINGS</th>
-            <th style="padding:8px;text-align:right;border:1px solid #ddd;font-size:12px">AMOUNT</th>
-            <th style="padding:8px;text-align:left;border:1px solid #ddd;font-size:12px">DEDUCTIONS</th>
-            <th style="padding:8px;text-align:right;border:1px solid #ddd;font-size:12px">AMOUNT</th>
-          </tr>
-          <tr>
-            <td style="padding:8px;border:1px solid #eee;font-size:13px">Basic Pay (${daysPresent} days × ₱${fmt(dailyRate)})</td>
-            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(grossPay)}</td>
-            <td style="padding:8px;border:1px solid #eee;font-size:13px">SSS</td>
-            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(sss)}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px;border:1px solid #eee"></td>
-            <td style="padding:8px;border:1px solid #eee"></td>
-            <td style="padding:8px;border:1px solid #eee;font-size:13px">PhilHealth</td>
-            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(phic)}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px;border:1px solid #eee"></td>
-            <td style="padding:8px;border:1px solid #eee"></td>
-            <td style="padding:8px;border:1px solid #eee;font-size:13px">Pag-IBIG</td>
-            <td style="padding:8px;border:1px solid #eee;text-align:right;font-size:13px">₱${fmt(hdmf)}</td>
-          </tr>
-          <tr style="background:#f9f5f0;font-weight:700">
-            <td style="padding:10px 8px;border:1px solid #ddd">GROSS PAY</td>
-            <td style="padding:10px 8px;border:1px solid #ddd;text-align:right">₱${fmt(grossPay)}</td>
-            <td style="padding:10px 8px;border:1px solid #ddd">TOTAL DEDUCTIONS</td>
-            <td style="padding:10px 8px;border:1px solid #ddd;text-align:right;color:#c0392b">₱${fmt(deductions)}</td>
-          </tr>
-        </table>
-        <div style="margin-top:12px;text-align:right;font-size:18px;font-weight:700;color:#7c1c3a">
-          NET PAY: ₱${fmt(netPay)}
-        </div>
-        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px;color:#666">
-          <div>Days Present: <strong>${daysPresent}</strong></div>
-          <div>Days Absent: <strong>${daysAbsent}</strong></div>
-        </div>
-      </div>
-      <div style="padding:12px 20px;background:#f9f5f0;text-align:center;font-size:11px;color:#999;border-top:1px solid #eee">
-        This is a system-generated payslip. For questions, contact your administrator.
-      </div>
-    </div>`;
+  const COMPANY = getCompanyInfo();
+  const empNum = emp.employeeNumber || ('BPS-' + String(emp.id || '001').replace(/\D/g, '').padStart(3, '0'));
+  const positionLabel = emp.role === 'staff' ? 'Sales Associate' : emp.role === 'print' ? 'Printing Personnel' : (emp.role || '');
+  const payDateStr = new Date(now.getFullYear(), now.getMonth() + 1, 15).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const payslipHtml = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
+      <div style="flex-shrink:0;width:90px;"><img src="logo.png" alt="South Pafps" style="width:90px;height:auto;display:block;" onerror="this.style.display='none'"></div>
+      <div style="flex:1;padding-top:4px;"><div style="font-weight:700;font-size:13px;margin-bottom:4px;">${COMPANY.name}</div><div style="font-size:11px;line-height:1.8;color:#333;">${COMPANY.address1}<br>${COMPANY.address2}<br>${COMPANY.tel}</div></div>
+    </div>
+    <div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:3px;margin:0 0 10px;">PAYSLIP</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;">
+      <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
+      <tbody>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.name || emp.username}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.sss || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${monthLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.tin || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
+      </tbody>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:-1px;">
+      <colgroup><col style="width:34%"><col style="width:9%"><col style="width:13%"><col style="width:4px"><col style="width:auto"><col style="width:14%"></colgroup>
+      <thead><tr>
+        <th colspan="3" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">EARNINGS/INCOME</th>
+        <td style="background:#333;width:4px;padding:0;"></td>
+        <th colspan="2" style="border:1px solid #999;padding:6px 8px;text-align:left;font-weight:700;">DEDUCTIONS</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Basic Pay @ ₱${fmt(dailyRate)}/day</td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${daysPresent}</td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">₱${fmt(daysPresent * dailyRate)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">SSS EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${sss > 0 ? '₱' + fmt(sss) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phic > 0 ? '₱' + fmt(phic) : ''}</td>
+        </tr>
+        <tr>
+          <td style="border-left:1px solid #999;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
+          <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td>
+        </tr>
+        <tr style="height:22px;">
+          <td style="border-left:1px solid #999;"></td><td style="border-left:1px solid #ddd;"></td><td style="border-left:1px solid #ddd;border-right:1px solid #999;"></td>
+          <td style="background:#333;padding:0;"></td>
+          <td style="border-left:1px solid #999;"></td><td style="border-right:1px solid #999;"></td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;">
+          <td colspan="2" style="border:1px solid #999;padding:6px 8px;">GROSS PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(grossPay)}</td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">TOTAL DEDUCTION</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(deductions)}</td>
+        </tr>
+        <tr style="font-weight:700;">
+          <td colspan="3" style="border:1px solid #999;padding:6px 8px;background:#fff;"></td>
+          <td style="background:#333;width:4px;padding:0;"></td>
+          <td style="border:1px solid #999;padding:6px 8px;">NET PAY</td>
+          <td style="border:1px solid #999;padding:6px 8px;text-align:right;">₱${fmt(netPay)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div style="margin-top:16px;border-top:2px dashed #ccc;padding-top:4px;"></div>
+  </div>`;
 
   showModal(`
     <div class="modal-header"><h2>${iconSvg('money')} Payslip — ${emp.name || emp.username}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
