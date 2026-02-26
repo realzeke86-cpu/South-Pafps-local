@@ -181,6 +181,7 @@ function normalizeState(state) {
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.branchTransfers = Array.isArray(state.branchTransfers) ? state.branchTransfers : [];
   state.handoverNotes = Array.isArray(state.handoverNotes) ? state.handoverNotes : [];
+  state.employees = Array.isArray(state.employees) ? state.employees : [];
   state.timecards = Array.isArray(state.timecards) ? state.timecards : [];
   state.leaves = Array.isArray(state.leaves) ? state.leaves : [];
   state.payslips = Array.isArray(state.payslips) ? state.payslips : [];
@@ -446,6 +447,7 @@ function initState() {
     promos: [],
     orders: [],
     arPayments: [],
+    employees: [],
     auditLogs: [],
     branchTransfers: [],
     handoverNotes: [],
@@ -641,7 +643,7 @@ function getNavItems() {
     {
       type: 'group', id: 'settings', icon: 'key', label: 'Settings', page: 'users', children: [
         { id: 'users', icon: 'key', label: 'User & Role Management', page: 'users' },
-        { id: 'system-config', icon: 'home', label: 'System Settings', page: 'system-config' },
+        { id: 'system-config', icon: 'home', label: 'System Info', page: 'system-config' },
       ]
     },
   ];
@@ -1021,7 +1023,7 @@ function navigateTo(page) {
     'audit': 'Audit Log',
     'transfers': 'Branch Transfers',
     'users': 'User & Role Management',
-    'system-config': 'System Settings',
+    'system-config': 'System Info',
     'branches': 'Branch Management',
     'receipts': 'Receipts',
     'staff-reports': 'My Reports',
@@ -3170,10 +3172,16 @@ function renderShiftSchedule() {
     sections.push(buildSchedSection(s, branch.name, '🏪', staff, days, todayStr));
   });
 
-  // Print dept section
-  if (filterBranch === 'all') {
-    const printStaff = (s.users || []).filter(u => u.role === 'print');
-    if (printStaff.length) sections.push(buildSchedSection(s, 'Printing Department', '🖨️', printStaff, days, todayStr));
+  // Print dept section — grouped per branch, respecting branch filter
+  allBranches.forEach(branch => {
+    if (filterBranch !== "all" && filterBranch !== branch.id) return;
+    const branchPrintStaff = (s.users || []).filter(u => u.role === "print" && u.branchId === branch.id);
+    if (branchPrintStaff.length) sections.push(buildSchedSection(s, branch.name + " — Print Dept", "🖨️", branchPrintStaff, days, todayStr));
+  });
+  // Also show print staff with no branch assigned (only when viewing all)
+  if (filterBranch === "all") {
+    const unassignedPrint = (s.users || []).filter(u => u.role === "print" && !u.branchId);
+    if (unassignedPrint.length) sections.push(buildSchedSection(s, "Printing Department", "🖨️", unassignedPrint, days, todayStr));
   }
 
   document.getElementById('page-content').innerHTML = `
@@ -8563,6 +8571,58 @@ document.addEventListener('click', e => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await window.loadStateFromServer();
+
+  // ── Employee recovery: rebuild s.employees from linked user accounts ──────
+  // If localStorage was cleared, s.employees will be empty but s.users (which
+  // comes from the server) still has all users with their employeeId links.
+  // We reconstruct any missing employee records from those user accounts so
+  // Employee Records page is never empty after a localStorage clear.
+  (function recoverEmployeesFromUsers() {
+    const s = getState();
+    const users = s.users || [];
+    let employees = s.employees || [];
+    const existingEmpIds = new Set(employees.map(e => e.id));
+    let changed = false;
+
+    users.forEach(u => {
+      // Only non-admin users that were created via Employee Records (have employeeId)
+      if (!u.employeeId || existingEmpIds.has(u.employeeId)) return;
+      // Reconstruct a minimal employee record from the user account
+      const recovered = {
+        id:               u.employeeId,
+        name:             u.name || u.username,
+        email:            u.email || '',
+        birthdate:        u.birthdate || '',
+        gender:           u.gender || '',
+        emergencyContact: u.emergencyContact || '',
+        address:          u.address || '',
+        role:             u.role || 'staff',
+        position:         u.position || '',
+        branchId:         u.branchId || '',
+        dateHired:        u.dateHired || '',
+        employmentStatus: u.employmentStatus || '',
+        sss:              u.sss || '',
+        philhealth:       u.philhealth || '',
+        pagibig:          u.pagibig || '',
+        tin:              u.tin || '',
+        active:           u.active !== false,
+        createdAt:        u.createdAt || new Date().toISOString(),
+        _recovered:       true, // flag so you can tell these were auto-rebuilt
+      };
+      employees.push(recovered);
+      existingEmpIds.add(u.employeeId);
+      changed = true;
+      console.log('[App] Recovered employee record from user account:', u.username);
+    });
+
+    if (changed) {
+      s.employees = employees;
+      saveState(s);
+      console.log('[App] Employee records recovered from server user accounts ✓');
+    }
+  })();
+  // ─────────────────────────────────────────────────────────────────────────
+
   bindOverviewClickFallback();
 
   // Restore session — check pos_currentUser first, then fall back to pos_state.currentUser
@@ -10931,7 +10991,9 @@ function renderEmployeeRows(employees, query) {
     <tbody>
       ${filtered.map(e => {
     const b = (s.branches || []).find(b => b.id === e.branchId);
-    const linkedUser = (s.users || []).find(u => u.employeeId === e.id);
+    const linkedUser = (s.users || []).find(u => u.employeeId === e.id || (!u.employeeId && u.name === e.name && u.role === e.role && u.branchId === e.branchId));
+    // Backfill employeeId on legacy accounts that matched by name/role
+    if (linkedUser && !linkedUser.employeeId) { linkedUser.employeeId = e.id; saveState(s); }
     const accountBadge = linkedUser
       ? `<span class="badge badge-success" style="font-family:var(--font-mono);font-size:10px">@${linkedUser.username}</span>`
       : `<span class="badge badge-danger" style="font-size:10px;cursor:pointer" onclick="promptLinkAccount('${e.id}')" title="No login account — click to create one">No Account</span>`;
@@ -11214,6 +11276,7 @@ function saveEditEmployee(empId) {
   e.tin = document.getElementById('ee-tin')?.value.trim() || '';
   e.updatedAt = new Date().toISOString();
   saveEmployees(employees);
+  DB.updateEmployee(empId, e);
 
   // Sync name, branch, role to the linked user account if one exists
   const s = getState();
@@ -11244,6 +11307,7 @@ function deleteEmployee(empId) {
 function _deleteEmployeeConfirmed(empId) {
   const employees = getEmployees().filter(x => x.id !== empId);
   saveEmployees(employees);
+  DB.deleteEmployee(empId);
 
   // Also delete the linked system login account
   const s = getState();
@@ -11440,7 +11504,7 @@ function saveNewEmployee() {
   employees.push(newEmployee);
   saveEmployees(employees);
 
-  // Save user account
+  // Save user account first so the DB row exists before we stamp employee_id
   s.users.push(newUser);
   recordAudit(s, {
     action: 'create_user',
@@ -11451,6 +11515,8 @@ function saveNewEmployee() {
   });
   saveState(s);
   DB.saveUser(newUser);
+  // Pass linkedUserId so the /api/employees handler can stamp employee_id on the correct user row
+  DB.saveEmployee({ ...newEmployee, linkedUserId: newUser.id });
 
   closeModal();
   showToast(`Employee "${name}" added with login account.`, 'success');
@@ -12338,10 +12404,10 @@ function generateCustomReport() {
 // ── SYSTEM CONFIG ─────────────────────────────────────────────────
 function renderSystemConfig() {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('System Settings'); return; }
+  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('System Info'); return; }
   const cfg = getSystemConfig ? getSystemConfig() : (s.systemConfig || {});
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header"><h1 class="page-title">System Settings</h1><p class="page-subtitle">Global configuration for the POS system</p></div>
+    <div class="page-header"><h1 class="page-title">System Info</h1><p class="page-subtitle">Global configuration for the POS system</p></div>
     <div class="data-card" style="max-width:560px">
       <div class="data-card-header"><span class="data-card-title">Business Information</span></div>
       <div class="data-card-body" style="display:grid;gap:14px;">

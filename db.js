@@ -125,8 +125,8 @@ window.loadStateFromServer = async function () {
       scheduleWeekStart: local.scheduleWeekStart || null,
       dashboardPrefs:  local.dashboardPrefs  || {},
       currentUser:     local.currentUser     || null, // restore from localStorage if present
-      // Employees are localStorage-only (never synced to server) — always preserve local copy
-      employees:       local.employees       || [],
+      // Employees come from server; fall back to local copy if server is unreachable
+      employees:       serverState.employees || local.employees || [],
     };
 
     // Payslips come entirely from server — no local merge needed
@@ -585,6 +585,33 @@ DB.deletePayslip = async function (id) {
   } catch (e) {
     console.error('[DB] deletePayslip failed:', e.message);
     throw e;
+  }
+};
+
+// ─────────────────────────────────────────────
+// Employees (HR records — separate from login accounts)
+// ─────────────────────────────────────────────
+DB.saveEmployee = async function (employee) {
+  try {
+    await apiPost('/employees', employee);
+  } catch (e) {
+    console.error('[DB] saveEmployee failed:', e.message);
+  }
+};
+
+DB.updateEmployee = async function (id, payload) {
+  try {
+    await apiPut('/employees/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updateEmployee failed:', e.message);
+  }
+};
+
+DB.deleteEmployee = async function (id) {
+  try {
+    await apiDelete('/employees/' + id);
+  } catch (e) {
+    console.error('[DB] deleteEmployee failed:', e.message);
   }
 };
 
