@@ -2593,6 +2593,99 @@ th {
   margin-bottom: 10px;
 }
 
+.product-form-variant-row-wrap {
+  background: var(--cream);
+  border: 1px solid var(--ink-10);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px 10px;
+  margin-bottom: 12px;
+}
+
+.vn-branch-stocks {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ink-10);
+}
+
+.vn-branch-stocks-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-40);
+  margin-bottom: 8px;
+}
+
+.vn-branch-stock-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--ink-10);
+}
+
+.vn-branch-stock-row:last-child {
+  border-bottom: none;
+}
+
+.vn-branch-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.vn-branch-qty {
+  width: 100px !important;
+  font-size: 13px;
+}
+
+/* ── Branch Inventory Overview stat bar ── */
+.bio-stat-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.bio-stat {
+  background: var(--white);
+  border: 2px solid var(--ink-10);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bio-stat:hover {
+  border-color: var(--ink-30);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.bio-stat-active {
+  border-color: var(--maroon) !important;
+  box-shadow: 0 0 0 3px rgba(139, 21, 38, 0.08);
+}
+
+.bio-stat-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.bio-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-60);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .inventory-status-bar {
   height: 6px;
   background: var(--ink-10);
@@ -2862,6 +2955,162 @@ th {
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MISC UTILITY
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.payroll-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.payroll-detail-card {
+  background: var(--white);
+  border: 1px solid var(--ink-10);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+
+.payroll-detail-card label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--ink-60);
+}
+
+.payroll-detail-card strong {
+  font-family: var(--font-mono);
+  color: var(--maroon);
+}
+
+.payroll-detail-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--ink-70);
+}
+
+.payslip-card {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .06);
+  font-family: 'Arial', sans-serif;
+  color: #111;
+}
+
+.payslip-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.payslip-card-logo img {
+  width: 90px;
+  height: auto;
+  display: block;
+}
+
+.payslip-card-company-name {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.payslip-card-company-address {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #444;
+}
+
+.payslip-card-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.payslip-card-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+.payslip-card-table th,
+.payslip-card-table td {
+  border: 1px solid #bbb;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.payslip-card-table th {
+  background: #f5f5f5;
+  font-weight: 700;
+  text-align: left;
+}
+
+.payslip-card-table td strong {
+  color: #111;
+}
+
+.payslip-card-earnings th {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.payslip-card-earnings .payslip-divider {
+  width: 4px;
+  background: #333;
+  padding: 0;
+}
+
+.payslip-summary-label {
+  font-weight: 700;
+  background: #fafafa;
+}
+
+.payslip-card-note {
+  margin-top: 16px;
+  font-size: 11px;
+  color: #555;
+  border-top: 1px dashed #ccc;
+  padding-top: 10px;
+}
+
+.payroll-period-select {
+  max-width: 240px;
+}
+
+.payroll-action-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 900px) {
+  .payroll-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+
+  .payroll-summary,
+  .payroll-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payroll-period-select {
+    max-width: 100%;
+  }
+}
+
 .flex {
   display: flex;
 }
@@ -4122,7 +4371,7 @@ th {
   cursor: pointer;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.65);
-  padding: 8px 14px 8px 28px;
+  padding: 8px 14px 8px 40px;
   border-radius: 6px;
   transition: background 0.15s;
   position: relative;

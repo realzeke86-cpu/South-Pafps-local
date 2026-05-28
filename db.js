@@ -12,53 +12,86 @@
 // ─────────────────────────────────────────────
 // CONFIG — adjust if your Laragon folder differs
 // ─────────────────────────────────────────────
-const API_BASE = window.location.origin.includes('localhost')
-  ? 'http://localhost/South-Pafps/api'
-  : window.location.origin + '/api';
+const API_BASE = new URL('./api', window.location.href).toString().replace(/\/$/, '');
 
 // ─────────────────────────────────────────────
 // Low-level fetch helpers
 // ─────────────────────────────────────────────
 // Common headers for all API requests — bypasses ngrok browser-warning interstitial
-const API_HEADERS = {
-  'Content-Type': 'application/json',
-  'ngrok-skip-browser-warning': 'true',
-};
+// X-User-Id is read by attendance.php (and any other server-side auth checks) since
+// the app does not use PHP sessions — the logged-in user lives in localStorage only.
+function getStoredSessionUser() {
+  try {
+    const raw = sessionStorage.getItem('pos_currentUser');
+    if (raw) return JSON.parse(raw);
+  } catch (e) { }
+  try {
+    const legacyRaw = localStorage.getItem('pos_currentUser');
+    if (legacyRaw) return JSON.parse(legacyRaw);
+  } catch (e) { }
+  return null;
+}
+
+function getApiHeaders() {
+  const sessionUser = getStoredSessionUser();
+  const state = JSON.parse(localStorage.getItem('pos_state') || '{}');
+  const userId = sessionUser?.id || state.currentUser?.id || '';
+  return {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+    ...(userId ? { 'X-User-Id': userId } : {}),
+  };
+}
+const API_HEADERS = getApiHeaders; // kept as function so headers refresh on each call
+
+async function apiRequest(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...options,
+    headers: {
+      ...getApiHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const raw = await res.text();
+  let json = null;
+
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    const preview = raw.trim().slice(0, 220) || '(empty response)';
+    throw new Error(`Unexpected API response (${res.status} ${res.statusText}): ${preview}`);
+  }
+
+  if (!res.ok || !json || !json.ok) {
+    throw new Error(json?.error || `API request failed (${res.status} ${res.statusText})`);
+  }
+
+  return json.data;
+}
 
 async function apiGet(path) {
-  const res = await fetch(API_BASE + path, { headers: API_HEADERS });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'API error');
-  return json.data;
+  return apiRequest(path);
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(API_BASE + path, {
+  return apiRequest(path, {
     method: 'POST',
-    headers: API_HEADERS,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'API error');
-  return json.data;
 }
 
 async function apiPut(path, body) {
-  const res = await fetch(API_BASE + path, {
+  return apiRequest(path, {
     method: 'PUT',
-    headers: API_HEADERS,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'API error');
-  return json.data;
 }
 
 async function apiDelete(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE', headers: API_HEADERS });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'API error');
-  return json.data;
+  return apiRequest(path, {
+    method: 'DELETE',
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -87,6 +120,79 @@ window.loadStateFromServer = async function () {
     const localOnlyCms = (local.cashMovements || []).filter(c => !serverCmIds.has(c.id));
     const mergedCashMovements = [...(serverState.cashMovements || []), ...localOnlyCms];
 
+    // Sync order payment records into localStorage('om_payments')
+    if (serverState.orderPayments && Array.isArray(serverState.orderPayments)) {
+      const localPays = JSON.parse(localStorage.getItem('om_payments') || '[]');
+      const serverPayIds = new Set(serverState.orderPayments.map(p => String(p.id)));
+      const localOnlyPays = localPays.filter(p => !serverPayIds.has(String(p.id)));
+      const mergedPays = [...serverState.orderPayments.map(p => ({
+        id:            p.id,
+        orderId:       p.order_id,
+        orderNumber:   p.order_id,
+        customerId:    p.customer_id    || '',
+        businessName:  p.business_name  || '',
+        contactPerson: p.contact_person || '',
+        totalAmount:   parseFloat(p.total_amount)  || 0,
+        downpayment:   parseFloat(p.downpayment)   || 0,
+        balance:       parseFloat(p.balance)        || 0,
+        modeOfPayment: p.mode_of_payment || '',
+        paymentStatus: p.payment_status  || 'Pending',
+        amountPaid:    parseFloat(p.downpayment)   || 0,
+        note:          p.note            || '',
+        date:          p.date            || '',
+      })), ...localOnlyPays];
+      localStorage.setItem('om_payments', JSON.stringify(mergedPays));
+    }
+
+    // Sync production records into localStorage('om_production')
+    if (serverState.productionRecords && Array.isArray(serverState.productionRecords)) {
+      const localProds = JSON.parse(localStorage.getItem('om_production') || '[]');
+      const serverProdIds = new Set(serverState.productionRecords.map(p => String(p.id)));
+      const localOnlyProds = localProds.filter(p => !serverProdIds.has(String(p.id)));
+      const mergedProds = [...serverState.productionRecords.map(p => ({
+        id:            p.id,
+        orderId:       p.order_id,
+        orderNumber:   p.order_id,
+        progress:      parseInt(p.progress)   || 0,
+        qcResult:      p.qc_status            || null,
+        qcStatus:      p.qc_status            || null,
+        assignedTo:    p.assigned_to          || null,
+        materialsUsed: p.materials_note       || null,
+        updatedAt:     p.updated_at           || null,
+      })), ...localOnlyProds];
+      localStorage.setItem('om_production', JSON.stringify(mergedProds));
+    }
+
+    // Sync dispatch records into localStorage('om_dispatch')
+    if (serverState.dispatchRecords && Array.isArray(serverState.dispatchRecords)) {
+      const localDisps = JSON.parse(localStorage.getItem('om_dispatch') || '[]');
+      const serverDispIds = new Set(serverState.dispatchRecords.map(d => String(d.id)));
+      const localOnlyDisps = localDisps.filter(d => !serverDispIds.has(String(d.id)));
+      const mergedDisps = [...serverState.dispatchRecords.map(d => ({
+        id:             d.id,
+        orderId:        d.order_id,
+        orderNumber:    d.order_id,
+        dispatchMethod: d.dispatch_method  || null,
+        dispatchedAt:   d.dispatched_at    || null,
+        dispatchedBy:   d.dispatched_by    || null,
+        notes:          d.note             || null,
+        date:           d.dispatched_at    || null,
+      })), ...localOnlyDisps];
+      localStorage.setItem('om_dispatch', JSON.stringify(mergedDisps));
+    }
+
+    // FIX: Sync orders from server into the separate 'orders' localStorage key
+    // app.js uses getOrders()/saveOrders() which read/write localStorage('orders'),
+    // NOT pos_state. So we must explicitly sync them here on boot.
+    if (serverState.orders && Array.isArray(serverState.orders)) {
+      const local = JSON.parse(localStorage.getItem('orders') || '[]');
+      const serverOrderIds = new Set(serverState.orders.map(o => String(o.id)));
+      // Keep any local orders not yet confirmed on the server (optimistic creates)
+      const localOnly = local.filter(o => !serverOrderIds.has(String(o.id)));
+      const mergedOrders = [...serverState.orders, ...localOnly];
+      localStorage.setItem('orders', JSON.stringify(mergedOrders));
+    }
+
     // FIX: Sync om_customers — preserve ALL fields including branchId
     if (serverState.omCustomers && serverState.omCustomers.length >= 0) {
       const omCustomers = (serverState.omCustomers || []).map(c => ({
@@ -112,25 +218,86 @@ window.loadStateFromServer = async function () {
     const localSchedules  = local.shiftSchedules || {};
     const mergedSchedules = { ...localSchedules, ...serverSchedules }; // server wins on conflict
 
+    // Merge printProducts: server wins if it has data; preserve local if server is empty
+    // (local ones exist until they've been persisted to DB)
+    const serverPrintProds = serverState.printProducts || [];
+    const localPrintProds  = local.printProducts || [];
+    let mergedPrintProducts;
+    if (serverPrintProds.length > 0) {
+      // Server has data — merge: server wins on conflict, keep any local-only products
+      const serverPrintIds = new Set(serverPrintProds.map(p => p.id));
+      const localOnlyPrints = localPrintProds.filter(p => !serverPrintIds.has(p.id));
+      mergedPrintProducts = [...serverPrintProds, ...localOnlyPrints];
+    } else {
+      // Server returned empty — keep local data (not yet synced to DB)
+      mergedPrintProducts = localPrintProds;
+    }
+
+    // Merge payroll submissions: server is the source of truth, but preserve
+    // local-only entries that were created while offline and not yet synced.
+    const serverPayrollSubs = serverState.payrollSubmissions || [];
+    const localPayrollSubs = Array.isArray(local.payrollSubmissions) ? local.payrollSubmissions : [];
+    const serverPayrollIds = new Set(serverPayrollSubs.map(p => String(p.id)));
+    const localOnlyPayrollSubs = localPayrollSubs.filter(p => !serverPayrollIds.has(String(p.id)));
+    const mergedPayrollSubmissions = [...serverPayrollSubs, ...localOnlyPayrollSubs];
+
+    // Merge payroll runs: server is source of truth, but keep local-only batches
+    // that may have been created while offline and not synced yet.
+    const serverPayrollRuns = serverState.payrollRuns || [];
+    const localPayrollRuns = Array.isArray(local.payrollRuns) ? local.payrollRuns : [];
+    const serverPayrollRunIds = new Set(serverPayrollRuns.map(p => String(p.id)));
+    const localOnlyPayrollRuns = localPayrollRuns.filter(p => !serverPayrollRunIds.has(String(p.id)));
+    const mergedPayrollRuns = [...serverPayrollRuns, ...localOnlyPayrollRuns];
+
+    // Map payslips from snake_case (DB columns) to camelCase (app expects)
+    // Without this, p.userId is always undefined and employees see no payslips
+    const mappedPayslips = (serverState.payslips || []).map(function(p) {
+      return {
+        id:           p.id,
+        userId:       p.user_id,
+        employeeName: p.employee_name,
+        payPeriod:    p.pay_period,
+        periodKey:    p.period_key,
+        dailyRate:    parseFloat(p.daily_rate)  || 0,
+        daysPresent:  parseInt(p.days_present)  || 0,
+        daysAbsent:   parseInt(p.days_absent)   || 0,
+        incentives:   parseFloat(p.incentives)  || 0,
+        grossPay:     parseFloat(p.gross_pay)   || 0,
+        deductions:   parseFloat(p.deductions)  || 0,
+        sss:          parseFloat(p.sss)         || 0,
+        philhealth:   parseFloat(p.philhealth)  || 0,
+        hdmf:         parseFloat(p.hdmf)        || 0,
+        netPay:       parseFloat(p.net_pay)     || 0,
+        notes:        p.notes                   || '',
+        sentBy:       p.sent_by,
+        sentAt:       p.sent_at,
+        branchId:     p.branch_id               || null,
+      };
+    });
+
     const merged = {
       ...serverState,
       shifts:          mergedShifts,
       sales:           mergedSales,
       cashMovements:   mergedCashMovements,
       shiftSchedules:  mergedSchedules,
+      printProducts:   mergedPrintProducts,
+      payrollSubmissions: mergedPayrollSubmissions,
+      payrollRuns:     mergedPayrollRuns,
+      payslips:        mappedPayslips,
       cart:            local.cart            || [],
       posDraft:        local.posDraft        || {},
       scheduleView:    local.scheduleView    || 'daily',
       scheduleDate:    local.scheduleDate    || null,
       scheduleWeekStart: local.scheduleWeekStart || null,
       dashboardPrefs:  local.dashboardPrefs  || {},
-      currentUser:     local.currentUser     || null, // restore from localStorage if present
+      currentUser:     getStoredSessionUser() || null,
       // Employees come from server; fall back to local copy if server is unreachable
       employees:       serverState.employees || local.employees || [],
+      // Attendance: server is now the single source of truth.
+      // Drop any stale _pending placeholders that survived a previous session crash.
+      attendanceRecords: (serverState.attendanceRecords || []).filter(r => !r._pending),
     };
-
-    // Payslips come entirely from server — no local merge needed
-    // (employees only see what admin has explicitly sent)
 
     localStorage.setItem('pos_state', JSON.stringify(merged));
     console.log('[DB] State loaded from server ✓');
@@ -501,11 +668,7 @@ DB.saveSystemConfig = async function (cfg) {
 // Users / Branches (admin only)
 // ─────────────────────────────────────────────
 DB.saveUser = async function (user) {
-  try {
-    await apiPost('/users', user);
-  } catch (e) {
-    console.error('[DB] saveUser failed:', e.message);
-  }
+  await apiPost('/users', user);
 };
 
 DB.updateUser = async function (id, payload) {
@@ -588,31 +751,173 @@ DB.deletePayslip = async function (id) {
   }
 };
 
+DB.savePayrollSubmission = async function (submission) {
+  try {
+    return await apiPost('/payroll-submissions', submission);
+  } catch (e) {
+    console.error('[DB] savePayrollSubmission failed:', e.message);
+    throw e;
+  }
+};
+
+DB.updatePayrollSubmission = async function (id, payload) {
+  try {
+    return await apiPut('/payroll-submissions/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updatePayrollSubmission failed:', e.message);
+    throw e;
+  }
+};
+
+DB.savePayrollRun = async function (payrollRun) {
+  try {
+    return await apiPost('/payroll-runs', payrollRun);
+  } catch (e) {
+    console.error('[DB] savePayrollRun failed:', e.message);
+    throw e;
+  }
+};
+
+DB.deletePayrollRun = async function (id) {
+  try {
+    return await apiDelete('/payroll-runs/' + id);
+  } catch (e) {
+    console.error('[DB] deletePayrollRun failed:', e.message);
+  }
+};
+
+DB.updatePayrollRun = async function (id, payload) {
+  try {
+    return await apiPut('/payroll-runs/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updatePayrollRun failed:', e.message);
+    throw e;
+  }
+};
+
 // ─────────────────────────────────────────────
-// Employees (HR records — separate from login accounts)
+// Employees (HR records — stored on the users table via employee_id + HR fields)
+// There is no separate /employees endpoint. All employee data is stamped on
+// the users row. state.php reconstructs employees[] from users WHERE employee_id IS NOT NULL.
 // ─────────────────────────────────────────────
 DB.saveEmployee = async function (employee) {
+  // employee.linkedUserId is the users.id of the linked login account.
+  // We stamp employee_id + all HR fields onto that user row.
+  const userId = employee.linkedUserId;
+  if (!userId) {
+    console.warn('[DB] saveEmployee: no linkedUserId — cannot persist to DB.');
+    return;
+  }
   try {
-    await apiPost('/employees', employee);
+    await apiPut('/users/' + userId, {
+      employeeId:       employee.id,
+      email:            employee.email            || null,
+      birthdate:        employee.birthdate         || null,
+      gender:           employee.gender            || null,
+      address:          employee.address           || null,
+      emergencyContact: employee.emergencyContact  || null,
+      position:         employee.position          || null,
+      dateHired:        employee.dateHired         || null,
+      employmentStatus: employee.employmentStatus  || null,
+      sss:              employee.sss               || null,
+      philhealth:       employee.philhealth        || null,
+      pagibig:          employee.pagibig           || null,
+      tin:              employee.tin               || null,
+    });
   } catch (e) {
-    console.error('[DB] saveEmployee failed:', e.message);
+    console.error('[DB] saveEmployee (PUT /users) failed:', e.message);
   }
 };
 
 DB.updateEmployee = async function (id, payload) {
+  // id here is the employee record id (emp_xxx).
+  // We need the linked user's id to call PUT /users/:userId.
+  // The payload should include linkedUserId when called from the app.
+  const userId = payload.linkedUserId;
+  if (!userId) {
+    console.warn('[DB] updateEmployee: no linkedUserId in payload — cannot persist to DB.');
+    return;
+  }
   try {
-    await apiPut('/employees/' + id, payload);
+    await apiPut('/users/' + userId, {
+      employeeId:       id,
+      email:            payload.email            || null,
+      birthdate:        payload.birthdate         || null,
+      gender:           payload.gender            || null,
+      address:          payload.address           || null,
+      emergencyContact: payload.emergencyContact  || null,
+      position:         payload.position          || null,
+      dateHired:        payload.dateHired         || null,
+      employmentStatus: payload.employmentStatus  || null,
+      sss:              payload.sss               || null,
+      philhealth:       payload.philhealth        || null,
+      pagibig:          payload.pagibig           || null,
+      tin:              payload.tin               || null,
+    });
   } catch (e) {
-    console.error('[DB] updateEmployee failed:', e.message);
+    console.error('[DB] updateEmployee (PUT /users) failed:', e.message);
   }
 };
 
 DB.deleteEmployee = async function (id) {
+  // Deleting an employee record = clearing employee_id + HR fields from the user row.
+  // We don't have the userId here directly; the caller (app.js deleteEmployee) must
+  // pass it via a separate DB.updateUser call. This is a no-op at the API level
+  // since there is no /employees route — app.js handles it by calling DB.deleteUser.
+  console.log('[DB] deleteEmployee called for emp id:', id, '— handled by app.js via DB.deleteUser');
+};
+
+// ─────────────────────────────────────────────
+// Print Products (Printing Inventory)
+// ─────────────────────────────────────────────
+DB.savePrintProduct = async function (product) {
   try {
-    await apiDelete('/employees/' + id);
+    await apiPost('/print-products', product);
   } catch (e) {
-    console.error('[DB] deleteEmployee failed:', e.message);
+    console.error('[DB] savePrintProduct failed:', e.message);
   }
+};
+
+DB.updatePrintProduct = async function (id, payload) {
+  try {
+    await apiPut('/print-products/' + id, payload);
+  } catch (e) {
+    console.error('[DB] updatePrintProduct failed:', e.message);
+  }
+};
+
+DB.deletePrintProduct = async function (id) {
+  try {
+    await apiDelete('/print-products/' + id);
+  } catch (e) {
+    console.error('[DB] deletePrintProduct failed:', e.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Attendance Records
+// POST /attendance  { action: "time-in",  deviceFp: "..." }
+// POST /attendance  { action: "time-out", deviceFp: "..." }
+// PUT  /attendance/:id  (admin force clock-out)
+// The server always sets its own timestamps — we never send a client timestamp.
+// ─────────────────────────────────────────────
+DB.saveAttendance = async function (action, deviceFp, targetUserId) {
+  // action must be "time-in" or "time-out"
+  return await apiPost('/attendance', { action, deviceFp: deviceFp || '', targetUserId: targetUserId || null });
+};
+
+DB.updateAttendance = async function (id, payload) {
+  // Used for admin force clock-out: { forceOut: true, forceOutReason: "..." }
+  return await apiPut('/attendance/' + id, payload);
+};
+
+DB.editAttendanceTime = async function (id, editTimeIn, editTimeOut, editReason) {
+  // Used by Admin (any record) and Branch Manager (employee records in their branch).
+  // editTimeIn / editTimeOut are "HH:MM" strings (24-hour). Pass null to leave unchanged.
+  const payload = { editReason };
+  if (editTimeIn  !== null) payload.editTimeIn  = editTimeIn;
+  if (editTimeOut !== null) payload.editTimeOut = editTimeOut;
+  return await apiPut('/attendance/' + id, payload);
 };
 
 console.log('[DB] db.js loaded — API base:', API_BASE);

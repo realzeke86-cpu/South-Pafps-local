@@ -35,7 +35,12 @@ function printContent(html, title) {
       .receipt-row.total{border-top:1px dashed #999;margin-top:6px;padding-top:6px;font-weight:700;font-size:14px}
       .receipt-footer{text-align:center;margin-top:12px;padding-top:12px;border-top:1px dashed #999;font-size:11px;color:#666}
       h1,h2,h3{margin-bottom:8px}
-      .badge,.btn,.btn-icon,.btn-close-modal,.modal-footer,button{display:none!important}
+      .btn,.btn-icon,.btn-close-modal,.modal-footer,button{display:none!important}
+      .badge{display:inline-block!important;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.03em}
+      .badge-success{background:#d1fae5;color:#065f46}
+      .badge-warning{background:#fef3c7;color:#92400e}
+      .badge-danger{background:#fee2e2;color:#991b1b}
+      .badge-neutral{background:#f3f4f6;color:#374151}
       .no-print{display:none!important}
       @media print{body{padding:0}@page{margin:1.5cm}}
     </style>
@@ -56,6 +61,330 @@ var currentPage = null;
 // All data is stored locally in localStorage (no server required)
 // Used to prevent stale async renders from overwriting a newer page
 var __navRenderId = 0;
+const POS_SESSION_USER_KEY = 'pos_currentUser';
+const POS_SESSION_PAGE_KEY = 'pos_currentPage';
+const POS_SESSION_EXPANDED_GROUPS_KEY = 'pos_expandedGroups';
+const VALID_USER_ROLES = ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'];
+const ROLE_LABELS = {
+  admin: 'Main Admin',
+  branch_manager: 'Branch Manager',
+  hr: 'HR / Master Payroll',
+  cashier: 'Cashier',
+  inventory_staff: 'Inventory Personnel',
+  print: 'Production Personnel',
+};
+
+function normalizeRole(role) {
+  if (role === 'team_leader') return 'branch_manager';
+  if (role === 'staff') return 'cashier';
+  return VALID_USER_ROLES.includes(role) ? role : 'cashier';
+}
+
+function normalizeUserRole(user) {
+  if (!user) return user;
+  return { ...user, role: normalizeRole(user.role) };
+}
+
+function getRoleLabel(role) {
+  return ROLE_LABELS[normalizeRole(role)] || role || 'User';
+}
+
+function isAdminRole(role) {
+  return normalizeRole(role) === 'admin';
+}
+
+function isHrRole(role) {
+  return normalizeRole(role) === 'hr';
+}
+
+function isBranchManagerRole(role) {
+  return normalizeRole(role) === 'branch_manager';
+}
+
+function isCashierRole(role) {
+  return normalizeRole(role) === 'cashier';
+}
+
+function isInventoryStaffRole(role) {
+  return normalizeRole(role) === 'inventory_staff';
+}
+
+function isPrintRole(role) {
+  return normalizeRole(role) === 'print';
+}
+
+function isBranchStaffRole(role) {
+  const normalized = normalizeRole(role);
+  return normalized === 'branch_manager' || normalized === 'cashier' || normalized === 'inventory_staff';
+}
+
+function getPositionOptionsByRole(role) {
+  const normalized = normalizeRole(role);
+  return {
+    branch_manager: ['Branch Manager'],
+    hr: ['HR Officer', 'Payroll Officer'],
+    cashier: ['Cashier'],
+    inventory_staff: ['Inventory Staff', 'Inventory Clerk'],
+    print: ['Printing Operator', 'Print Supervisor'],
+  }[normalized] || ['Cashier'];
+}
+
+function roleCanBeMainBranchOnly(role) {
+  const normalized = normalizeRole(role);
+  return normalized === 'hr' || normalized === 'print';
+}
+
+function omCurrentUser() {
+  return getState().currentUser || null;
+}
+
+function omRole(user) {
+  return normalizeRole((user || {}).role);
+}
+
+function omIsAdminUser(user) {
+  return omRole(user) === 'admin';
+}
+
+function omIsCashierUser(user) {
+  return omRole(user) === 'cashier';
+}
+
+function omIsPrintUser(user) {
+  return omRole(user) === 'print';
+}
+
+function omCanManagePayments(user) {
+  const role = omRole(user);
+  return role === 'admin' || role === 'cashier';
+}
+
+function omCanManageProduction(user) {
+  const role = omRole(user);
+  return role === 'admin' || role === 'print';
+}
+
+function omCanManageDispatch(user) {
+  const role = omRole(user);
+  return role === 'admin' || role === 'print';
+}
+
+function omCanOverrideDispatch(user) {
+  return omRole(user) === 'admin';
+}
+
+function omCanCreateOrders(user) {
+  const role = omRole(user);
+  return role === 'admin' || role === 'cashier';
+}
+
+// ── Strict forward-only status flow ────────────────────────────────────────
+// QC (for_qc / passed / failed) is a sub-state of 'production', not a
+// separate flow step — it lives in order.qc_status.
+const OM_STATUS_FLOW = ['pending', 'approved', 'production', 'dispatch', 'completed'];
+
+function omNextAllowedStatuses(currentStatus) {
+  var idx = OM_STATUS_FLOW.indexOf(currentStatus);
+  if (idx === -1) return [currentStatus];
+  var allowed = [currentStatus]; // always include current
+  if (idx + 1 < OM_STATUS_FLOW.length) allowed.push(OM_STATUS_FLOW[idx + 1]);
+  return allowed;
+}
+
+function omCanApproveOrder(user, order) {
+  if (!user || !order) return false;
+  return omIsAdminUser(user) && order.status === 'pending';
+}
+
+function omApproveOrder(orderId) {
+  var _u = getState().currentUser;
+  if (!_u || !omIsAdminUser(_u)) { showToast('Only the Main Admin can approve project orders.', 'error'); return; }
+  var orders = getOrders();
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
+  if (!o) return;
+  if (o.status !== 'pending') { showToast('Only pending orders can be approved.', 'error'); return; }
+  o.status = 'approved';
+  o.approved_at = new Date().toISOString();
+  o.approved_by = _u.id;
+  o.updated_at = new Date().toISOString();
+  saveOrders(orders);
+  DB.updateOrder(o.id, { status: 'approved', approved_at: o.approved_at, approved_by: o.approved_by });
+  var s = getState();
+  recordAudit(s, { action: 'order_approved', message: 'Order #' + orderId + ' approved for production by ' + (_u.name || _u.username), referenceId: String(orderId), meta: { approvedBy: _u.id } });
+  saveState(s);
+  showToast('Order #' + String(orderId).padStart(6, '0') + ' approved. Production can now begin.', 'success');
+  renderOrders();
+}
+
+function omCanEditOrder(user, order) {
+  if (!user || !order) return false;
+  if (omIsAdminUser(user)) return true;
+  if (omIsCashierUser(user)) return order.status !== 'completed';
+  return false;
+}
+
+function omCanAdvanceToProduction(order) {
+  if (!order) return false;
+  return order.status === 'approved';
+}
+
+function omCanMoveToForQc(order) {
+  if (!order) return false;
+  return order.status === 'production';
+}
+
+function omCanCompleteOrder(order) {
+  if (!order) return false;
+  return omIsDispatchReady(order) && (order.balance || 0) <= 0;
+}
+
+function omQcState(order, prod) {
+  const qc = String((order && order.qc_status) || (prod && prod.qcResult) || '').toLowerCase();
+  if (qc === 'passed' || qc === 'pass') return 'passed';
+  if (qc === 'failed' || qc === 'fail') return 'failed';
+  if (qc === 'rework') return 'rework';
+  if (qc === 'for_qc') return 'for_qc';
+  return '';
+}
+
+function omNeedsQcReview(order, prod) {
+  if (!order || order.status !== 'production') return false;
+  const qc = omQcState(order, prod);
+  return qc !== 'failed' && qc !== 'rework' && qc !== 'passed';
+}
+
+function omIsDispatchReady(order, prod) {
+  if (!order) return false;
+  return order.status === 'dispatch' && omQcState(order, prod) === 'passed';
+}
+
+function omDispatchRecordStamp(d) {
+  return new Date(d && (d.updatedAt || d.dispatchedAt || d.date || d.createdAt) || 0).getTime() || 0;
+}
+
+function omUniqueDispatchRecords(dispatches) {
+  const bestByOrder = new Map();
+  (dispatches || []).forEach(function (d) {
+    if (!d) return;
+    const key = String(d.orderId || d.orderNumber || d.id || '');
+    if (!key) return;
+    const current = bestByOrder.get(key);
+    if (!current || omDispatchRecordStamp(d) >= omDispatchRecordStamp(current)) {
+      bestByOrder.set(key, d);
+    }
+  });
+  return Array.from(bestByOrder.values());
+}
+
+function omDisplayStatus(order, prod) {
+  if (!order) return 'pending';
+  const qc = omQcState(order, prod);
+  if (order.status === 'production' && qc === 'for_qc') return 'for_qc';
+  if (order.status === 'production' && qc === 'rework') return 'rework';
+  return order.status;
+}
+
+function omDisplayStatusBadge(order, prod) {
+  const display = omDisplayStatus(order, prod);
+  if (display === 'for_qc') return '<span class="badge badge-warning">' + iconSvg('clock') + ' For QC</span>';
+  if (display === 'rework') return '<span class="badge badge-warning">' + iconSvg('warning') + ' Rework</span>';
+  return omStatusBadge(display);
+}
+
+function omQcBadge(order, prod) {
+  const qc = omQcState(order, prod);
+  if (qc === 'passed') return '<span class="badge badge-success">QC Passed</span>';
+  if (qc === 'failed') return '<span class="badge badge-danger">QC Failed</span>';
+  if (qc === 'rework') return '<span class="badge badge-warning">For Rework</span>';
+  if (qc === 'for_qc') return '<span class="badge badge-warning">For QC</span>';
+  return '<span class="badge badge-neutral">Pending</span>';
+}
+
+function omSyncDispatchPaymentStatus(orderId, paymentStatus, balance) {
+  var dispatches = getDispatchRecords();
+  var changed = false;
+  dispatches.forEach(function (d) {
+    if (String(d.orderId) === String(orderId)) {
+      d.paymentStatus = paymentStatus || 'Pending';
+      if (balance !== undefined) d.balance = balance || 0;
+      d.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+  });
+  if (changed) saveDispatchRecords(dispatches);
+}
+
+function getStoredSessionUser() {
+  try {
+    const raw = sessionStorage.getItem(POS_SESSION_USER_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { }
+  try {
+    const legacyRaw = localStorage.getItem(POS_SESSION_USER_KEY);
+    if (legacyRaw) return JSON.parse(legacyRaw);
+  } catch (e) { }
+  return null;
+}
+
+function persistSessionUser(user) {
+  try {
+    if (user) sessionStorage.setItem(POS_SESSION_USER_KEY, JSON.stringify(user));
+    else sessionStorage.removeItem(POS_SESSION_USER_KEY);
+  } catch (e) { }
+  try {
+    localStorage.removeItem(POS_SESSION_USER_KEY);
+  } catch (e) { }
+}
+
+function getStoredPage() {
+  try {
+    return sessionStorage.getItem(POS_SESSION_PAGE_KEY) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function persistCurrentPage(page) {
+  try {
+    if (page) sessionStorage.setItem(POS_SESSION_PAGE_KEY, page);
+    else sessionStorage.removeItem(POS_SESSION_PAGE_KEY);
+  } catch (e) { }
+}
+
+function getStoredExpandedGroups() {
+  try {
+    const raw = sessionStorage.getItem(POS_SESSION_EXPANDED_GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function persistExpandedGroups(groups) {
+  try {
+    const entries = Object.entries(groups || {}).filter(([, isOpen]) => !!isOpen);
+    if (entries.length) sessionStorage.setItem(POS_SESSION_EXPANDED_GROUPS_KEY, JSON.stringify(Object.fromEntries(entries)));
+    else sessionStorage.removeItem(POS_SESSION_EXPANDED_GROUPS_KEY);
+  } catch (e) { }
+}
+
+function collectExpandableGroupIds(items, out) {
+  (items || []).forEach(item => {
+    if (!item || !item.id) return;
+    if (item.type === 'group' || item.type === 'subgroup') out.push(item.id);
+    if (Array.isArray(item.children)) collectExpandableGroupIds(item.children, out);
+  });
+  return out;
+}
+
+function restoreExpandedGroups() {
+  const validIds = new Set(collectExpandableGroupIds(getNavItems(), []));
+  const stored = getStoredExpandedGroups();
+  expandedGroups = Object.fromEntries(
+    Object.entries(stored).filter(([id, isOpen]) => validIds.has(id) && !!isOpen)
+  );
+}
 
 function getNavRenderId() {
   return __navRenderId;
@@ -112,15 +441,16 @@ function togglePwVisibility(inputId, btn) {
 // expandedGroups
 var expandedGroups = {};
 // showApp
-function showApp() {
+function showApp(targetPage) {
   // Hide login page, show app shell
   document.getElementById('login-page').classList.add('hidden');
   document.getElementById('app-page').classList.remove('hidden');
   document.getElementById('overview-page').classList.add('hidden');
   // Update sidebar and topbar with user info
+  restoreExpandedGroups();
   buildSidebar();
-  // Show dashboard page by default
-  navigateTo('dashboard');
+  // Restore the last page for this tab when possible.
+  navigateTo(targetPage || getStoredPage() || 'dashboard');
 }
 // Return the global POS state object
 function getState() {
@@ -133,7 +463,7 @@ function getState() {
 function saveState(state) {
   try {
     window.posState = state;
-    localStorage.setItem('pos_state', JSON.stringify(state));
+    localStorage.setItem('pos_state', JSON.stringify({ ...state, currentUser: null }));
   } catch (e) {
     console.error('Failed to save state:', e);
   }
@@ -180,9 +510,13 @@ function normalizeState(state) {
   state.arPayments = Array.isArray(state.arPayments) ? state.arPayments : [];
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.branchTransfers = Array.isArray(state.branchTransfers) ? state.branchTransfers : [];
+  state.branchInventoryRequests = Array.isArray(state.branchInventoryRequests) ? state.branchInventoryRequests : [];
+  state.payrollSubmissions = Array.isArray(state.payrollSubmissions) ? state.payrollSubmissions : [];
+  state.payrollRuns = Array.isArray(state.payrollRuns) ? state.payrollRuns : [];
   state.handoverNotes = Array.isArray(state.handoverNotes) ? state.handoverNotes : [];
   state.employees = Array.isArray(state.employees) ? state.employees : [];
   state.timecards = Array.isArray(state.timecards) ? state.timecards : [];
+  state.attendanceRecords = Array.isArray(state.attendanceRecords) ? state.attendanceRecords : [];
   state.leaves = Array.isArray(state.leaves) ? state.leaves : [];
   state.payslips = Array.isArray(state.payslips) ? state.payslips : [];
   state.printProducts = Array.isArray(state.printProducts) ? state.printProducts : [];
@@ -240,108 +574,201 @@ function buildVariantSku(productName, variantName, index) {
 
 function getDefaultPosProducts() {
   const catalog = [
+    // ── CUPS ──────────────────────────────────────────────────────────────
     {
-      name: 'Ripple Wall Cup (25s)', desc: '25s pack', variants: [
-        { name: 'Black 8oz', price: 90 },
-        { name: 'Black 12oz', price: 150 },
-        { name: 'Black 16oz', price: 200 },
+      type: 'Cup', name: 'Ripple Wall Cup (25s)', desc: '25s pack', variants: [
+        { name: 'Black 8oz', size: '8oz', price: 90 },
+        { name: 'Black 12oz', size: '12oz', price: 150 },
+        { name: 'Black 16oz', size: '16oz', price: 200 },
       ]
     },
     {
-      name: 'Double Wall Cup (25s)', desc: '25s pack', variants: [
-        { name: 'Kraft 8oz', price: 80 },
-        { name: 'Kraft 12oz', price: 140 },
-        { name: 'Kraft 16oz', price: 190 },
-        { name: 'Black 8oz', price: 80 },
-        { name: 'Black 12oz', price: 140 },
-        { name: 'Black 16oz', price: 190 },
+      type: 'Cup', name: 'Double Wall Cup (25s)', desc: '25s pack', variants: [
+        { name: 'Kraft 8oz', size: '8oz', price: 80 },
+        { name: 'Kraft 12oz', size: '12oz', price: 140 },
+        { name: 'Kraft 16oz', size: '16oz', price: 190 },
+        { name: 'Black 8oz', size: '8oz', price: 80 },
+        { name: 'Black 12oz', size: '12oz', price: 140 },
+        { name: 'Black 16oz', size: '16oz', price: 190 },
       ]
     },
     {
-      name: 'Hard Cup (50s)', desc: '50s pack', variants: [
-        { name: '16oz', price: 140 },
-        { name: '22oz', price: 200 },
+      type: 'Cup', name: 'Hard Cup (50s)', desc: '50s pack', variants: [
+        { name: '16oz', size: '16oz', price: 140 },
+        { name: '22oz', size: '22oz', price: 200 },
       ]
     },
     {
-      name: 'Slim Cup (50s)', desc: '50s pack', variants: [
-        { name: '16oz', price: 110 },
-        { name: '22oz', price: 160 },
+      type: 'Cup', name: 'Slim Cup (50s)', desc: '50s pack', variants: [
+        { name: '16oz', size: '16oz', price: 110 },
+        { name: '22oz', size: '22oz', price: 160 },
       ]
     },
     {
-      name: 'PP Cup (50s)', desc: '50s pack', variants: [
-        { name: 'T-Cup 12oz', price: 70 },
-        { name: 'T-Cup 16oz', price: 90 },
-        { name: 'T-Cup 22oz', price: 110 },
-        { name: 'U-Cup 12oz', price: 90 },
-        { name: 'U-Cup 16oz', price: 130 },
-        { name: 'U-Cup 22oz', price: 170 },
+      type: 'Cup', name: 'PP Cup (50s)', desc: '50s pack', variants: [
+        { name: 'T-Cup 12oz', size: '12oz', price: 70 },
+        { name: 'T-Cup 16oz', size: '16oz', price: 90 },
+        { name: 'T-Cup 22oz', size: '22oz', price: 110 },
+        { name: 'U-Cup 12oz', size: '12oz', price: 90 },
+        { name: 'U-Cup 16oz', size: '16oz', price: 130 },
+        { name: 'U-Cup 22oz', size: '22oz', price: 170 },
       ]
     },
     {
-      name: 'PET 98mm (50s)', desc: '50s pack', variants: [
-        { name: '16oz', price: 120 },
-        { name: '20oz', price: 180 },
+      type: 'Cup', name: 'PET 98mm (50s)', desc: '50s pack', variants: [
+        { name: '16oz', size: '16oz', price: 120 },
+        { name: '20oz', size: '20oz', price: 180 },
       ]
     },
     {
-      name: 'Dabba Cup (40s)', desc: '40s pack', variants: [
-        { name: '12oz', price: 85 },
-        { name: '16oz', price: 110 },
-        { name: '20oz', price: 140 },
-        { name: '22oz', price: 180 },
-        { name: '24oz', price: 220 },
+      type: 'Cup', name: 'Dabba Cup (40s)', desc: '40s pack', variants: [
+        { name: '12oz', size: '12oz', price: 85 },
+        { name: '16oz', size: '16oz', price: 110 },
+        { name: '20oz', size: '20oz', price: 140 },
+        { name: '22oz', size: '22oz', price: 180 },
+        { name: '24oz', size: '24oz', price: 220 },
       ]
     },
     {
-      name: 'Star Cup (100s)', desc: '100s pack', variants: [
-        { name: '3oz', price: 15 },
-        { name: '4oz', price: 18 },
-        { name: '8oz', price: 23 },
-        { name: '10oz', price: 26 },
-        { name: '12oz', price: 30 },
-        { name: '16oz', price: 38 },
-        { name: '22oz', price: 46 },
-        { name: '24oz', price: 54 },
+      type: 'Cup', name: 'Starcups', desc: 'Per piece', variants: [
+        { name: '3oz', size: '3oz', price: 0 },
+        { name: '6oz', size: '6oz', price: 0 },
+        { name: '8oz', size: '8oz', price: 0 },
+        { name: '10oz', size: '10oz', price: 0 },
+        { name: '12oz', size: '12oz', price: 0 },
+        { name: '16oz', size: '16oz', price: 0 },
+        { name: '20oz', size: '20oz', price: 0 },
+        { name: '22oz', size: '22oz', price: 0 },
       ]
     },
     {
-      name: 'Greaseproof Paper (100s)', desc: '100s pack', variants: [
-        { name: 'Plain', price: 85 },
-        { name: 'Generic', price: 110 },
+      type: 'Cup', name: 'Star Cup (100s)', desc: '100s pack', variants: [
+        { name: '3oz', size: '3oz', price: 15 },
+        { name: '4oz', size: '4oz', price: 18 },
+        { name: '8oz', size: '8oz', price: 23 },
+        { name: '10oz', size: '10oz', price: 26 },
+        { name: '12oz', size: '12oz', price: 30 },
+        { name: '16oz', size: '16oz', price: 38 },
+        { name: '22oz', size: '22oz', price: 46 },
+        { name: '24oz', size: '24oz', price: 54 },
       ]
     },
     {
-      name: 'Paper Cup (100s)', desc: '100s pack', variants: [
-        { name: '3oz', price: 28 },
-        { name: '6.5oz', price: 33 },
-        { name: '8oz', price: 40 },
-        { name: '12oz', price: 62 },
-        { name: '16oz', price: 86 },
-        { name: '20oz', price: 102 },
+      type: 'Cup', name: 'Paper Cup (100s)', desc: '100s pack', variants: [
+        { name: '3oz', size: '3oz', price: 28 },
+        { name: '6.5oz', size: '6.5oz', price: 33 },
+        { name: '8oz', size: '8oz', price: 40 },
+        { name: '12oz', size: '12oz', price: 62 },
+        { name: '16oz', size: '16oz', price: 86 },
+        { name: '20oz', size: '20oz', price: 102 },
       ]
     },
     {
-      name: 'Paper Bowl (50s)', desc: '50s pack', variants: [
-        { name: '220cc', price: 52 },
-        { name: '260cc', price: 62 },
-        { name: '390cc', price: 70 },
-        { name: '520cc', price: 85 },
-        { name: '750cc', price: 110 },
-        { name: '780cc', price: 120 },
-        { name: '850cc', price: 135 },
-        { name: '1000cc', price: 160 },
+      type: 'Cup', name: 'Printed Cups', desc: 'Per piece — printed/customized', variants: [
+        { name: 'Dabba PET / 12oz', size: '12oz', price: 4.25 },
+        { name: 'Dabba PET / 16oz', size: '16oz', price: 4.35 },
+        { name: 'Dabba PET / 22oz', size: '22oz', price: 4.95 },
+        { name: 'Y-Cup / 12oz', size: '12oz', price: 3.65 },
+        { name: 'Y-Cup / 16oz', size: '16oz', price: 3.80 },
+        { name: 'Y-Cup / 22oz', size: '22oz', price: 3.95 },
+        { name: 'U-Cup / 12oz', size: '12oz', price: 3.80 },
+        { name: 'U-Cup / 16oz', size: '16oz', price: 4.20 },
+        { name: 'U-Cup / 22oz', size: '22oz', price: 4.60 },
+        { name: 'Double Wall / 8oz', size: '8oz', price: 6.90 },
+        { name: 'Double Wall / 12oz', size: '12oz', price: 7.90 },
+        { name: 'Double Wall / 16oz', size: '16oz', price: 8.50 },
+        { name: 'Hard Cup / 16oz', size: '16oz', price: 4.70 },
+        { name: 'Hard Cup / 22oz', size: '22oz', price: 5.70 },
+        { name: 'Slim Cup / 16oz', size: '16oz', price: 3.60 },
+        { name: 'Slim Cup / 22oz', size: '22oz', price: 4.10 },
+        { name: 'Paper Cup / 8oz', size: '8oz', price: 3.00 },
+        { name: 'Paper Cup / 12oz', size: '12oz', price: 3.50 },
+      ]
+    },
+    // ── BOWLS ─────────────────────────────────────────────────────────────
+    {
+      type: 'Bowl', name: 'Paper Bowl (50s)', desc: '50s pack', variants: [
+        { name: '220cc', size: '220cc', price: 52 },
+        { name: '260cc', size: '260cc', price: 62 },
+        { name: '390cc', size: '390cc', price: 70 },
+        { name: '520cc', size: '520cc', price: 85 },
+        { name: '750cc', size: '750cc', price: 110 },
+        { name: '780cc', size: '780cc', price: 120 },
+        { name: '850cc', size: '850cc', price: 135 },
+        { name: '1000cc', size: '1000cc', price: 160 },
       ]
     },
     {
-      name: 'Paper Boxes (10s)', desc: '10s pack', variants: [
-        { name: 'Spaghetti Box', price: 30 },
-        { name: 'Meal Box (Small)', price: 35 },
-        { name: 'Meal Box (Medium)', price: 40 },
-        { name: 'High Meal Box', price: 45 },
-        { name: 'Chicken Box', price: 50 },
-        { name: 'High Meal Box 1300cc', price: 60 },
+      type: 'Bowl', name: 'Printed Paper Bowl', desc: 'Per piece — printed/customized', variants: [
+        { name: '260CC', size: '260CC', price: 3.20 },
+        { name: '390CC', size: '390CC', price: 3.70 },
+        { name: '520CC', size: '520CC', price: 3.90 },
+        { name: '750CC', size: '750CC', price: 4.30 },
+        { name: '780CC', size: '780CC', price: 4.50 },
+        { name: '850CC', size: '850CC', price: 4.80 },
+        { name: '1000CC', size: '1000CC', price: 5.30 },
+      ]
+    },
+    // ── BOXES ─────────────────────────────────────────────────────────────
+    {
+      type: 'Box', name: 'Paper Boxes (10s)', desc: '10s pack', variants: [
+        { name: 'Spaghetti Box', size: null, price: 30 },
+        { name: 'Meal Box (Small)', size: null, price: 35 },
+        { name: 'Meal Box (Medium)', size: null, price: 40 },
+        { name: 'High Meal Box', size: null, price: 45 },
+        { name: 'Chicken Box', size: null, price: 50 },
+        { name: 'High Meal Box 1300cc', size: null, price: 60 },
+      ]
+    },
+    {
+      type: 'Box', name: 'Printed Paper Boxes', desc: 'Per piece — printed/customized', variants: [
+        { name: 'Spaghetti Box', size: null, price: 4.50 },
+        { name: 'Meal Box', size: null, price: 5.75 },
+        { name: 'Meal 2D Box', size: null, price: 7.00 },
+        { name: 'High Meal Box', size: null, price: 6.75 },
+        { name: 'Chicken Box', size: null, price: 7.00 },
+        { name: 'High Meal 1500cc', size: '1500cc', price: 9.00 },
+      ]
+    },
+    // ── SLEEVES ───────────────────────────────────────────────────────────
+    {
+      type: 'Sleeve', name: 'Coffee Sleeves (50 pcs)', desc: '50pcs per pack', variants: [
+        { name: 'Kraft Plain', size: null, price: 95 },
+        { name: 'White Plain', size: null, price: 165 },
+        { name: 'Black Plain', size: null, price: 200 },
+        { name: 'Printed Kraft', size: null, price: 145 },
+        { name: 'Printed White', size: null, price: 215 },
+        { name: 'Printed Black', size: null, price: 250 },
+      ]
+    },
+    // ── PAPER ─────────────────────────────────────────────────────────────
+    {
+      type: 'Paper', name: 'Greaseproof Paper (100s)', desc: '100s pack', variants: [
+        { name: 'Plain', size: null, price: 85 },
+        { name: 'Generic', size: null, price: 110 },
+      ]
+    },
+    {
+      type: 'Paper', name: 'Customized Greaseproof Paper', desc: 'Custom-printed greaseproof paper by quantity', variants: [
+        { name: 'Customized (1000s) / 9X12', size: '9X12', price: 2500 },
+        { name: 'Customized (1000s) / 12X12', size: '12X12', price: 3000 },
+        { name: 'Customized (1000s) / 12X18', size: '12X18', price: 4000 },
+        { name: 'Customized (5000s) / 9X12', size: '9X12', price: 11250 },
+        { name: 'Customized (5000s) / 12X12', size: '12X12', price: 13750 },
+        { name: 'Customized (5000s) / 12X18', size: '12X18', price: 18750 },
+        { name: 'Customized (10000s) / 9X12', size: '9X12', price: 19000 },
+        { name: 'Customized (10000s) / 12X12', size: '12X12', price: 32000 },
+        { name: 'Customized (10000s) / 12X18', size: '12X18', price: 35000 },
+      ]
+    },
+    // ── BAGS ──────────────────────────────────────────────────────────────
+    {
+      type: 'Bag', name: 'Ice Bag', desc: 'Ice bags by size', variants: [
+        { name: '1¼', size: '1¼', price: 0 },
+        { name: '1½', size: '1½', price: 0 },
+        { name: '1x10', size: '1x10', price: 0 },
+        { name: '2x10', size: '2x10', price: 0 },
+        { name: '4x10', size: '4x10', price: 20 },
       ]
     },
   ];
@@ -350,6 +777,7 @@ function getDefaultPosProducts() {
   return catalog.map((product, productIdx) => ({
     id: `p${productIdx + 1}`,
     name: product.name,
+    type: product.type || '',
     desc: product.desc,
     active: true,
     variants: product.variants.map((variant) => {
@@ -357,9 +785,10 @@ function getDefaultPosProducts() {
       const variantItem = {
         id: `v${variantIndex}`,
         name: variant.name,
+        size: variant.size || '',
         sku,
         price: variant.price,
-        stock: 120,
+        stock: 0,
       };
       variantIndex++;
       return variantItem;
@@ -422,8 +851,8 @@ function initState() {
   const state = {
     branches: [
       { id: 'b1', name: 'Main Branch', address: 'San Pedro, Laguna', contact: '049-123-4567', active: true },
-      { id: 'b2', name: 'South Branch', address: 'Biñan, Laguna', contact: '049-234-5678', active: true },
-      { id: 'b3', name: 'North Branch', address: 'Calamba, Laguna', contact: '049-345-6789', active: true },
+      { id: 'b2', name: 'BPS Branch', address: 'Biñan, Laguna', contact: '049-234-5678', active: true },
+      { id: 'b3', name: 'TPS Branch', address: 'Calamba, Laguna', contact: '049-345-6789', active: true },
     ],
     users: [
       { id: 'u1', name: 'Administrator', username: 'admin', password: 'admin123', role: 'admin', branchId: null },
@@ -450,6 +879,9 @@ function initState() {
     employees: [],
     auditLogs: [],
     branchTransfers: [],
+    branchInventoryRequests: [],
+    payrollSubmissions: [],
+    payrollRuns: [],
     handoverNotes: [],
     dashboardPrefs: { pinnedKpis: ['revenue', 'sales', 'activeShifts', 'lowStock'] },
     posDraft: {
@@ -498,7 +930,7 @@ async function doLogin() {
     return;
   }
 
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Signing in…'; }
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Logging in…'; }
 
   try {
     let user = null;
@@ -516,27 +948,29 @@ async function doLogin() {
       return;
     }
 
-    if (!user.role || !['admin', 'staff', 'print'].includes(user.role)) {
-      user = { ...user, role: user.username === 'admin' ? 'admin' : 'staff' };
+    user = normalizeUserRole(user);
+    if (!user.role || !VALID_USER_ROLES.includes(user.role)) {
+      user = { ...user, role: user.username === 'admin' ? 'admin' : 'cashier' };
     }
 
     errEl.classList.remove('show');
     s.currentUser = user;
-    localStorage.setItem('pos_currentUser', JSON.stringify(user));
+    persistSessionUser(user);
+    saveState(s);
     recordAudit(s, { action: 'login', message: `User logged in: ${user.username}`, userId: user.id, branchId: user.branchId || null });
-    showApp();
+    showApp(getStoredPage() || 'dashboard');
 
   } finally {
-    if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Sign In →'; }
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Log In →'; }
   }
 }
 
 function doLogout() {
   closeAccountMenu();
   confirmModal({
-    title: 'Sign Out',
-    message: 'Are you sure you want to sign out of your account?',
-    confirmText: 'Sign Out',
+    title: 'Log Out',
+    message: 'Are you sure you want to log out of your account?',
+    confirmText: 'Log Out',
     cancelText: 'Stay',
     icon: '🔒',
     danger: false,
@@ -545,7 +979,9 @@ function doLogout() {
       if (s.currentUser) recordAudit(s, { action: 'logout', message: `User logged out: ${s.currentUser.username}`, userId: s.currentUser.id, branchId: s.currentUser.branchId || null });
       s.currentUser = null;
       saveState(s);
-      localStorage.removeItem('pos_currentUser');
+      persistSessionUser(null);
+      persistCurrentPage(null);
+      persistExpandedGroups({});
       showLogin();
     }
   });
@@ -570,8 +1006,7 @@ function openCurrentUserProfile() {
   if (!u) return;
 
   const branch = (s.branches || []).find(b => b.id === u.branchId);
-  const roleLabels = { admin: 'Administrator', staff: 'Branch Staff', print: 'Printing Personnel' };
-  const roleLabel = roleLabels[u.role] || u.role || 'User';
+  const roleLabel = getRoleLabel(u.role);
   const initial = (u.name || u.username || '?')[0].toUpperCase();
 
   showModal(`
@@ -601,7 +1036,7 @@ function openCurrentUserProfile() {
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Close</button>
-      <button class="btn btn-maroon" onclick="closeModal(); doLogout();">Sign Out</button>
+      <button class="btn btn-maroon" onclick="closeModal(); doLogout();">Log Out</button>
     </div>
   `);
 }
@@ -611,35 +1046,29 @@ function getNavItems() {
   const s = getState();
   const u = s.currentUser;
   if (!u) return [];
+  const role = normalizeRole(u.role);
 
-  // ADMINISTRATOR
-  if (u.role === 'admin') return [
+  if (role === 'admin') return [
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
-
     { type: 'item', id: 'branch-inv-ov', icon: 'chart', label: 'Branch Inventory Overview', page: 'branch-inv-overview' },
-
     { type: 'item', id: 'product-catalog', icon: 'box', label: 'Product Catalog', page: 'product-catalog' },
-
-    { type: 'item', id: 'orders', icon: 'clipboard', label: 'Order Management', page: 'orders' },
-
-    { type: 'item', id: 'customer-records', icon: 'users', label: 'Customer Records', page: 'customer-records' },
-
+    { type: 'item', id: 'inventory', icon: 'box', label: 'Branch Inventory', page: 'inventory' },
+    { type: 'item', id: 'orders', icon: 'clipboard', label: 'Project Management', page: 'orders' },
     {
       type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', page: 'personnel-mgmt', children: [
         { id: 'employee-records', icon: 'users', label: 'Employee Records', page: 'employee-records' },
         { id: 'schedule', icon: 'calendar', label: 'Scheduling', page: 'shift-schedule' },
+        { id: 'attendance', icon: 'clock', label: 'Attendance', page: 'attendance' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
             { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Management', page: 'leave-management' },
+            { id: 'payroll', icon: 'money', label: 'Payroll Consolidation', page: 'payroll' },
             { id: 'admin-payslip-gen', icon: 'money', label: 'Payslip Generation', page: 'admin-payslip-gen' },
           ]
         },
       ]
     },
-
     { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'admin-reports' },
-
     {
       type: 'group', id: 'settings', icon: 'key', label: 'Settings', page: 'users', children: [
         { id: 'users', icon: 'key', label: 'User & Role Management', page: 'users' },
@@ -648,66 +1077,79 @@ function getNavItems() {
     },
   ];
 
-  // BRANCH STAFF (Cashier) — 3-branch sidebar
-  if (u.role === 'staff') return [
+  if (role === 'hr') return [
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
+    {
+      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
+        { id: 'employee-records', icon: 'users', label: 'Employee Records', page: 'employee-records' },
+        { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
+        { id: 'attendance', icon: 'clock', label: 'Attendance', page: 'attendance' },
+        {
+          type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
+            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Management', page: 'leave-management' },
+            { id: 'admin-payslip-gen', icon: 'money', label: 'Payslip Generation', page: 'admin-payslip-gen' },
+          ]
+        },
+      ]
+    },
+  ];
 
+  if (role === 'branch_manager') return [
+    { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
+    {
+      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
+        { id: 'employee-records', icon: 'users', label: 'Staff & Employee Records', page: 'employee-records' },
+        { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
+        { id: 'attendance', icon: 'clock', label: 'Attendance', page: 'attendance' },
+        {
+          type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
+            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Management', page: 'leave-management' },
+            { id: 'payroll', icon: 'money', label: 'Branch Payroll', page: 'payroll' },
+          ]
+        },
+      ]
+    },
+    { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'staff-reports' },
+  ];
+
+  if (role === 'cashier') return [
+    { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
     {
       type: 'group', id: 'pos-group', icon: 'cart', label: 'POS', page: 'pos', children: [
-        { id: 'inventory', icon: 'box', label: 'Inventory', page: 'inventory' },
         { id: 'pos-receipts', icon: 'clipboard', label: 'Receipt History', page: 'pos-receipts' },
         { id: 'cash-movement', icon: 'money', label: 'Cash Movement', page: 'shift' },
       ]
     },
-
-    { type: 'item', id: 'orders-group', icon: 'clipboard', label: 'Order Management', page: 'orders' },
-
-    { type: 'item', id: 'customer-records', icon: 'users', label: 'Customer Records', page: 'customer-records' },
-
-    {
-      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
-        { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
-        {
-          type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
-            { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Application', page: 'leave-management' },
-            { id: 'payslip', icon: 'money', label: 'Payslip', page: 'payslip' },
-          ]
-        },
-      ]
-    },
-
-    { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'staff-reports' },
+    { type: 'item', id: 'orders-group', icon: 'clipboard', label: 'Project Management', page: 'orders' },
   ];
 
-  // PRINTING DEPARTMENT
-  if (u.role === 'print') return [
+  if (role === 'inventory_staff') return [
     { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
+    { type: 'item', id: 'inventory', icon: 'box', label: 'Branch Inventory', page: 'inventory' },
+  ];
 
-    { type: 'item', id: 'print-order-details', icon: 'clipboard', label: 'Order Details', page: 'orders' },
-
+  if (role === 'print') return [
+    { type: 'item', id: 'dashboard', icon: 'home', label: 'Dashboard', page: 'dashboard' },
+    { type: 'item', id: 'print-order-details', icon: 'clipboard', label: 'Project Details', page: 'orders' },
     {
       type: 'group', id: 'production-group', icon: 'printer', label: 'Production', page: 'production', children: [
         { id: 'production', icon: 'box', label: 'Production Queue', page: 'production' },
         { id: 'job-management', icon: 'clipboard', label: 'Job Management', page: 'print-job-management' },
-        { id: 'quality-control', icon: 'check', label: 'Quality Control', page: 'print-qc' },
+        { id: 'quality-control', icon: 'check', label: 'Quality Check', page: 'print-qc' },
         { id: 'print-materials', icon: 'box', label: 'Printing Materials Inventory', page: 'print-materials' },
       ]
     },
-
     {
-      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel Management', children: [
+      type: 'group', id: 'personnel', icon: 'users', label: 'Personnel', children: [
         { id: 'schedule', icon: 'calendar', label: 'Schedule', page: 'shift-schedule' },
         {
           type: 'subgroup', id: 'payroll-sub', icon: 'money', label: 'Payroll', children: [
-            { id: 'timecards', icon: 'clock', label: 'Time Cards', page: 'timecards' },
             { id: 'leave-mgmt', icon: 'receipt', label: 'Leave Application', page: 'leave-management' },
-            { id: 'payslip', icon: 'money', label: 'Payslip', page: 'print-payslip' },
+            { id: 'payslip', icon: 'money', label: 'My Payslip', page: 'print-payslip' },
           ]
         },
       ]
     },
-
     { type: 'item', id: 'reports', icon: 'chart', label: 'Reports', page: 'print-reports' },
   ];
 
@@ -718,12 +1160,12 @@ function buildSidebar() {
   const s = getState();
   const u = s.currentUser;
   if (!u) return;
+  const role = normalizeRole(u.role);
   document.getElementById('sb-avatar').textContent = (u.name || u.username || '?')[0].toUpperCase();
   document.getElementById('sb-name').textContent = u.name;
-  const _roleLabels = { admin: 'Administrator', staff: 'Branch Staff', print: 'Printing Personnel' };
-  document.getElementById('sb-role').textContent = _roleLabels[u.role] || u.role;
+  document.getElementById('sb-role').textContent = getRoleLabel(role);
   const branch = s.branches.find(b => b.id === u.branchId);
-  document.getElementById('topbar-branch').textContent = u.role === 'admin' ? 'All Branches' : (branch?.name || 'Unassigned');
+  document.getElementById('topbar-branch').textContent = role === 'admin' ? 'All Branches' : role === 'branch_manager' ? ('Branch Manager · ' + (branch?.name || 'Unassigned')) : (branch?.name || 'Unassigned');
   const _now = new Date();
   const _dateEl = document.getElementById('topbar-date');
   if (_dateEl) _dateEl.textContent = _now.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -761,6 +1203,7 @@ function buildSidebar() {
           sg.onclick = (e) => {
             e.stopPropagation();
             expandedGroups[ch.id] = !expandedGroups[ch.id];
+            persistExpandedGroups(expandedGroups);
             buildSidebar();
           };
           sub.appendChild(sg);
@@ -795,66 +1238,63 @@ function buildSidebar() {
 
 // ROLE-BASED ACCESS CONTROL
 // Page-level permission map
+// Roles: admin, branch_manager, hr, cashier, inventory_staff, print
 var PAGE_PERMISSIONS = {
-  // All roles
-  'dashboard': ['admin', 'staff', 'print'],
-  'shift': ['admin', 'staff'],
-  'receipts': ['admin', 'staff', 'print'],
-  'shift-schedule': ['admin', 'staff', 'print'],
-  'timecards': ['admin', 'staff', 'print'],
-  'leave-management': ['admin', 'staff', 'print'],
-  'payslip': ['admin', 'staff', 'print'],
-  'payslip-history': ['admin', 'staff', 'print'],
+  'dashboard': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'shift-schedule': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'attendance': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'leave-management': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'payslip': ['admin', 'cashier', 'inventory_staff', 'print'],
+  'timecards': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'receipts': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
 
-  // Admin + Staff
-  'pos': ['admin', 'staff'],
-  'pos-customers': ['admin', 'staff'],
-  'pos-receipts': ['admin', 'staff'],
-  'customers': ['admin', 'staff'],
-  'orders': ['admin', 'staff', 'print'],
-  'pickup': ['admin', 'staff', 'print'],
-  'production': ['admin', 'staff', 'print'],
-  'dispatch': ['admin', 'staff', 'print'],
-  'logo-upload': ['admin', 'print'],
+  'shift': ['admin', 'cashier'],
+  'pos': ['admin', 'cashier'],
+  'pos-customers': ['admin', 'cashier'],
+  'pos-receipts': ['admin', 'cashier'],
+  'inventory': ['admin', 'inventory_staff'],
+  'sales': ['admin', 'cashier'],
+  'customers': ['admin', 'cashier'],
+  'staff-reports': ['admin', 'branch_manager'],
+
+  'orders': ['admin', 'cashier', 'print'],
+  'pickup': ['admin', 'cashier', 'print'],
+  'dispatch': ['admin', 'cashier', 'print'],
+  'customer-records': ['admin', 'cashier', 'print'],
+  'om-customer-records': ['admin', 'cashier', 'print'],
+  'om-payment': ['admin', 'cashier'],
+
+  'employee-records': ['admin', 'branch_manager', 'hr'],
+  'personnel-mgmt': ['admin', 'branch_manager', 'hr'],
+  'payroll': ['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'],
+  'admin-payslip-gen': ['admin', 'hr'],
+  'print-payslip': ['admin', 'print'],
+
   'product-mgmt': ['admin'],
   'product-catalog': ['admin'],
   'categories': ['admin'],
-  'inventory': ['admin', 'staff'],
   'branch-inv-overview': ['admin'],
   'pos-overview': ['admin'],
   'branch-reports': ['admin'],
   'receiving': ['admin'],
-  'personnel-mgmt': ['admin', 'staff', 'print'],
-  'employee-records': ['admin'],
-  'payroll': ['admin', 'staff', 'print'],
   'reconcile': ['admin'],
-  'reports': ['admin', 'staff', 'print'],
+  'reports': ['admin', 'branch_manager', 'print'],
   'admin-reports': ['admin'],
   'sales-reports': ['admin'],
   'inventory-reports': ['admin'],
   'custom-reports': ['admin'],
   'audit': ['admin'],
   'transfers': ['admin'],
-  'users': ['admin'],
+  'users': ['admin', 'branch_manager'],
   'system-config': ['admin'],
   'branches': ['admin'],
-  'sales': ['admin', 'staff'],
-  'staff-reports': ['admin', 'staff'],
 
-  // Order Management pages
-  'om-customer-records': ['admin', 'staff'],
-  'om-payment': ['admin', 'staff'],
-  'customer-records': ['admin', 'staff'],
-
-  // Admin payslip generation
-  'admin-payslip-gen': ['admin'],
-
-  // Print
+  'production': ['admin', 'print'],
+  'logo-upload': ['admin', 'print'],
   'print-orders': ['admin', 'print'],
   'print-qc': ['admin', 'print'],
   'print-job-management': ['admin', 'print'],
   'print-personnel': ['print'],
-  'print-payslip': ['admin', 'staff', 'print'],
   'print-materials': ['admin', 'print'],
   'print-reports': ['admin', 'print'],
 };
@@ -863,16 +1303,17 @@ function canAccess(page) {
   const s = getState();
   const u = s.currentUser;
   if (!u) return false;
-  if (u.role === 'admin') return true; // admin can access everything
+  const role = normalizeRole(u.role);
+  if (role === 'admin') return true;
   const allowed = PAGE_PERMISSIONS[page];
   if (!allowed) return false;
-  return allowed.includes(u.role);
+  return allowed.includes(role);
 }
 
 function accessDenied(label) {
   const s = getState();
   const u = s.currentUser;
-  const roleName = u.role === 'staff' ? 'Branch Staff' : u.role === 'print' ? 'Printing Personnel' : u.role;
+  const roleName = getRoleLabel(u.role);
   document.getElementById('page-content').innerHTML =
     '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:320px;gap:16px;text-align:center">' +
     '<div style="font-size:48px">🔒</div>' +
@@ -884,6 +1325,7 @@ function accessDenied(label) {
 
 function toggleGroup(id, page) {
   expandedGroups[id] = !expandedGroups[id];
+  persistExpandedGroups(expandedGroups);
   if (expandedGroups[id] && page) navigateTo(page);
   buildSidebar();
 }
@@ -906,13 +1348,13 @@ function navigateTo(page) {
     updateNavActive();
     const s = getState();
     const pageTitleMap = {
-      'pos': 'Point of Sale', 'pos-customers': 'Customer Records', 'pos-receipts': 'Receipt History', 'customers': 'Customer Records', 'orders': 'Order Management',
-      'production': 'Production Oversight', 'pickup': 'Ready for Pickup', 'product-mgmt': 'Product Management',
+      'pos': 'Point of Sale', 'pos-customers': 'Customer Records', 'pos-receipts': 'Receipt History', 'customers': 'Customer Records', 'orders': 'Project Management',
+      'production': 'Production Queue', 'pickup': 'Ready for Pickup', 'product-mgmt': 'Product Management',
       'inventory': 'Stock & Inventory', 'receiving': 'Supplier Receiving', 'personnel-mgmt': 'Personnel',
       'shift-schedule': 'Shift Schedule', 'payroll': 'Payroll Management', 'reconcile': 'Cash Reconciliation',
       'reports': 'Reports & Analytics', 'audit': 'Audit Log', 'transfers': 'Branch Transfers',
       'users': 'User Management', 'branches': 'Branch Management', 'sales': 'Sales History',
-      'staff-reports': 'My Reports', 'print-orders': 'Job Queue', 'print-qc': 'Quality Control', 'print-personnel': 'My Profile', 'print-payslip': 'My Payslip',
+      'staff-reports': 'Branch Reports', 'print-orders': 'Job Queue', 'print-qc': 'Quality Check', 'print-personnel': 'My Profile', 'print-payslip': 'My Payslip',
       'print-materials': 'Materials Log', 'shift': 'Cash Movement', 'receipts': 'Receipts', 'dashboard': 'Dashboard',
       'payslip': 'My Payroll',
     };
@@ -920,6 +1362,7 @@ function navigateTo(page) {
     return;
   }
   currentPage = page;
+  persistCurrentPage(page);
   __navRenderId++;
   updateNavActive();
   const pageContent = document.getElementById('page-content');
@@ -952,10 +1395,10 @@ function navigateTo(page) {
     'employee-records': renderEmployeeRecords,
     'shift-schedule': renderShiftSchedule,
     'timecards': renderTimecards,
+    'attendance': renderAttendance,
     'leave-management': renderLeaveManagement,
     'payroll': renderPayroll,
     'payslip': renderPayslip,
-    'payslip-history': renderPayslipHistory,
     'reconcile': renderReconciliation,
     'reports': renderReports,
     'sales-reports': renderSalesReports,
@@ -992,8 +1435,8 @@ function navigateTo(page) {
     'pos-customers': 'Customer Records',
     'pos-receipts': 'Receipt History',
     'customers': 'Customers',
-    'orders': 'Order Management',
-    'production': 'Production Oversight',
+    'orders': 'Project Management',
+    'production': 'Production Queue',
     'pickup': 'Ready for Pickup',
     'dispatch': 'Daily Dispatch',
     'logo-upload': 'Logo Upload',
@@ -1011,10 +1454,10 @@ function navigateTo(page) {
     'employee-records': 'Employee Records',
     'shift-schedule': 'Schedule',
     'timecards': 'Time Cards',
+    'attendance': 'Attendance',
     'leave-management': 'Leave Management',
     'payroll': 'Payroll',
     'payslip': 'Payslips',
-    'payslip-history': 'Payslip History',
     'reconcile': 'Cash Reconciliation',
     'reports': 'Reports & Analytics',
     'sales-reports': 'Sales Reports',
@@ -1026,9 +1469,9 @@ function navigateTo(page) {
     'system-config': 'System Info',
     'branches': 'Branch Management',
     'receipts': 'Receipts',
-    'staff-reports': 'My Reports',
+    'staff-reports': 'Branch Reports',
     'print-orders': 'Production Queue',
-    'print-qc': 'Quality Control',
+    'print-qc': 'Quality Check',
     'print-job-management': 'Job Management',
     'print-materials': 'Printing Inventory',
     'print-personnel': 'My Profile',
@@ -1135,7 +1578,7 @@ function renderDashboard() {
     return;
   }
 
-  if (u.role === 'staff') {
+  if (['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(u.role))) {
     const myShift = s.shifts.find(x => x.userId === u.id && x.status === 'open');
     const mySales = s.sales.filter(x => !x.voided && x.userId === u.id && new Date(x.createdAt).toDateString() === today);
     const myRevenue = mySales.reduce((a, b) => a + b.total, 0);
@@ -1143,7 +1586,7 @@ function renderDashboard() {
     const cfg = getSystemConfig();
     const branchOrders = orders.filter(o => o.status !== 'cancelled');
     const balanceDue = branchOrders.filter(o => (o.balance || 0) > 0).reduce((a, b) => a + (b.balance || 0), 0);
-    const readyForPickup = orders.filter(o => o.status === 'dispatch').length;
+    const readyForPickup = orders.filter(o => omIsDispatchReady(o)).length;
     const now = new Date();
     const leadTimeWatch = orders.filter(o => o.due_date && o.status !== 'completed' && o.status !== 'cancelled').map(o => {
       const daysLeft = Math.ceil((new Date(o.due_date) - now) / 86400000);
@@ -1151,7 +1594,7 @@ function renderDashboard() {
     }).filter(o => o.daysLeft <= 3).sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 5);
     document.getElementById('page-content').innerHTML = `
       <div class="page-header"><h1 class="page-title">Good ${getGreeting()}, ${u.name.split(' ')[0]}!</h1><p class="page-subtitle">${today}</p></div>
-      ${myShift ? `<div class="alert alert-success">${iconSvg('check')} Shift is open — Started ${fmtTime(myShift.openedAt)} · Opening Cash: ₱${fmt(myShift.openingCash)}</div>` : `<div class="alert alert-warning">${iconSvg('warning')} No active shift. Open a shift before using the POS. <button class="btn btn-sm btn-gold" style="margin-left:12px" onclick="navigateTo('shift')">Open Shift</button></div>`}
+      ${myShift ? `<div class="alert alert-success">${iconSvg('check')} Shift is open — Started ${fmtTime(myShift.openedAt)} · Opening Cash: ₱${fmt(myShift.openingCash)}</div>` : (normalizeRole(u.role) === 'branch_manager' ? '' : `<div class="alert alert-warning">${iconSvg('warning')} No active shift. Open a shift before using the POS. <button class="btn btn-sm btn-gold" style="margin-left:12px" onclick="navigateTo('shift')">Open Shift</button></div>`)}
       <div class="kpi-grid">
         <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">My Sales Today</div><div class="kpi-icon green">${iconSvg('cart')}</div></div><div class="kpi-value">${mySales.length}</div></div>
         <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">My Revenue Today</div><div class="kpi-icon gold">${iconSvg('money')}</div></div><div class="kpi-value">₱${fmt(myRevenue)}</div></div>
@@ -1182,12 +1625,13 @@ function renderDashboard() {
   const branchRevs = s.branches.map(b => {
     const bSales = todaySales.filter(x => x.branchId === b.id);
     const bShift = activeShifts.filter(x => x.branchId === b.id);
-    const bStaff = s.users.filter(x => x.branchId === b.id && x.role === 'staff');
+    const bStaff = s.users.filter(x => x.branchId === b.id && ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(x.role)));
     return { ...b, sales: bSales.length, revenue: bSales.reduce((a, c) => a + c.total, 0), shifts: bShift.length, staff: bStaff.length };
   });
 
   const orders = getOrders();
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
+  const approvedOrders = orders.filter(o => o.status === 'approved').length;
   const inProdOrders = orders.filter(o => o.status === 'production').length;
   const delayedOrders = orders.filter(o => o.due_date && new Date(o.due_date) < new Date() && o.status !== 'completed' && o.status !== 'cancelled').length;
   const balanceDueTotal = orders.filter(o => (o.balance || 0) > 0 && o.status !== 'cancelled').reduce((a, b) => a + (b.balance || 0), 0);
@@ -1199,7 +1643,8 @@ function renderDashboard() {
     activeShifts: `<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Active Shifts</div><div class="kpi-icon maroon">${iconSvg('clock')}</div></div><div class="kpi-value">${activeShifts.length}</div></div>`,
     products: `<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Active Products</div><div class="kpi-icon blue">${iconSvg('box')}</div></div><div class="kpi-value">${totalProducts}</div></div>`,
     lowStock: `<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock Alerts</div><div class="kpi-icon maroon">${iconSvg('warning')}</div></div><div class="kpi-value">${lowStockItems.length}</div></div>`,
-    pendingOrders: `<div class="kpi-card" style="cursor:pointer" onclick="navigateTo('orders')"><div class="kpi-header"><div class="kpi-label">Pending Orders</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${pendingOrders}</div></div>`,
+    pendingOrders: `<div class="kpi-card" style="cursor:pointer" onclick="navigateTo('orders')"><div class="kpi-header"><div class="kpi-label">Pending Approval</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value" style="color:${pendingOrders > 0 ? 'var(--warning)' : 'inherit'}">${pendingOrders}</div></div>`,
+    approvedOrders: `<div class="kpi-card" style="cursor:pointer" onclick="navigateTo('orders')"><div class="kpi-header"><div class="kpi-label">Approved (Ready)</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value" style="color:#0d9488">${approvedOrders}</div></div>`,
     inProduction: `<div class="kpi-card" style="cursor:pointer" onclick="navigateTo('production')"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProdOrders}</div></div>`,
     delayed: `<div class="kpi-card" style="cursor:pointer" onclick="navigateTo('production')"><div class="kpi-header"><div class="kpi-label">Delayed Orders</div><div class="kpi-icon maroon">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:${delayedOrders > 0 ? 'var(--danger)' : 'inherit'}">${delayedOrders}</div></div>`,
     balanceDue: `<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Balance Due</div><div class="kpi-icon maroon">${iconSvg('receipt')}</div></div><div class="kpi-value" style="color:var(--danger)">₱${fmt(balanceDueTotal)}</div></div>`,
@@ -1219,7 +1664,7 @@ function renderDashboard() {
     <div class="kpi-grid">
       ${renderedKpis || `${kpiDefs.revenue}${kpiDefs.sales}${kpiDefs.activeShifts}${kpiDefs.lowStock}`}
     </div>
-    ${lowStockItems.length ? `<div class="alert alert-error-box">${iconSvg('warning')} ${lowStockItems.length} variant(s) reached reorder level. <button class="btn btn-sm btn-outline" style="margin-left:10px" onclick="navigateTo('inventory')">Open Inventory</button></div>` : ''}
+    ${lowStockItems.length ? `<div class="alert alert-error-box">${iconSvg('warning')} ${lowStockItems.length} variant(s) reached reorder level. <button class="btn btn-sm btn-outline" style="margin-left:10px" onclick="navigateTo('branch-inv-overview')">Open Inventory</button></div>` : ''}
     ${delayedOrders > 0 ? `<div class="alert alert-error-box">${iconSvg('warning')} ${delayedOrders} order(s) are past due date! <button class="btn btn-sm btn-danger" style="margin-left:10px" onclick="navigateTo('production')">View Production</button></div>` : ''}
     ${renderAdminProductionQueue()}
     <div class="branch-overview-grid">
@@ -1279,7 +1724,7 @@ function renderPOS() {
   const s = getState();
   const u = s.currentUser;
   const myShift = u.role !== 'admin' ? s.shifts.find(x => x.userId === u.id && x.status === 'open') : true;
-  if (u.role === 'staff' && !myShift) {
+  if ((['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(u.role))) && !myShift) {
     document.getElementById('page-content').innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:400px;gap:16px">
         <div style="font-size:48px">${iconSvg('lock')}</div>
@@ -1616,7 +2061,8 @@ function computeDiscount(subtotal, cart, draft, state, branchId) {
   }
 
   amount = Math.min(amount, subtotal);
-  return { amount, note };
+  const isManual = (type === 'percent' || type === 'fixed') && val > 0;
+  return { amount, note, isManual };
 }
 
 function renderCartItems(cart) {
@@ -1804,7 +2250,7 @@ function doCheckout() {
     showToast('Only Administrators can authorize credit sales.', 'error');
     return;
   }
-  if (discountInfo.amount > 0 && !(draft.discountReason || '').trim()) { showToast('Discount reason is required.', 'error'); return; }
+  if (discountInfo.isManual && discountInfo.amount > 0 && !(draft.discountReason || '').trim()) { showToast('Discount reason is required.', 'error'); return; }
 
   for (const item of cart) {
     const variant = findVariantById(s, item.variantId);
@@ -1930,7 +2376,7 @@ function renderShift() {
         <div class="shift-summary-item"><div class="shift-summary-label">Cash Sales</div><div class="shift-summary-value positive">₱${fmt(cashSales)}</div></div>
         <div class="shift-summary-item"><div class="shift-summary-label">GCash Sales</div><div class="shift-summary-value">₱${fmt(gcashSales)}</div></div>
         <div class="shift-summary-item"><div class="shift-summary-label">Pay-Ins</div><div class="shift-summary-value positive">₱${fmt(payin)}</div></div>
-        <div class="shift-summary-item"><div class="shift-summary-label">Expected Cash</div><div class="shift-summary-value">₱${fmt(expected)}</div></div>
+        <div class="shift-summary-item"><div class="shift-summary-label">Actual Cash</div><div class="shift-summary-value">₱${fmt(expected)}</div></div>
       </div>`;
     }
   }
@@ -2235,9 +2681,9 @@ function _renderProductMgmtPage() {
       '<td class="td-mono">\u20b1' + fmt(min) + (min !== max ? ' \u2013 \u20b1' + fmt(max) : '') + '</td>' +
       '<td>' + (p.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-neutral">Inactive</span>') + '</td>' +
       '<td>' +
-      '<button class="btn btn-sm btn-outline" onclick="editProductModal(\\"' + p.id + '\\")">Edit</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="toggleProduct(\\"' + p.id + '\\")" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="deleteProduct(\\"' + p.id + '\\")" title="Delete">' + iconSvg('error') + '</button>' +
+      '<button class="btn btn-sm btn-outline" onclick="editProductModal(\'' + p.id + '\')">Edit</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="toggleProduct(\'' + p.id + '\')" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="deleteProduct(\'' + p.id + '\')" title="Delete">' + iconSvg('error') + '</button>' +
       '</td></tr>';
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--ink-60)">No branch products found.</td></tr>';
 
@@ -2255,9 +2701,9 @@ function _renderProductMgmtPage() {
       '<td class="td-mono">\u20b1' + fmt(min) + (min !== max ? ' \u2013 \u20b1' + fmt(max) : '') + '</td>' +
       '<td>' + (p.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-neutral">Inactive</span>') + '</td>' +
       '<td>' +
-      '<button class="btn btn-sm btn-outline" onclick="editPrintProductModal(\\"' + p.id + '\\")">Edit</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="togglePrintProduct(\\"' + p.id + '\\")" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
-      '<button class="btn btn-sm btn-icon" onclick="deletePrintProduct(\\"' + p.id + '\\")" title="Delete">' + iconSvg('error') + '</button>' +
+      '<button class="btn btn-sm btn-outline" onclick="editPrintProductModal(\'' + p.id + '\')">Edit</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="togglePrintProduct(\'' + p.id + '\')" title="' + (p.active ? 'Deactivate' : 'Activate') + '">' + (p.active ? iconSvg('lock') : iconSvg('lockOpen')) + '</button> ' +
+      '<button class="btn btn-sm btn-icon" onclick="deletePrintProduct(\'' + p.id + '\')" title="Delete">' + iconSvg('error') + '</button>' +
       '</td></tr>';
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--ink-60)">No printing materials found.</td></tr>';
 
@@ -2346,6 +2792,7 @@ function confirmAddPrintProduct() {
   };
   s.printProducts.push(newProduct);
   saveState(s);
+  DB.savePrintProduct(newProduct).catch(function (e) { console.error('[DB] savePrintProduct:', e.message); });
   closeModal();
   showToast('Printing material added!', 'success');
   _pmTab = 'print';
@@ -2424,6 +2871,7 @@ function confirmEditPrintProduct(pid) {
     return { ...existing, id: v.id || ('pvar_' + Date.now()), name: v.name, size: v.size, color: v.color, colorHex: v.colorHex, sku: v.sku, price: v.price, stock: v.stock };
   });
   saveState(s);
+  DB.updatePrintProduct(pid, { name: p.name, desc: p.desc, materialType: p.materialType, variants: p.variants }).catch(function (e) { console.error('[DB] updatePrintProduct:', e.message); });
   closeModal();
   showToast('Printing material updated!', 'success');
   _pmTab = 'print';
@@ -2433,7 +2881,7 @@ function confirmEditPrintProduct(pid) {
 function togglePrintProduct(pid) {
   const s = getState();
   const p = (s.printProducts || []).find(x => x.id === pid);
-  if (p) { p.active = !p.active; saveState(s); showToast(`Material ${p.active ? 'activated' : 'deactivated'}.`, 'success'); _pmTab = 'print'; _renderProductMgmtPage(); }
+  if (p) { p.active = !p.active; saveState(s); DB.updatePrintProduct(pid, { active: p.active }).catch(function () { }); showToast(`Material ${p.active ? 'activated' : 'deactivated'}.`, 'success'); _pmTab = 'print'; _renderProductMgmtPage(); }
 }
 
 function deletePrintProduct(pid) {
@@ -2449,6 +2897,7 @@ function deletePrintProduct(pid) {
       const s2 = getState();
       s2.printProducts = (s2.printProducts || []).filter(p => p.id !== pid);
       saveState(s2);
+      DB.deletePrintProduct(pid).catch(function () { });
       showToast('Printing material deleted!', 'success');
       _pmTab = 'print';
       _renderProductMgmtPage();
@@ -2481,7 +2930,7 @@ function addProductModal() {
       <div class="form-group"><label>Description</label><input id="np-desc" class="form-control" placeholder="Short description..."></div>
       <hr class="divider">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong style="font-size:14px">Variants</strong><button class="btn btn-sm btn-outline" onclick="addVariantRow()">+ Add Variant</button></div>
-      <div id="variant-rows"><div class="product-form-variant-row"><input class="form-control vn-name" placeholder="Variant name (e.g. 8oz)"><input class="form-control vn-sku" placeholder="SKU"><input class="form-control vn-price" type="number" placeholder="Price"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button></div></div>
+      <div id="variant-rows">${_buildVariantRow()}</div>
     </div>
     <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="confirmAddProduct()">Add Product</button></div>`, 'modal-lg');
 
@@ -2491,9 +2940,39 @@ function addProductModal() {
   }, 0);
 }
 
+function _buildVariantRow(variantName, size, sku, price) {
+  const s = getState();
+  const branchInputs = (s.branches || []).map(b =>
+    `<div class="vn-branch-stock-row">
+      <span class="vn-branch-label">${b.name}</span>
+      <input type="number" class="form-control vn-branch-qty" data-branch="${b.id}" placeholder="0" min="0">
+    </div>`
+  ).join('');
+  const branchSection = (s.branches || []).length
+    ? `<div class="vn-branch-stocks">
+        <div class="vn-branch-stocks-label">Initial Stock per Branch</div>
+        ${branchInputs}
+      </div>`
+    : '';
+  return `<div class="product-form-variant-row-wrap">
+    <div class="product-form-variant-row">
+      <input class="form-control vn-name" placeholder="Variant name (e.g. 8oz)" value="${variantName || ''}">
+      <input class="form-control vn-size" placeholder="Size (e.g. 12oz)" value="${size || ''}">
+      <input class="form-control vn-sku" placeholder="SKU" value="${sku || ''}">
+      <input class="form-control vn-price" type="number" placeholder="Price" value="${price || ''}">
+      <button class="btn-icon" onclick="this.closest('.product-form-variant-row-wrap').remove()">${iconSvg('error')}</button>
+    </div>
+    ${branchSection}
+  </div>`;
+}
+
 function _buildSuggestOpts(suggestions) {
   return suggestions.map(p =>
-    `<div class="product-suggest-item" onmousedown="event.preventDefault();applyProductSuggestion('${p.id}')">${p.name} <span class="text-xs text-muted">${p.desc || ''}</span></div>`
+    `<div class="product-suggest-item" onmousedown="event.preventDefault();applyProductSuggestion('${p.id}')">
+      <span style="font-weight:600">${p.name}</span>
+      ${p.type ? `<span class="badge badge-outline" style="font-size:10px;margin-left:6px;vertical-align:middle">${p.type}</span>` : ''}
+      ${p.desc ? `<span class="text-xs text-muted" style="margin-left:6px">${p.desc}</span>` : ''}
+    </div>`
   ).join('');
 }
 
@@ -2526,26 +3005,28 @@ function applyProductSuggestion(pid) {
   document.getElementById('np-name').value = p.name;
   document.getElementById('np-desc').value = p.desc || '';
   document.getElementById('np-suggest-input').value = p.name;
+  // Fill Product Type from catalog entry
+  const typeEl = document.getElementById('np-type');
+  if (typeEl && p.type) typeEl.value = p.type;
+
   const list = document.getElementById('np-suggest-list');
   if (list) list.style.display = 'none';
   document.removeEventListener('mousedown', _pmSuggestOutsideClick);
 
-  // Fill variant rows
+  // Fill variant rows — carry name, size, sku, price
   const container = document.getElementById('variant-rows');
   container.innerHTML = '';
   p.variants.forEach(v => {
     const sku = buildVariantSku(p.name, v.name, Math.floor(Math.random() * 9000 + 1000));
-    const row = document.createElement('div');
-    row.className = 'product-form-variant-row';
-    row.innerHTML = `<input class="form-control vn-name" placeholder="Variant name" value="${v.name}"><input class="form-control vn-sku" placeholder="SKU" value="${sku}"><input class="form-control vn-price" type="number" placeholder="Price" value="${v.price}"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button>`;
-    container.appendChild(row);
+    container.insertAdjacentHTML('beforeend', _buildVariantRow(v.name, v.size || '', sku, v.price));
   });
   applySvgToElement(container);
 }
 
 function addVariantRow() {
-  const html = `<div class="product-form-variant-row"><input class="form-control vn-name" placeholder="Variant name"><input class="form-control vn-size" placeholder="Size (e.g. 8oz)"><input class="form-control vn-sku" placeholder="SKU"><input class="form-control vn-price" type="number" placeholder="Price"><button class="btn-icon" onclick="this.closest('.product-form-variant-row').remove()">${iconSvg('error')}</button></div>`;
+  const html = _buildVariantRow('', '', '', '');
   document.getElementById('variant-rows').insertAdjacentHTML('beforeend', html);
+  applySvgToElement(document.getElementById('variant-rows'));
 }
 
 function confirmAddProduct() {
@@ -2554,12 +3035,18 @@ function confirmAddProduct() {
   const productType = (document.getElementById('np-type')?.value || '').trim();
   if (!name) { showToast('Product name required', 'error'); return; }
   const variants = [];
-  document.querySelectorAll('.product-form-variant-row').forEach(row => {
-    const vname = row.querySelector('.vn-name').value.trim();
-    const size = (row.querySelector('.vn-size')?.value || '').trim();
-    const sku = row.querySelector('.vn-sku').value.trim();
-    const price = parseFloat(row.querySelector('.vn-price').value) || 0;
-    if (vname) variants.push({ name: vname, size, sku, price, stock: 100 });
+  document.querySelectorAll('.product-form-variant-row-wrap').forEach(wrap => {
+    const vname = wrap.querySelector('.vn-name').value.trim();
+    const size = (wrap.querySelector('.vn-size')?.value || '').trim();
+    const sku = wrap.querySelector('.vn-sku').value.trim();
+    const price = parseFloat(wrap.querySelector('.vn-price').value) || 0;
+    if (!vname) return;
+    const branchStocks = {};
+    wrap.querySelectorAll('.vn-branch-qty').forEach(input => {
+      branchStocks[input.dataset.branch] = Math.max(0, parseInt(input.value) || 0);
+    });
+    const totalStock = Object.values(branchStocks).reduce((sum, q) => sum + q, 0);
+    variants.push({ name: vname, size, sku, price, branchStocks, stock: totalStock });
   });
   if (!variants.length) { showToast('At least one variant required', 'error'); return; }
   const s = getState();
@@ -2568,8 +3055,11 @@ function confirmAddProduct() {
     name, desc, productType, active: true,
     variants: variants.map(v => ({
       id: 'var_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      name: v.name, size: v.size, sku: v.sku, price: v.price, stock: v.stock || 100,
-      reorderLevel: 20, reserved: 0, branchStocks: {}
+      name: v.name, size: v.size, sku: v.sku, price: v.price,
+      stock: v.stock,
+      reorderLevel: 20, maxStock: 60, reserved: 0,
+      branchStocks: v.branchStocks,
+      lastCountDate: new Date().toISOString(),
     }))
   };
   s.products.push(newProduct);
@@ -2707,6 +3197,11 @@ function _renderInventoryPage() {
 
   const showBranchCols = isAdmin && !viewBranchId;
   const branchLabel = viewBranchId ? (s.branches.find(b => b.id === viewBranchId)?.name || viewBranchId) : 'All Branches';
+  const inventoryRequests = (s.branchInventoryRequests || []).filter(req => isAdmin || req.branchId === u?.branchId);
+  const pendingRequests = inventoryRequests.filter(req => req.status === 'pending');
+  const requestPanel = isAdmin
+    ? `<div class="data-card" style="margin-bottom:18px"><div class="data-card-header"><span class="data-card-title">Branch Inventory Requests</span><span class="badge badge-warning">${pendingRequests.length} pending</span></div><div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Requested</th><th>Branch</th><th>Item</th><th>Qty</th><th>Requested By</th><th>Status</th><th>Action</th></tr></thead><tbody>${inventoryRequests.length ? [...inventoryRequests].reverse().map(req => { const branch = s.branches.find(b => b.id === req.branchId); return `<tr><td class="td-mono">${fmtTime(req.createdAt)}</td><td>${branch?.name || req.branchId || '—'}</td><td>${req.itemName || '—'}</td><td class="td-mono">${req.qty || 0}</td><td>${req.requestedByName || '—'}</td><td><span class="badge ${req.status === 'approved' ? 'badge-success' : req.status === 'rejected' ? 'badge-danger' : 'badge-warning'}">${req.status || 'pending'}</span></td><td>${req.status === 'pending' ? `<button class="btn btn-sm btn-maroon" onclick="approveInventoryRequest('${req.id}')">Approve</button> <button class="btn btn-sm btn-danger" onclick="rejectInventoryRequest('${req.id}')">Reject</button>` : '—'}</td></tr>`; }).join('') : '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No branch inventory requests yet.</td></tr>'}</tbody></table></div></div>`
+    : `<div class="data-card" style="margin-bottom:18px"><div class="data-card-header"><span class="data-card-title">Branch Request Queue</span><button class="btn btn-sm btn-maroon" onclick="openInventoryRequestModal()">+ Request Inventory</button></div><div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Requested</th><th>Item</th><th>Qty</th><th>Status</th><th>Reviewed</th></tr></thead><tbody>${inventoryRequests.length ? [...inventoryRequests].reverse().map(req => `<tr><td class="td-mono">${fmtTime(req.createdAt)}</td><td>${req.itemName || '—'}</td><td class="td-mono">${req.qty || 0}</td><td><span class="badge ${req.status === 'approved' ? 'badge-success' : req.status === 'rejected' ? 'badge-danger' : 'badge-warning'}">${req.status || 'pending'}</span></td><td>${req.reviewedAt ? fmtTime(req.reviewedAt) : '—'}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No requests submitted yet.</td></tr>'}</tbody></table></div></div>`;
 
   const branchSelector = isAdmin ? `
     <select class="form-control" style="width:auto" onchange="_invFilter.branch=this.value||null;_renderInventoryPage()">
@@ -2718,9 +3213,10 @@ function _renderInventoryPage() {
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h1 class="page-title">Branch Inventory</h1><p class="page-subtitle">${isAdmin ? 'Stock monitoring · ' + branchLabel : 'Your branch stock — ' + branchLabel}</p></div>
+      <div><h1 class="page-title">Branch Inventory</h1><p class="page-subtitle">${isAdmin ? 'Consolidate requests and monitor full inventory - ' + branchLabel : 'Manage your branch stock and submit requests to Main Admin - ' + branchLabel}</p></div>
       ${isAdmin ? `<div style="display:flex;gap:8px"><button class="btn btn-maroon" onclick="addStockModal()">+ Add Stock</button></div>` : ''}
     </div>
+    ${requestPanel}
     <div class="kpi-grid">
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Variants</div><div class="kpi-icon blue">${iconSvg('box')}</div></div><div class="kpi-value">${totalVariants}</div><div class="kpi-sub">${s.products.filter(p => p.active).length} active products</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Healthy Stock</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${healthyCount}</div><div class="kpi-sub">Above reorder level</div></div>
@@ -2806,7 +3302,7 @@ function _renderInventoryPage() {
 
 function adjustStockModal(pid, vid) {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can adjust stock.', 'error'); return; }
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') { showToast('Only Administrators can adjust stock.', 'error'); return; }
   const p = s.products.find(x => x.id === pid);
   const v = p?.variants.find(x => x.id === vid);
   if (!v) return;
@@ -2846,10 +3342,10 @@ function adjustStockModal(pid, vid) {
 }
 
 function confirmAdjustStock(pid, vid) {
+  const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') { showToast('Only Administrators can adjust stock.', 'error'); return; }
   const reorderLevel = Math.max(1, parseInt(document.getElementById('adj-reorder').value) || 20);
   const maxStock = Math.max(1, parseInt(document.getElementById('adj-maxstock').value) || reorderLevel * 3);
-
-  const s = getState();
   const prod = s.products.find(x => x.id === pid);
   const variant = prod?.variants.find(x => x.id === vid);
   if (!variant) { showToast('Variant not found.', 'error'); return; }
@@ -2886,7 +3382,7 @@ function confirmAdjustStock(pid, vid) {
 
 function deleteVariantFromInv(pid, vid) {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can delete stock entries.', 'error'); return; }
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') { showToast('Only Administrators can delete stock entries.', 'error'); return; }
   const prod = s.products.find(x => x.id === pid);
   if (!prod) return;
   const variant = prod.variants.find(x => x.id === vid);
@@ -2911,7 +3407,7 @@ function deleteVariantFromInv(pid, vid) {
 
 function addStockModal() {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { showToast('Only Administrators can add stock.', 'error'); return; }
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') { showToast('Only Administrators can add stock.', 'error'); return; }
   const productOptions = s.products.filter(p => p.active)
     .map(p => `<option value="${p.id}">${p.productType || p.name} — ${p.name}</option>`).join('');
 
@@ -2949,6 +3445,7 @@ function addStockModal() {
 
 function confirmAddStock() {
   const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') { showToast('Only Administrators can add stock.', 'error'); return; }
   const pid = document.getElementById('addstock-product').value;
   const name = document.getElementById('addstock-name').value.trim();
   const sku = document.getElementById('addstock-sku').value.trim();
@@ -2991,6 +3488,108 @@ function confirmAddStock() {
   renderInventory();
 }
 
+function openInventoryRequestModal() {
+  const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'inventory_staff') {
+    showToast('Only Inventory Personnel can submit branch inventory requests.', 'error');
+    return;
+  }
+  const variants = s.products.flatMap(p => (p.variants || []).map(v => ({ product: p, variant: v })));
+  showModal(`<div class="modal-header"><h2>Request Inventory</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Item</label><div class="form-select-wrap"><select id="invreq-variant" class="form-control">${variants.map(row => `<option value="${row.variant.id}">${row.product.productType || row.product.name} — ${row.variant.name || row.variant.size}</option>`).join('')}</select></div></div>
+      <div class="form-row-2">
+        <div class="form-group"><label>Quantity</label><input id="invreq-qty" type="number" min="1" value="1" class="form-control"></div>
+        <div class="form-group"><label>Reason</label><input id="invreq-reason" class="form-control" placeholder="Urgent restock, client order, etc."></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="submitInventoryRequest()">Submit Request</button></div>`);
+}
+
+function submitInventoryRequest() {
+  const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'inventory_staff') {
+    showToast('Only Inventory Personnel can submit branch inventory requests.', 'error');
+    return;
+  }
+  const variantId = document.getElementById('invreq-variant')?.value;
+  const qty = parseInt(document.getElementById('invreq-qty')?.value, 10) || 0;
+  const reason = document.getElementById('invreq-reason')?.value?.trim() || '';
+  if (!variantId || qty <= 0) { showToast('Enter a valid request.', 'error'); return; }
+  const found = findProductAndVariantByVariantId(s, variantId);
+  if (!found) { showToast('Selected item was not found.', 'error'); return; }
+  s.branchInventoryRequests.push({
+    id: 'invreq_' + Date.now(),
+    branchId: s.currentUser?.branchId || null,
+    requestedBy: s.currentUser?.id || null,
+    requestedByName: s.currentUser?.name || s.currentUser?.username || 'Branch User',
+    productId: found.product.id,
+    variantId,
+    itemName: `${found.product.productType || found.product.name} — ${found.variant.name || found.variant.size}`,
+    qty,
+    reason,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  });
+  saveState(s);
+  closeModal();
+  showToast('Inventory request sent to Main Admin.', 'success');
+  renderInventory();
+}
+
+function approveInventoryRequest(requestId) {
+  const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') {
+    showToast('Only the Main Admin can approve inventory requests.', 'error');
+    return;
+  }
+  const req = (s.branchInventoryRequests || []).find(x => x.id === requestId);
+  if (!req || req.status !== 'pending') return;
+  const found = findProductAndVariantByVariantId(s, req.variantId);
+  if (!found) { showToast('Requested item was not found.', 'error'); return; }
+  const mainBranchId = 'b1';
+  const available = (found.variant.branchStocks || {})[mainBranchId] || 0;
+  if (available < req.qty) { showToast(`Main Branch only has ${available} unit(s) available.`, 'error'); return; }
+  adjustVariantBranchStock(found.variant, mainBranchId, -req.qty);
+  adjustVariantBranchStock(found.variant, req.branchId, req.qty);
+  req.status = 'approved';
+  req.reviewedAt = new Date().toISOString();
+  req.reviewedBy = s.currentUser?.id || null;
+  s.branchTransfers.push({
+    id: 'tr_' + Date.now(),
+    fromBranchId: mainBranchId,
+    toBranchId: req.branchId,
+    productId: found.product.id,
+    variantId: req.variantId,
+    productName: found.product.name,
+    variantName: found.variant.name || found.variant.size,
+    qty: req.qty,
+    createdAt: req.reviewedAt,
+    createdBy: s.currentUser?.id || null,
+  });
+  saveState(s);
+  DB.updateProduct(found.product.id, { name: found.product.name, desc: found.product.desc, variants: found.product.variants });
+  DB.saveTransfer(s.branchTransfers[s.branchTransfers.length - 1]);
+  showToast('Inventory request approved and transferred.', 'success');
+  renderInventory();
+}
+
+function rejectInventoryRequest(requestId) {
+  const s = getState();
+  if (!s.currentUser || normalizeRole(s.currentUser.role) !== 'admin') {
+    showToast('Only the Main Admin can reject inventory requests.', 'error');
+    return;
+  }
+  const req = (s.branchInventoryRequests || []).find(x => x.id === requestId);
+  if (!req || req.status !== 'pending') return;
+  req.status = 'rejected';
+  req.reviewedAt = new Date().toISOString();
+  req.reviewedBy = s.currentUser?.id || null;
+  saveState(s);
+  showToast('Inventory request rejected.', 'warning');
+  renderInventory();
+}
+
 // PERSONNEL MANAGEMENT
 function renderPersonnelMgmt() {
   const s = getState();
@@ -2998,7 +3597,7 @@ function renderPersonnelMgmt() {
   if (!me) { accessDenied('Personnel Management'); return; }
 
   // STAFF: show a simple landing page with links to their sub-pages
-  if (me.role === 'staff') {
+  if (['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(me.role))) {
     document.getElementById('page-content').innerHTML = `
       <div class="page-header"><h1 class="page-title">Personnel Management</h1><p class="page-subtitle">Your schedule, time cards, leave, and payroll.</p></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
@@ -3006,7 +3605,7 @@ function renderPersonnelMgmt() {
           <div class="data-card-header"><span class="data-card-title">${iconSvg('calendar')} Schedule</span><span class="badge badge-maroon">→</span></div>
           <div class="data-card-body"><p class="text-sm text-muted">View your monthly work schedule, rest days, and approved leaves.</p></div>
         </div>
-        <div class="data-card" style="cursor:pointer" onclick="navigateTo('timecards')">
+        <div class="data-card" style="cursor:pointer" onclick="navigateTo('attendance')">
           <div class="data-card-header"><span class="data-card-title">${iconSvg('clock')} Time Cards</span><span class="badge badge-maroon">→</span></div>
           <div class="data-card-body"><p class="text-sm text-muted">Upload and track your time cards for payroll processing.</p></div>
         </div>
@@ -3047,7 +3646,7 @@ function renderPersonnelMgmt() {
   }
 
   // Admin: full personnel management
-  const staffUsers = s.users.filter(u => u.role === 'staff' || u.role === 'print');
+  const staffUsers = s.users.filter(u => ['cashier', 'branch_manager', 'inventory_staff', 'print'].includes(normalizeRole(u.role)));
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">Personnel Management</h1><p class="page-subtitle">Manage staff and monitor their shift activity.</p></div>
     <div class="data-card"><div class="data-card-header"><span class="data-card-title">All Staff</span><span class="badge badge-neutral">${staffUsers.length} staff members</span></div>
@@ -3096,10 +3695,10 @@ const SCHED_STATUSES = ['Work', 'Rest Day', 'Leave', 'Holiday'];
 const SCHED_COLORS = { Work: '#16a34a', 'Rest Day': '#7c3aed', Leave: '#d97706', Holiday: '#dc2626' };
 const SCHED_CYCLE = ['Work', 'Rest Day', 'Leave', 'Holiday'];
 const SCHED_BADGES = {
-  Work:       `<span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">WORK</span>`,
+  Work: `<span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">WORK</span>`,
   'Rest Day': `<span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">REST DAY</span>`,
-  Leave:      `<span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">LEAVE</span>`,
-  Holiday:    `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">HOLIDAY</span>`,
+  Leave: `<span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">LEAVE</span>`,
+  Holiday: `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">HOLIDAY</span>`,
 };
 
 function getSchedStatus(s, uid, dateStr) {
@@ -3132,7 +3731,10 @@ function cycleSchedDay(uid, dateStr) {
 function renderShiftSchedule() {
   const s = getState();
   if (!s.currentUser) { accessDenied('Scheduling'); return; }
-  if (s.currentUser.role !== 'admin') { renderPersonalSchedule(); return; }
+  const role = normalizeRole(s.currentUser.role);
+  const isPayrollAdmin = role === 'admin' || role === 'hr';
+  const isBranchManager = role === 'branch_manager';
+  if (!isPayrollAdmin && !isBranchManager) { renderPersonalSchedule(); return; }
 
   // Week navigation state
   if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
@@ -3144,14 +3746,15 @@ function renderShiftSchedule() {
   const todayStr = toLocalDateString(new Date());
 
   // Filter: which branch to show (default all)
-  const filterBranch = window._schedBranchFilter || 'all';
+  const filterBranch = isBranchManager ? (s.currentUser.branchId || 'all') : (window._schedBranchFilter || 'all');
   const allBranches = s.branches || [];
-  const branchOpts = [`<option value="all" ${filterBranch === 'all' ? 'selected' : ''}>All Branches</option>`,
-  ...allBranches.map(b => `<option value="${b.id}" ${filterBranch === b.id ? 'selected' : ''}>${b.name}</option>`)
-  ].join('');
+  const branchOpts = isBranchManager
+    ? allBranches.filter(b => b.id === s.currentUser.branchId).map(b => `<option value="${b.id}" selected>${b.name}</option>`).join('')
+    : [`<option value="all" ${filterBranch === 'all' ? 'selected' : ''}>All Branches</option>`,
+    ...allBranches.map(b => `<option value="${b.id}" ${filterBranch === b.id ? 'selected' : ''}>${b.name}</option>`)].join('');
 
   // Build summary badges for top bar
-  const allStaff = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
+  const allStaff = (s.users || []).filter(u => ['cashier', 'inventory_staff', 'branch_manager', 'print'].includes(normalizeRole(u.role)));
   let totalWork = 0, totalOff = 0, totalLeave = 0;
   allStaff.forEach(u => {
     days.forEach(d => {
@@ -3168,7 +3771,7 @@ function renderShiftSchedule() {
   // Branch staff sections
   allBranches.forEach(branch => {
     if (filterBranch !== 'all' && filterBranch !== branch.id) return;
-    const staff = (s.users || []).filter(u => u.role === 'staff' && u.branchId === branch.id);
+    const staff = (s.users || []).filter(u => ['cashier', 'inventory_staff', 'branch_manager'].includes(normalizeRole(u.role)) && u.branchId === branch.id);
     sections.push(buildSchedSection(s, branch.name, '🏪', staff, days, todayStr));
   });
 
@@ -3346,7 +3949,7 @@ function _schedAutoFillWeekConfirmed() {
   if (!s.scheduleWeekStart) s.scheduleWeekStart = toLocalDateString(getMonday(new Date()));
   const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const allEmp = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
+  const allEmp = (s.users || []).filter(u => ['cashier', 'inventory_staff', 'branch_manager', 'print'].includes(normalizeRole(u.role)));
   allEmp.forEach(u => {
     days.forEach(d => {
       const ds = toLocalDateString(d);
@@ -3377,7 +3980,7 @@ function _schedClearWeekConfirmed() {
   if (!s.scheduleWeekStart) return;
   const weekStart = new Date(s.scheduleWeekStart + 'T00:00:00');
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const allEmp = (s.users || []).filter(u => ['staff', 'print'].includes(u.role));
+  const allEmp = (s.users || []).filter(u => ['cashier', 'inventory_staff', 'branch_manager', 'print'].includes(normalizeRole(u.role)));
   allEmp.forEach(u => {
     days.forEach(d => {
       const ds = toLocalDateString(d);
@@ -3508,133 +4111,1009 @@ function shiftDay(delta) { renderShiftSchedule(); }
 function autoAssignWeek() { schedAutoFillWeek(); }
 
 // PAYROLL
+function getPayrollPeriodSortValue(periodKey) {
+  if (!periodKey) return 0;
+  if (String(periodKey).includes('__') || /^[0-9]{16}$/.test(String(periodKey))) {
+    const bounds = parsePayrollPeriodBounds(periodKey, null);
+    if (bounds && bounds.start) return bounds.start.getTime();
+  }
+  const parts = String(periodKey).split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  if (!year || !month) return 0;
+  return new Date(year, month - 1, 1).getTime();
+}
+
+function getPayrollPeriodLabel(periodKey) {
+  if (String(periodKey).includes('__') || /^[0-9]{16}$/.test(String(periodKey))) {
+    const bounds = parsePayrollPeriodBounds(periodKey, null);
+    if (bounds && bounds.start && bounds.end) return getPayrollDateRangeLabel(bounds.start, bounds.end);
+  }
+  const stamp = getPayrollPeriodSortValue(periodKey);
+  if (!stamp) return periodKey || 'Unknown Period';
+  return new Date(stamp).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+}
+
+function calcPayrollAmounts(attendanceDays, dailyRate) {
+  const gross = attendanceDays * dailyRate;
+  const sss = Math.round(gross * 0.045);
+  const phic = Math.round(gross * 0.025);
+  const hdmf = Math.min(100, Math.round(gross * 0.02));
+  const deductions = sss + phic + hdmf;
+  const net = gross - deductions;
+  return { gross, sss, phic, hdmf, deductions, net };
+}
+
+function getDateOnlyKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return toLocalDateString(d);
+}
+
+function getPayrollDateRangeKey(startDate, endDate) {
+  const start = getDateOnlyKey(startDate);
+  const end = getDateOnlyKey(endDate);
+  return start && end ? `${start.replace(/-/g, '')}${end.replace(/-/g, '')}` : '';
+}
+
+function getPayrollDateRangeLabel(startDate, endDate) {
+  const start = getDateOnlyKey(startDate);
+  const end = getDateOnlyKey(endDate);
+  if (!start || !end) return 'Custom Payroll Period';
+  const startObj = new Date(start + 'T00:00:00');
+  const endObj = new Date(end + 'T00:00:00');
+  return `${startObj.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })} - ${endObj.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+}
+
+function parsePayrollPeriodBounds(periodKey, payPeriod) {
+  if (periodKey && /^[0-9]{16}$/.test(String(periodKey))) {
+    const startKey = String(periodKey).slice(0, 8);
+    const endKey = String(periodKey).slice(8);
+    if (startKey && endKey) {
+      return {
+        start: new Date(`${startKey.slice(0, 4)}-${startKey.slice(4, 6)}-${startKey.slice(6)}T00:00:00`),
+        end: new Date(`${endKey.slice(0, 4)}-${endKey.slice(4, 6)}-${endKey.slice(6)}T23:59:59`),
+      };
+    }
+  }
+  if (periodKey && String(periodKey).includes('__')) {
+    const parts = String(periodKey).split('__');
+    if (parts.length === 2) {
+      const startKey = getDateOnlyKey(parts[0]);
+      const endKey = getDateOnlyKey(parts[1]);
+      if (startKey && endKey) {
+        return {
+          start: new Date(startKey + 'T00:00:00'),
+          end: new Date(endKey + 'T23:59:59'),
+        };
+      }
+    }
+  }
+
+  if (periodKey) {
+    const parts = String(periodKey).split('-');
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const half = parts[2];
+    if (year && !Number.isNaN(month)) {
+      if (half === 'A' || half === 'B') {
+        return {
+          start: new Date(year, month, half === 'A' ? 1 : 16, 0, 0, 0),
+          end: new Date(year, half === 'A' ? month : month + 1, half === 'A' ? 15 : 0, 23, 59, 59),
+        };
+      }
+      return {
+        start: new Date(year, month, 1, 0, 0, 0),
+        end: new Date(year, month + 1, 0, 23, 59, 59),
+      };
+    }
+  }
+
+  if (payPeriod && /\d{4}/.test(payPeriod)) {
+    const matches = payPeriod.match(/([A-Za-z]+ \d{1,2}, \d{4})/g);
+    if (matches && matches.length >= 2) {
+      const start = new Date(matches[0]);
+      const end = new Date(matches[1]);
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+        end.setHours(23, 59, 59, 999);
+        return { start, end };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getAttendanceDaysForRange(userId, startDate, endDate) {
+  const s = getState();
+  const startKey = getDateOnlyKey(startDate);
+  const endKey = getDateOnlyKey(endDate);
+  if (!startKey || !endKey) return 0;
+  const uniqueDays = new Set();
+  (s.attendanceRecords || []).forEach(record => {
+    if (record.userId !== userId || !record.timeIn || !record.timeOut) return;
+    const dayKey = getDateOnlyKey(record.date || record.timeIn);
+    if (!dayKey) return;
+    if (dayKey >= startKey && dayKey <= endKey) uniqueDays.add(dayKey);
+  });
+  return uniqueDays.size;
+}
+
+function buildPayrollRowForDateRange(user, startDate, endDate) {
+  const attendanceDays = getAttendanceDaysForRange(user.id, startDate, endDate);
+  const dailyRate = user.dailyRate || 600;
+  const calc = calcPayrollAmounts(attendanceDays, dailyRate);
+  return {
+    userId: user.id,
+    name: user.name || user.username || 'Unnamed Employee',
+    role: user.role,
+    branchId: user.branchId || null,
+    attendanceDays,
+    dailyRate,
+    gross: calc.gross,
+    sss: calc.sss,
+    phic: calc.phic,
+    hdmf: calc.hdmf,
+    deductions: calc.deductions,
+    net: calc.net,
+  };
+}
+
+function getCompanyPayrollUsers() {
+  return (getState().users || []).filter(user => {
+    const role = normalizeRole(user.role);
+    return role !== 'admin' && user.active !== 0 && user.active !== false;
+  });
+}
+
+function getPayrollSubmissionMonthKey(startDate, endDate) {
+  const start = getDateOnlyKey(startDate);
+  const end = getDateOnlyKey(endDate);
+  if (!start || !end) return '';
+  const startDateObj = new Date(start + 'T00:00:00');
+  const endDateObj = new Date(end + 'T00:00:00');
+  if (startDateObj.getDate() !== 1) return '';
+  const lastDay = new Date(startDateObj.getFullYear(), startDateObj.getMonth() + 1, 0).getDate();
+  if (
+    endDateObj.getFullYear() !== startDateObj.getFullYear() ||
+    endDateObj.getMonth() !== startDateObj.getMonth() ||
+    endDateObj.getDate() !== lastDay
+  ) {
+    return '';
+  }
+  return `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getApprovedBranchSubmissionPayrollRows(startDate, endDate, branchId) {
+  const s = getState();
+  const periodKey = getPayrollDateRangeKey(startDate, endDate);
+  if (!periodKey) return [];
+  return (s.payrollSubmissions || [])
+    .filter(sub => sub.status === 'approved' && sub.periodKey === periodKey && (!branchId || sub.branchId === branchId))
+    .flatMap(sub => (sub.rows || []).map(row => ({
+      ...row,
+      branchId: row.branchId || sub.branchId || null,
+      branchName: row.branchName || ((s.branches || []).find(b => b.id === sub.branchId)?.name || sub.branchId),
+      submissionId: sub.id,
+      submissionStatus: sub.status,
+    })));
+}
+
+function getPayrollRowsForRange(startDate, endDate) {
+  const companyRows = getCompanyPayrollUsers().map(user => buildPayrollRowForDateRange(user, startDate, endDate));
+  const approvedRows = getApprovedBranchSubmissionPayrollRows(startDate, endDate);
+  if (!approvedRows.length) return companyRows;
+  const rowMap = new Map();
+  approvedRows.forEach(row => { if (row.userId) rowMap.set(row.userId, row); });
+  companyRows.forEach(row => { if (!rowMap.has(row.userId)) rowMap.set(row.userId, row); });
+  return Array.from(rowMap.values());
+}
+
+function getPayrollRunsHistory() {
+  return (getState().payrollRuns || []).slice().sort((a, b) => {
+    const diff = getDateOnlyKey(b.periodStart).localeCompare(getDateOnlyKey(a.periodStart));
+    if (diff !== 0) return diff;
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  });
+}
+
+function buildPayrollRow(user, periodKey) {
+  const s = getState();
+  const monthKey = periodKey || new Date().toISOString().slice(0, 7);
+  const attendanceDays = (s.attendanceRecords || []).filter(r =>
+    r.userId === user.id && r.timeIn && r.timeOut && r.date && r.date.startsWith(monthKey)
+  ).length;
+  const dailyRate = user.dailyRate || 600;
+  const calc = calcPayrollAmounts(attendanceDays, dailyRate);
+  return {
+    userId: user.id,
+    name: user.name || user.username || 'Unnamed Employee',
+    role: user.role,
+    branchId: user.branchId || null,
+    attendanceDays,
+    dailyRate,
+    gross: calc.gross,
+    sss: calc.sss,
+    phic: calc.phic,
+    hdmf: calc.hdmf,
+    deductions: calc.deductions,
+    net: calc.net,
+  };
+}
+
+function getPayrollStatusBadge(status) {
+  const value = String(status || 'pending').toLowerCase();
+  const cls = value === 'approved' || value === 'sent'
+    ? 'badge-success'
+    : value === 'partial'
+      ? 'badge-warning'
+      : value === 'rejected'
+        ? 'badge-danger'
+        : value === 'draft'
+          ? 'badge-neutral'
+          : 'badge-warning';
+  return `<span class="badge ${cls}">${value}</span>`;
+}
+
+function getBranchPayrollHistory(branchId) {
+  return (getState().payrollSubmissions || [])
+    .filter(sub => sub.branchId === branchId)
+    .slice()
+    .sort((a, b) => {
+      const diff = getPayrollPeriodSortValue(b.periodKey) - getPayrollPeriodSortValue(a.periodKey);
+      if (diff !== 0) return diff;
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
+}
+
+function getEmployeePayrollHistory(userId) {
+  const s = getState();
+  const currentPeriodKey = new Date().toISOString().slice(0, 7);
+  const history = (s.payrollSubmissions || []).reduce((list, sub) => {
+    const row = (sub.rows || []).find(item => item.userId === userId);
+    if (!row) return list;
+    list.push({
+      ...row,
+      periodKey: sub.periodKey,
+      status: sub.status || 'pending',
+      reviewedAt: sub.reviewedAt || null,
+    });
+    return list;
+  }, []);
+
+  if (!history.some(item => item.periodKey === currentPeriodKey)) {
+    const user = (s.users || []).find(u => u.id === userId);
+    if (user) history.push({ ...buildPayrollRow(user, currentPeriodKey), periodKey: currentPeriodKey, status: 'draft', reviewedAt: null });
+  }
+
+  return history.sort((a, b) => getPayrollPeriodSortValue(b.periodKey) - getPayrollPeriodSortValue(a.periodKey));
+}
+
+function viewPayrollSubmissionDetails(submissionId) {
+  const s = getState();
+  const submission = (s.payrollSubmissions || []).find(item => item.id === submissionId);
+  if (!submission) { showToast('Payroll submission not found.', 'error'); return; }
+  const branch = (s.branches || []).find(b => b.id === submission.branchId);
+  const rows = submission.rows || [];
+  const totalDeductions = rows.reduce((sum, row) => sum + (row.deductions || (row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)), 0);
+  showModal(`
+    <div class="modal-header"><h2>Payroll Details</h2><button class="btn-close-modal" onclick="closeModal()">X</button></div>
+    <div class="modal-body">
+      <div class="payroll-detail-grid">
+        <div class="payroll-detail-card"><label>Branch</label><strong>${branch?.name || submission.branchId}</strong></div>
+        <div class="payroll-detail-card"><label>Period</label><strong>${getPayrollPeriodLabel(submission.periodKey)}</strong></div>
+        <div class="payroll-detail-card"><label>Status</label><strong>${submission.status || 'pending'}</strong></div>
+        <div class="payroll-detail-card"><label>Total Net Pay</label><strong>PHP ${fmt(submission.totalNet || 0)}</strong></div>
+      </div>
+      <div class="alert alert-info" style="margin:16px 0 0">This list shows who will be paid and how much for the selected payroll period.</div>
+      <div class="data-card" style="margin-top:16px">
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Employee</th><th>Role</th><th>Days</th><th>Daily Rate</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+            <tbody>${rows.length ? rows.map(row => `<tr>
+              <td>${row.name}</td>
+              <td>${getRoleLabel(row.role)}</td>
+              <td class="td-mono">${row.attendanceDays || 0}</td>
+              <td class="td-mono">PHP ${fmt(row.dailyRate || 0)}</td>
+              <td class="td-mono">PHP ${fmt(row.gross || 0)}</td>
+              <td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions || ((row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)))}</td>
+              <td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net || 0)}</td>
+            </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll rows found.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="payroll-detail-footer">
+        <span>Total employees: <strong>${submission.employeeCount || rows.length}</strong></span>
+        <span>Total deductions: <strong>PHP ${fmt(totalDeductions)}</strong></span>
+        <span>Total net pay: <strong>PHP ${fmt(submission.totalNet || 0)}</strong></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+    </div>`, 'modal-lg');
+}
+
+function setPayrollRunStartDate(value) {
+  window._adminPayrollRunStartDate = value;
+  if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+  else renderPayroll();
+}
+
+function setPayrollRunEndDate(value) {
+  window._adminPayrollRunEndDate = value;
+  if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+  else renderPayroll();
+}
+
+function viewPayrollRunDetails(runId) {
+  const s = getState();
+  const run = (s.payrollRuns || []).find(item => item.id === runId);
+  if (!run) { showToast('Payroll list not found.', 'error'); return; }
+  const rows = run.rows || [];
+  showModal(`
+    <div class="modal-header"><h2>Payroll List Details</h2><button class="btn-close-modal" onclick="closeModal()">X</button></div>
+    <div class="modal-body">
+      <div class="payroll-detail-grid">
+        <div class="payroll-detail-card"><label>Payroll Period</label><strong>${run.periodLabel || getPayrollDateRangeLabel(run.periodStart, run.periodEnd)}</strong></div>
+        <div class="payroll-detail-card"><label>Date Range</label><strong>${run.periodStart} → ${run.periodEnd}</strong></div>
+        <div class="payroll-detail-card"><label>Status</label><strong>${run.status || 'draft'}</strong></div>
+        <div class="payroll-detail-card"><label>Payslips Sent</label><strong>${run.payslipsSentCount || 0} / ${run.employeeCount || rows.length}</strong></div>
+      </div>
+      <div class="data-card" style="margin-top:16px">
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Days</th><th>Daily Rate</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+            <tbody>${rows.length ? rows.map(row => {
+    const branch = (s.branches || []).find(b => b.id === row.branchId);
+    return `<tr>
+                <td>${row.name}</td>
+                <td>${branch?.name || row.branchId || 'Unassigned'}</td>
+                <td>${getRoleLabel(row.role)}</td>
+                <td class="td-mono">${row.attendanceDays || 0}</td>
+                <td class="td-mono">PHP ${fmt(row.dailyRate || 0)}</td>
+                <td class="td-mono">PHP ${fmt(row.gross || 0)}</td>
+                <td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions || ((row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)))}</td>
+                <td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net || 0)}</td>
+              </tr>`;
+  }).join('') : '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll rows found.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="payroll-detail-footer">
+        <span>Total employees: <strong>${run.employeeCount || rows.length}</strong></span>
+        <span>Total deductions: <strong>PHP ${fmt(run.totalDeductions || 0)}</strong></span>
+        <span>Total net pay: <strong>PHP ${fmt(run.totalNet || 0)}</strong></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="closeModal();sendPayrollRunPayslips('${run.id}')">Send All Payslips</button>
+    </div>`, 'modal-lg');
+}
+
+function showCreatePayrollPreviewModal() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || !['admin', 'hr'].includes(normalizeRole(me.role))) {
+    showToast('Only Main Admin or HR can create a payroll list.', 'error');
+    return;
+  }
+
+  const startDate = document.getElementById('admin-payroll-run-start')?.value || window._adminPayrollRunStartDate || '';
+  const endDate = document.getElementById('admin-payroll-run-end')?.value || window._adminPayrollRunEndDate || '';
+  if (!startDate || !endDate) { showToast('Please choose the payroll date range.', 'error'); return; }
+  if (startDate > endDate) { showToast('Payroll start date cannot be later than end date.', 'error'); return; }
+
+  const approvedRows = getApprovedBranchSubmissionPayrollRows(startDate, endDate);
+  const previewRows = approvedRows;
+  const totalGross = previewRows.reduce((sum, r) => sum + (r.gross || 0), 0);
+  const totalDeductions = previewRows.reduce((sum, r) => sum + (r.deductions || 0), 0);
+  const totalNet = previewRows.reduce((sum, r) => sum + (r.net || 0), 0);
+  const periodLabel = getPayrollDateRangeLabel(startDate, endDate);
+
+  const rowsHtml = previewRows.length
+    ? previewRows.map(row => `
+        <tr>
+          <td><strong>${row.name}</strong><br><span style="font-size:11px;color:var(--ink-60)">${getRoleLabel(row.role)}</span></td>
+          <td class="td-mono">${row.attendanceDays}</td>
+          <td class="td-mono">PHP ${fmt(row.dailyRate)}</td>
+          <td class="td-mono" style="color:var(--maroon);font-weight:600">PHP ${fmt(row.gross)}</td>
+          <td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions)}</td>
+          <td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net)}</td>
+        </tr>`).join('')
+    : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No employees found.</td></tr>`;
+
+  showModal(`
+    <div class="modal-header">
+      <h2>${iconSvg('money')} Payroll Preview</h2>
+      <button class="btn-close-modal" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div style="padding:14px 20px 10px;background:var(--surface-2,#f9f9f9);border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;color:var(--ink-60);margin-bottom:2px">Payroll Period</div>
+        <div style="font-weight:700;font-size:15px">${periodLabel}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--border)">
+        <div style="padding:12px 16px;border-right:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--ink-60);text-transform:uppercase;letter-spacing:.5px">Employees</div>
+          <div style="font-size:20px;font-weight:700;margin-top:2px">${previewRows.length}</div>
+        </div>
+        <div style="padding:12px 16px;border-right:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--ink-60);text-transform:uppercase;letter-spacing:.5px">Total Gross</div>
+          <div style="font-size:18px;font-weight:700;color:var(--maroon);margin-top:2px">PHP ${fmt(totalGross)}</div>
+        </div>
+        <div style="padding:12px 16px;border-right:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--ink-60);text-transform:uppercase;letter-spacing:.5px">Total Deductions</div>
+          <div style="font-size:18px;font-weight:700;color:var(--danger);margin-top:2px">PHP ${fmt(totalDeductions)}</div>
+        </div>
+        <div style="padding:12px 16px">
+          <div style="font-size:11px;color:var(--ink-60);text-transform:uppercase;letter-spacing:.5px">Total Net Pay</div>
+          <div style="font-size:18px;font-weight:700;color:var(--success);margin-top:2px">PHP ${fmt(totalNet)}</div>
+        </div>
+      </div>
+      ${approvedRows.length ? `<div class="alert alert-info" style="margin:0 16px 10px 16px">${iconSvg('check')} Using approved consolidated branch payroll submissions for ${periodLabel}.</div>` : `<div class="alert alert-warning" style="margin:0 16px 10px 16px">${iconSvg('info')} No approved consolidated branch payroll submissions were found for ${periodLabel}. Only approved payrolls can be included in this payroll run.</div>`}
+      <div style="max-height:340px;overflow-y:auto">
+        <table class="data-table" style="margin:0">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Days</th>
+              <th>Daily Rate</th>
+              <th>Gross</th>
+              <th>Deductions</th>
+              <th>Net Pay</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div style="padding:10px 16px;background:var(--surface-2,#f9f9f9);border-top:1px solid var(--border);font-size:12px;color:var(--ink-60)">
+        ${iconSvg('info')} Review the figures above. Click <strong>Confirm &amp; Create</strong> to save this payroll.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="closeModal(); createPayrollRun()">${iconSvg('money')} Confirm &amp; Create Payroll</button>
+    </div>
+  `, 'modal-lg');
+}
+
+async function createPayrollRun() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || !['admin', 'hr'].includes(normalizeRole(me.role))) {
+    showToast('Only Main Admin or HR can create a payroll list.', 'error');
+    return;
+  }
+
+  const startDate = document.getElementById('admin-payroll-run-start')?.value || window._adminPayrollRunStartDate || '';
+  const endDate = document.getElementById('admin-payroll-run-end')?.value || window._adminPayrollRunEndDate || '';
+  if (!startDate || !endDate) { showToast('Please choose the payroll date range.', 'error'); return; }
+  if (startDate > endDate) { showToast('Payroll start date cannot be later than end date.', 'error'); return; }
+
+  const rows = getApprovedBranchSubmissionPayrollRows(startDate, endDate);
+  if (!rows.length) { showToast('No approved payroll submissions found for this date range. Please approve branch payrolls first.', 'error'); return; }
+  const periodKey = getPayrollDateRangeKey(startDate, endDate);
+  const existing = (s.payrollRuns || []).find(run => run.periodKey === periodKey);
+  const nowIso = new Date().toISOString();
+  const payload = {
+    id: existing?.id || ('prun_' + Date.now()),
+    periodKey,
+    periodLabel: getPayrollDateRangeLabel(startDate, endDate),
+    periodStart: startDate,
+    periodEnd: endDate,
+    createdBy: me.id,
+    createdByName: me.name || me.username,
+    employeeCount: rows.length,
+    totalGross: rows.reduce((sum, row) => sum + (row.gross || 0), 0),
+    totalDeductions: rows.reduce((sum, row) => sum + (row.deductions || 0), 0),
+    totalNet: rows.reduce((sum, row) => sum + (row.net || 0), 0),
+    payslipsSentCount: existing?.payslipsSentCount || 0,
+    rows,
+    status: existing?.status || 'draft',
+    sentAt: existing?.sentAt || null,
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+
+  try {
+    const saved = (typeof DB !== 'undefined' && DB.savePayrollRun) ? await DB.savePayrollRun(payload) : payload;
+    const nextRun = {
+      ...payload,
+      ...(saved || {}),
+      rows: Array.isArray(saved?.rows) ? saved.rows : rows,
+    };
+    s.payrollRuns = (s.payrollRuns || []).filter(run => run.id !== nextRun.id && run.periodKey !== nextRun.periodKey);
+    s.payrollRuns.unshift(nextRun);
+    saveState(s);
+    showToast(`Payroll list created for ${nextRun.periodLabel}.`, 'success');
+    if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+    else renderPayroll();
+  } catch (e) {
+    showToast('Failed to create payroll list: ' + e.message, 'error');
+  }
+}
+
+
+async function deletePayrollRun(runId) {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || !['admin', 'hr'].includes(normalizeRole(me.role))) {
+    showToast('Only Main Admin or HR can delete a payroll list.', 'error');
+    return;
+  }
+  const run = (s.payrollRuns || []).find(r => r.id === runId);
+  const label = run ? (run.periodLabel || (run.periodStart + ' to ' + run.periodEnd)) : runId;
+  if (!confirm(`Delete payroll list "${label}"?\n\nThis action cannot be undone.`)) return;
+  try {
+    if (typeof DB !== 'undefined' && DB.deletePayrollRun) await DB.deletePayrollRun(runId);
+    s.payrollRuns = (s.payrollRuns || []).filter(r => r.id !== runId);
+    saveState(s);
+    showToast('Payroll list deleted.', 'success');
+    renderAdminPayslipGen();
+  } catch (e) {
+    showToast('Failed to delete payroll list: ' + e.message, 'error');
+  }
+}
+
+async function sendPayrollRunPayslips(runId) {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || !['admin', 'hr'].includes(normalizeRole(me.role))) {
+    showToast('Only Main Admin or HR can send payroll payslips.', 'error');
+    return;
+  }
+
+  const run = (s.payrollRuns || []).find(item => item.id === runId);
+  if (!run) { showToast('Payroll list not found.', 'error'); return; }
+
+  const existingSent = new Set((s.payslips || [])
+    .filter(p => p.periodKey === run.periodKey)
+    .map(p => `${p.userId}::${p.periodKey}`));
+  const pendingRows = (run.rows || []).filter(row => !existingSent.has(`${row.userId}::${run.periodKey}`));
+  if (!pendingRows.length) {
+    showToast('All payslips for this payroll list were already sent.', 'warning');
+    return;
+  }
+
+  const sentAt = new Date().toISOString();
+  const sentPayslips = [];
+  const failures = [];
+
+  for (const row of pendingRows) {
+    const employee = (s.users || []).find(user => user.id === row.userId);
+    if (!employee) {
+      failures.push(`${row.name}: employee record not found`);
+      continue;
+    }
+
+    const payslip = {
+      id: 'pslip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      userId: employee.id,
+      employeeName: employee.name || employee.username || row.name,
+      payPeriod: run.periodLabel || getPayrollDateRangeLabel(run.periodStart, run.periodEnd),
+      periodKey: run.periodKey,
+      dailyRate: row.dailyRate || 0,
+      daysPresent: row.attendanceDays || 0,
+      daysAbsent: 0,
+      incentives: 0,
+      grossPay: row.gross || 0,
+      deductions: row.deductions || ((row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)),
+      sss: row.sss || 0,
+      philhealth: row.phic || 0,
+      hdmf: row.hdmf || 0,
+      netPay: row.net || 0,
+      notes: `Generated from payroll list for ${run.periodStart} → ${run.periodEnd}.`,
+      sentBy: me.id,
+      sentAt,
+      branchId: employee.branchId || row.branchId || null,
+    };
+
+    try {
+      await DB.sendPayslip(payslip);
+      sentPayslips.push(payslip);
+    } catch (e) {
+      if (/already exists/i.test(e.message || '')) continue;
+      failures.push(`${row.name}: ${e.message}`);
+    }
+  }
+
+  if (sentPayslips.length) {
+    s.payslips = [...sentPayslips, ...(s.payslips || [])];
+    saveState(s);
+  }
+
+  const sentCount = (run.rows || []).filter(row =>
+    (s.payslips || []).some(p => p.userId === row.userId && p.periodKey === run.periodKey)
+  ).length;
+  const nextStatus = sentCount >= (run.employeeCount || 0)
+    ? 'sent'
+    : sentCount > 0
+      ? 'partial'
+      : 'draft';
+  const updatePayload = {
+    payslipsSentCount: sentCount,
+    status: nextStatus,
+    sentAt: sentCount ? sentAt : run.sentAt || null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const saved = (typeof DB !== 'undefined' && DB.updatePayrollRun)
+      ? await DB.updatePayrollRun(run.id, updatePayload)
+      : updatePayload;
+    Object.assign(run, saved || updatePayload);
+    saveState(s);
+    if (failures.length) {
+      showToast(`Sent ${sentPayslips.length} payslip(s). ${failures.length} failed.`, 'warning');
+    } else {
+      showToast(`Sent ${sentPayslips.length} payslip(s) for ${run.periodLabel}.`, 'success');
+    }
+    if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+    else renderPayroll();
+  } catch (e) {
+    showToast('Payslips were sent, but payroll history failed to update: ' + e.message, 'error');
+  }
+}
+
+function setAdminPayrollPeriod(periodKey) {
+  window._adminPayrollPeriodKey = periodKey;
+  renderPayroll();
+}
+
+function setBranchPayrollStartDate(value) {
+  window._branchPayrollStartDate = value;
+  if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+  else renderPayroll();
+}
+
+function setBranchPayrollEndDate(value) {
+  window._branchPayrollEndDate = value;
+  if (currentPage === 'admin-payslip-gen') renderAdminPayslipGen();
+  else renderPayroll();
+}
+
 function renderPayroll() {
   const s = getState();
   const me = s.currentUser;
   if (!me) { accessDenied('Payroll'); return; }
+  const role = normalizeRole(me.role);
+  const now = new Date();
+  const currentPeriodKey = now.toISOString().slice(0, 7);
+  const currentPeriodLabel = getPayrollPeriodLabel(currentPeriodKey);
 
-  // Staff: show only their own payroll row
-  if (me.role === 'staff') {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const DAILY_RATE = 600;
-    const monthShifts = s.shifts.filter(x => x.userId === me.id && new Date(x.openedAt) >= monthStart && x.status !== 'open');
-    const gross = monthShifts.length * DAILY_RATE;
-    const sss = Math.round(gross * 0.045);
-    const net = gross - sss;
+  if (role === 'cashier' || role === 'inventory_staff' || role === 'print') {
+    const currentPayroll = buildPayrollRow(me, currentPeriodKey);
+    const myPayslips = (s.payslips || []).filter(p => p.userId === me.id);
+    const payrollHistory = getEmployeePayrollHistory(me.id);
     document.getElementById('page-content').innerHTML = `
-      <div class="page-header"><h1 class="page-title">My Payroll</h1><p class="page-subtitle">${now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}</p></div>
+      <div class="page-header"><h1 class="page-title">My Payroll</h1><p class="page-subtitle">Attendance-based payroll for ${currentPeriodLabel}, plus previous payroll history.</p></div>
       <div class="payroll-summary">
-        <div class="payroll-item"><label>Shifts Worked</label><strong>${monthShifts.length}</strong></div>
-        <div class="payroll-item"><label>Gross Pay</label><strong>₱${fmt(gross)}</strong></div>
-        <div class="payroll-item"><label>SSS Deduction</label><strong style="color:var(--danger)">₱${fmt(sss)}</strong></div>
-        <div class="payroll-item"><label>Net Pay</label><strong style="color:var(--success)">₱${fmt(net)}</strong></div>
+        <div class="payroll-item"><label>Days Present</label><strong>${currentPayroll.attendanceDays}</strong></div>
+        <div class="payroll-item"><label>Daily Rate</label><strong>PHP ${fmt(currentPayroll.dailyRate)}</strong></div>
+        <div class="payroll-item"><label>Gross Pay</label><strong>PHP ${fmt(currentPayroll.gross)}</strong></div>
+        <div class="payroll-item"><label>SSS (4.5%)</label><strong style="color:var(--danger)">PHP ${fmt(currentPayroll.sss)}</strong></div>
+        <div class="payroll-item"><label>PhilHealth (2.5%)</label><strong style="color:var(--danger)">PHP ${fmt(currentPayroll.phic)}</strong></div>
+        <div class="payroll-item"><label>Pag-IBIG (2%)</label><strong style="color:var(--danger)">PHP ${fmt(currentPayroll.hdmf)}</strong></div>
+        <div class="payroll-item"><label>Net Pay</label><strong style="color:var(--success);font-size:1.15em">PHP ${fmt(currentPayroll.net)}</strong></div>
       </div>
-      <div class="data-card"><div class="data-card-header"><span class="data-card-title">Shift History This Month</span></div>
+      <div class="alert alert-info" style="margin-top:16px;">${iconSvg('clock')} Based on <strong>${currentPayroll.attendanceDays}</strong> attendance records with completed time-in and time-out. Previous months such as April will appear in the history table below once payroll has been submitted.</div>
+      <div class="data-card" style="margin-top:18px">
+        <div class="data-card-header"><span class="data-card-title">Payroll History</span><span class="badge badge-neutral">${payrollHistory.length} period${payrollHistory.length !== 1 ? 's' : ''}</span></div>
         <div class="data-card-body no-pad">
-          <table class="data-table"><thead><tr><th>Date</th><th>Opened</th><th>Closed</th><th>Sales</th></tr></thead>
-          <tbody>${monthShifts.length ? monthShifts.map(sh => `<tr>
-            <td>${new Date(sh.openedAt).toLocaleDateString('en-PH')}</td>
-            <td>${fmtTime(sh.openedAt)}</td>
-            <td>${sh.closedAt ? fmtTime(sh.closedAt) : '<span class="badge badge-success">Open</span>'}</td>
-            <td>${s.sales.filter(x => x.shiftId === sh.id && !x.voided).length}</td>
-          </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--ink-60)">No shifts this month.</td></tr>'}</tbody>
+          <table class="data-table">
+            <thead><tr><th>Period</th><th>Days Worked</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Status</th><th>Document</th></tr></thead>
+            <tbody>${payrollHistory.length ? payrollHistory.map(row => {
+      const payslip = myPayslips.find(p => p.periodKey === row.periodKey);
+      return `<tr>
+                <td><strong>${getPayrollPeriodLabel(row.periodKey)}</strong></td>
+                <td class="td-mono">${row.attendanceDays || 0}</td>
+                <td class="td-mono">PHP ${fmt(row.gross || 0)}</td>
+                <td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions || ((row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)))}</td>
+                <td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net || 0)}</td>
+                <td>${getPayrollStatusBadge(row.status)}</td>
+                <td>${payslip ? `<button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${payslip.id}')">View Payslip</button>` : '<span style="color:var(--ink-60)">Payroll record</span>'}</td>
+              </tr>`;
+    }).join('') : '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll history available yet.</td></tr>'}</tbody>
           </table>
         </div>
       </div>`;
     return;
   }
 
-  // Print role: show print personnel payroll
-  if (me.role === 'print') {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const DAILY_RATE = 600;
-    const printUsers = s.users.filter(u => u.role === 'print');
-    const payrollData = printUsers.map(u => {
-      const monthShifts = s.shifts.filter(x => x.userId === u.id && new Date(x.openedAt) >= monthStart && x.status !== 'open');
-      const gross = monthShifts.length * DAILY_RATE;
-      const sss = Math.round(gross * 0.045);
-      const net = gross - sss;
-      return { user: u, totalDays: monthShifts.length, gross, sss, net };
-    });
-    const totalGross = payrollData.reduce((a, b) => a + b.gross, 0);
-    const totalNet = payrollData.reduce((a, b) => a + b.net, 0);
+  if (role === 'branch_manager') {
+    const branch = (s.branches || []).find(b => b.id === me.branchId);
+    const defaultStart = window._branchPayrollStartDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+    const defaultEnd = window._branchPayrollEndDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    const selectedStart = defaultStart;
+    const selectedEnd = defaultEnd;
+    window._branchPayrollStartDate = selectedStart;
+    window._branchPayrollEndDate = selectedEnd;
+    const selectedPeriodKey = getPayrollDateRangeKey(selectedStart, selectedEnd);
+    const rows = buildBranchPayrollRows(me.branchId, selectedStart, selectedEnd);
+    const existing = (s.payrollSubmissions || []).find(x => x.branchId === me.branchId && x.periodKey === selectedPeriodKey);
+    const duplicateSubmission = (s.payrollSubmissions || []).find(x => x.branchId === me.branchId && x.periodKey === selectedPeriodKey);
+    const isRangeValid = selectedStart && selectedEnd && selectedStart <= selectedEnd;
+    const history = getBranchPayrollHistory(me.branchId);
+    const totalGross = rows.reduce((sum, row) => sum + row.gross, 0);
+    const totalNet = rows.reduce((sum, row) => sum + row.net, 0);
     document.getElementById('page-content').innerHTML = `
-      <div class="page-header"><h1 class="page-title">Payroll</h1><p class="page-subtitle">${now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} · Printing Department</p></div>
-      <div class="payroll-summary">
-        <div class="payroll-item"><label>Total Gross</label><strong>₱${fmt(totalGross)}</strong></div>
-        <div class="payroll-item"><label>Deductions</label><strong style="color:var(--danger)">₱${fmt(totalGross - totalNet)}</strong></div>
-        <div class="payroll-item"><label>Total Net</label><strong>₱${fmt(totalNet)}</strong></div>
-      </div>
-      <div class="data-card"><div class="data-card-header"><span class="data-card-title">Personnel Payroll Breakdown</span></div>
-        <div class="data-card-body no-pad">
-          <table class="data-table"><thead><tr><th>Name</th><th>Shifts</th><th>Gross</th><th>SSS</th><th>Net Pay</th></tr></thead>
-          <tbody>${payrollData.map(row => `<tr>
-            <td><strong>${row.user.name}</strong></td>
-            <td>${row.totalDays}</td>
-            <td class="td-mono">₱${fmt(row.gross)}</td>
-            <td class="td-mono" style="color:var(--danger)">– ₱${fmt(row.sss)}</td>
-            <td class="td-mono" style="font-weight:700;color:var(--success)">₱${fmt(row.net)}</td>
-          </tr>`).join('')}
-          </tbody></table>
+      <div class="page-header"><h1 class="page-title">Branch Payroll</h1><p class="page-subtitle">Prepare payroll with attendance and forward it to Main Admin for consolidation.</p></div>
+      <div class="alert alert-info">${iconSvg('clock')} Branch: <strong>${branch?.name || me.branchId || 'Unassigned'}</strong> | Period: <strong>${getPayrollDateRangeLabel(selectedStart, selectedEnd)}</strong></div>
+      <div class="data-card" style="margin-top:12px">
+        <div class="data-card-header"><span class="data-card-title">Payroll Range</span></div>
+        <div class="data-card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
+          <div><label class="form-label">Start Date</label><input type="date" class="form-control" value="${selectedStart}" onchange="setBranchPayrollStartDate(this.value)"></div>
+          <div><label class="form-label">End Date</label><input type="date" class="form-control" value="${selectedEnd}" onchange="setBranchPayrollEndDate(this.value)"></div>
+          <div style="display:flex;flex-direction:column;gap:8px"><span class="form-label">Actions</span><button class="btn btn-sm btn-maroon" onclick="openBranchPayrollReviewModal()" ${!isRangeValid ? 'disabled' : ''}>${existing ? 'Review & Resubmit Payroll' : 'Review Payroll Before Submit'}</button></div>
         </div>
+        <div class="data-card-body">
+          <div class="alert ${isRangeValid ? 'alert-info' : 'alert-danger'}">${isRangeValid ? 'Choose the date range to submit and then review payroll for this branch.' : 'The selected payroll range is invalid. Please ensure the end date is on or after the start date.'}</div>
+          ${duplicateSubmission ? `<div class="alert alert-warning">A payroll for this exact date range has already been submitted. Review or resubmit if you need to make updates.</div>` : ''}
+        </div>
+      </div>
+      <div class="payroll-summary">
+        <div class="payroll-item"><label>Employees To Pay</label><strong>${rows.length}</strong></div>
+        <div class="payroll-item"><label>Total Gross</label><strong>PHP ${fmt(totalGross)}</strong></div>
+        <div class="payroll-item"><label>Total Net</label><strong style="color:var(--success)">PHP ${fmt(totalNet)}</strong></div>
+      </div>
+      <div class="data-card"><div class="data-card-header"><span class="data-card-title">Payroll List</span></div>
+        <div class="data-card-body"><div class="alert alert-info">This table answers who will be paid and how much for this branch for the selected date range.</div></div>
+        <div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Attendance Days</th><th>Daily Rate</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead><tbody>${rows.length ? rows.map(row => `<tr><td>${row.name}</td><td>${getRoleLabel(row.role)}</td><td class="td-mono">${row.attendanceDays}</td><td class="td-mono">PHP ${fmt(row.dailyRate)}</td><td class="td-mono">PHP ${fmt(row.gross)}</td><td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions || 0)}</td><td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net)}</td></tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No branch personnel found.</td></tr>'}</tbody></table></div>
+      </div>
+      ${existing ? `<div class="alert alert-warning" style="margin-top:16px">Latest submission status: <strong>${existing.status}</strong>${existing.reviewedAt ? ` | Reviewed ${fmtTime(existing.reviewedAt)}` : ''}</div>` : ''}
+      <div class="data-card" style="margin-top:18px">
+        <div class="data-card-header"><span class="data-card-title">Payroll History</span><span class="badge badge-neutral">${history.length} submission${history.length !== 1 ? 's' : ''}</span></div>
+        <div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Period</th><th>Employees</th><th>Total Gross</th><th>Total Net</th><th>Status</th><th>Reviewed</th><th>Action</th></tr></thead><tbody>${history.length ? history.map(sub => `<tr><td><strong>${getPayrollPeriodLabel(sub.periodKey)}</strong></td><td class="td-mono">${sub.employeeCount || 0}</td><td class="td-mono">PHP ${fmt(sub.totalGross || 0)}</td><td class="td-mono">PHP ${fmt(sub.totalNet || 0)}</td><td>${getPayrollStatusBadge(sub.status)}</td><td>${sub.reviewedAt ? fmtTime(sub.reviewedAt) : 'Pending Review'}</td><td><button class="btn btn-sm btn-outline" onclick="viewPayrollSubmissionDetails('${sub.id}')">View List</button></td></tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll history yet.</td></tr>'}</tbody></table></div>
       </div>`;
     return;
   }
 
-  // Admin: full payroll view
-  const staffUsers = s.users.filter(u => u.role === 'staff');
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const DAILY_RATE = 600;
-  const OT_RATE = 90;
-
-  const payrollData = staffUsers.map(u => {
-    const branch = s.branches.find(b => b.id === u.branchId);
-    const monthShifts = s.shifts.filter(x => x.userId === u.id && new Date(x.openedAt) >= monthStart && x.status !== 'open');
-    const openings = Object.entries(s.shiftSchedules).filter(([k, v]) => k.startsWith(u.id + '_') && v === 'On').length;
-    const closings = 0;
-    const totalDays = monthShifts.length;
-    const gross = totalDays * DAILY_RATE;
-    const sss = Math.round(gross * 0.045);
-    const net = gross - sss;
-    return { user: u, branch, totalDays, openings, closings, gross, sss, net };
+  const submissions = (s.payrollSubmissions || []).slice().sort((a, b) => {
+    const diff = getPayrollPeriodSortValue(b.periodKey) - getPayrollPeriodSortValue(a.periodKey);
+    if (diff !== 0) return diff;
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
   });
-
-  const totalGross = payrollData.reduce((a, b) => a + b.gross, 0);
-  const totalNet = payrollData.reduce((a, b) => a + b.net, 0);
-
+  const payrollRuns = getPayrollRunsHistory();
+  const employees = (s.users || []).filter(u => normalizeRole(u.role) !== 'admin');
+  const availablePeriods = [...new Set(submissions.map(sub => sub.periodKey).filter(Boolean))]
+    .sort((a, b) => getPayrollPeriodSortValue(b) - getPayrollPeriodSortValue(a));
+  const activePeriodKey = availablePeriods.includes(window._adminPayrollPeriodKey)
+    ? window._adminPayrollPeriodKey
+    : (availablePeriods[0] || currentPeriodKey);
+  const defaultRunStart = window._adminPayrollRunStartDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+  const defaultRunEnd = window._adminPayrollRunEndDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  window._adminPayrollRunStartDate = defaultRunStart;
+  window._adminPayrollRunEndDate = defaultRunEnd;
+  const payrollPreviewRows = defaultRunStart && defaultRunEnd && defaultRunStart <= defaultRunEnd
+    ? getCompanyPayrollUsers().map(user => buildPayrollRowForDateRange(user, defaultRunStart, defaultRunEnd))
+    : [];
+  const previewGross = payrollPreviewRows.reduce((sum, row) => sum + (row.gross || 0), 0);
+  const previewDeductions = payrollPreviewRows.reduce((sum, row) => sum + (row.deductions || 0), 0);
+  const previewNet = payrollPreviewRows.reduce((sum, row) => sum + (row.net || 0), 0);
+  window._adminPayrollPeriodKey = activePeriodKey;
+  const consolidatedRows = submissions
+    .filter(sub => sub.periodKey === activePeriodKey)
+    .flatMap(sub => (sub.rows || []).map(row => {
+      const branch = (s.branches || []).find(b => b.id === sub.branchId);
+      return {
+        ...row,
+        submissionId: sub.id,
+        submissionStatus: sub.status,
+        branchName: branch?.name || sub.branchId,
+      };
+    }));
+  const consolidatedNet = consolidatedRows.reduce((sum, row) => sum + (row.net || 0), 0);
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header"><h1 class="page-title">Payroll</h1><p class="page-subtitle">${now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} · Based on closed shifts</p></div>
-    <div class="payroll-summary">
-      <div class="payroll-item"><label>Total Gross Pay</label><strong>₱${fmt(totalGross)}</strong></div>
-      <div class="payroll-item"><label>Total Deductions (SSS est.)</label><strong style="color:var(--danger)">₱${fmt(totalGross - totalNet)}</strong></div>
-      <div class="payroll-item"><label>Total Net Pay</label><strong>₱${fmt(totalNet)}</strong></div>
+    <div class="page-header"><h1 class="page-title">Payroll Consolidation</h1><p class="page-subtitle">Review branch submissions, approve payroll, and consolidate all branches.</p></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Submissions</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${submissions.filter(x => x.status === 'pending').length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Approved Branch Payrolls</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${submissions.filter(x => x.status === 'approved').length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Employees Consolidated</div><div class="kpi-icon blue">${iconSvg('users')}</div></div><div class="kpi-value">${employees.length}</div></div>
     </div>
-    <div class="data-card"><div class="data-card-header"><span class="data-card-title">Staff Payroll Breakdown</span><span class="text-sm text-muted">Daily rate: ₱${DAILY_RATE} · SSS: 4.5%</span></div>
-      <div class="data-card-body no-pad">
-        <table class="data-table"><thead><tr><th>Staff</th><th>Branch</th><th>Shifts (Month)</th><th>Days On</th><th>Gross</th><th>SSS Deduction</th><th>Net Pay</th></tr></thead>
-        <tbody>${payrollData.map(row => `
-          <tr>
-            <td><strong>${row.user.name}</strong></td>
-            <td>${row.branch?.name || '–'}</td>
-            <td style="font-weight:700">${row.totalDays}</td>
-            <td><span class="badge badge-success">${row.openings}</span></td>
-            <td><span class="badge badge-maroon">${row.closings}</span></td>
-            <td class="td-mono">₱${fmt(row.gross)}</td>
-            <td class="td-mono" style="color:var(--danger)">– ₱${fmt(row.sss)}</td>
-            <td class="td-mono" style="font-weight:700;color:var(--success)">₱${fmt(row.net)}</td>
-          </tr>`).join('')}
-        </tbody>
-        </table>
+    <div class="data-card" style="margin-top:18px">
+      <div class="data-card-header">
+        <span class="data-card-title">Payroll List</span>
+        ${availablePeriods.length ? `<select class="form-control payroll-period-select" onchange="setAdminPayrollPeriod(this.value)">${availablePeriods.map(periodKey => `<option value="${periodKey}" ${periodKey === activePeriodKey ? 'selected' : ''}>${getPayrollPeriodLabel(periodKey)}</option>`).join('')}</select>` : '<span class="badge badge-neutral">No submitted months yet</span>'}
       </div>
+      <div class="data-card-body"><div class="alert alert-info">Use this list to see who will be paid and how much for the selected payroll month.</div></div>
+      <div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Days</th><th>Daily Rate</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Status</th></tr></thead><tbody>${consolidatedRows.length ? consolidatedRows.map(row => `<tr><td>${row.name}</td><td>${row.branchName}</td><td>${getRoleLabel(row.role)}</td><td class="td-mono">${row.attendanceDays || 0}</td><td class="td-mono">PHP ${fmt(row.dailyRate || 0)}</td><td class="td-mono">PHP ${fmt(row.gross || 0)}</td><td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions || ((row.sss || 0) + (row.phic || 0) + (row.hdmf || 0)))}</td><td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net || 0)}</td><td>${getPayrollStatusBadge(row.submissionStatus)}</td></tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll rows found for this month.</td></tr>'}</tbody></table></div>
+      <div class="data-card-body"><div class="payroll-detail-footer"><span>Selected period: <strong>${getPayrollPeriodLabel(activePeriodKey)}</strong></span><span>Employees listed: <strong>${consolidatedRows.length}</strong></span><span>Total net pay: <strong>PHP ${fmt(consolidatedNet)}</strong></span></div></div>
+    </div>
+    <div class="data-card" style="margin-top:18px"><div class="data-card-header"><span class="data-card-title">Branch Payroll Submissions</span></div>
+      <div class="data-card-body no-pad"><table class="data-table"><thead><tr><th>Branch</th><th>Period</th><th>Employees</th><th>Total Net</th><th>Status</th><th>Action</th></tr></thead><tbody>${submissions.length ? submissions.map(sub => {
+    const branch = (s.branches || []).find(b => b.id === sub.branchId); const actionButtons = [];
+    actionButtons.push(`<button class="btn btn-sm btn-outline" onclick="viewPayrollSubmissionDetails('${sub.id}')">View</button>`);
+    if (sub.status === 'pending') {
+      actionButtons.push(`<button class="btn btn-sm btn-maroon" onclick="approvePayrollSubmission('${sub.id}')">Approve</button>`);
+      actionButtons.push(`<button class="btn btn-sm btn-danger" onclick="rejectPayrollSubmission('${sub.id}')">Reject</button>`);
+    }
+    return `<tr><td>${branch?.name || sub.branchId}</td><td>${getPayrollPeriodLabel(sub.periodKey)}</td><td class="td-mono">${sub.employeeCount || 0}</td><td class="td-mono">PHP ${fmt(sub.totalNet || 0)}</td><td><span class="badge ${sub.status === 'approved' ? 'badge-success' : sub.status === 'rejected' ? 'badge-danger' : 'badge-warning'}">${sub.status}</span></td><td>${actionButtons.join(' ')}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No payroll submissions yet.</td></tr>'}</tbody></table></div>
     </div>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PAYSLIP MODULE  (Staff & Print roles)
-// ─────────────────────────────────────────────────────────────────────────────
+async function submitBranchPayroll() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || normalizeRole(me.role) !== 'branch_manager') {
+    showToast('Only the Branch Manager can submit branch payroll.', 'error');
+    return;
+  }
+  const startDate = window._branchPayrollStartDate;
+  const endDate = window._branchPayrollEndDate;
+  const periodKey = getPayrollDateRangeKey(startDate, endDate);
+  if (!periodKey || !startDate || !endDate || startDate > endDate) {
+    showToast('Please select a valid payroll date range before submitting.', 'error');
+    return;
+  }
+  const existing = (s.payrollSubmissions || []).find(x => x.branchId === me.branchId && x.periodKey === periodKey);
+  if (existing && (!window._branchPayrollReviewRows || !window._branchPayrollReviewRows.length)) {
+    showToast('A payroll has already been submitted for this exact date range.', 'error');
+    return;
+  }
+  const rows = (window._branchPayrollReviewRows || []).length ? window._branchPayrollReviewRows : buildBranchPayrollRows(me.branchId, startDate, endDate);
+  const timestamp = new Date().toISOString();
+  const payload = {
+    id: (existing?.id) || ('paysub_' + Date.now()),
+    branchId: me.branchId,
+    periodKey,
+    submittedBy: me.id,
+    submittedByName: me.name || me.username,
+    employeeCount: rows.length,
+    totalGross: rows.reduce((sum, row) => sum + (row.gross || 0), 0),
+    totalNet: rows.reduce((sum, row) => sum + row.net, 0),
+    rows,
+    status: 'pending',
+    createdAt: existing?.createdAt || timestamp,
+    updatedAt: timestamp,
+  };
+  try {
+    const saved = (typeof DB !== 'undefined' && DB.savePayrollSubmission) ? await DB.savePayrollSubmission(payload) : payload;
+    const nextSubmission = {
+      ...payload,
+      ...(saved || {}),
+      rows: Array.isArray(saved?.rows) ? saved.rows : rows,
+    };
+    s.payrollSubmissions = (s.payrollSubmissions || []).filter(x => !(x.branchId === me.branchId && x.periodKey === periodKey));
+    s.payrollSubmissions.push(nextSubmission);
+    saveState(s);
+    window._branchPayrollReviewRows = [];
+    showToast('Branch payroll forwarded to Main Admin.', 'success');
+    renderPayroll();
+  } catch (e) {
+    showToast('Failed to submit payroll: ' + e.message, 'error');
+  }
+}
+
+function buildBranchPayrollRows(branchId, startDate, endDate) {
+  const s = getState();
+  // Exclude branch managers from their own payroll submission — HR handles manager pay
+  const staffUsers = (s.users || []).filter(u => {
+    const r = normalizeRole(u.role);
+    return r !== 'admin' && r !== 'branch_manager' && u.branchId === branchId;
+  });
+  const rangeStart = startDate || toLocalDateString(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const rangeEnd = endDate || toLocalDateString(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
+  return staffUsers.map(u => buildPayrollRowForDateRange(u, rangeStart, rangeEnd));
+}
+
+function openBranchPayrollReviewModal() {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || normalizeRole(me.role) !== 'branch_manager') { showToast('Only the Branch Manager can review branch payroll.', 'error'); return; }
+  const startDate = window._branchPayrollStartDate;
+  const endDate = window._branchPayrollEndDate;
+  const periodKey = getPayrollDateRangeKey(startDate, endDate);
+  if (!startDate || !endDate || startDate > endDate) {
+    showToast('Please select a valid payroll date range before reviewing.', 'error');
+    return;
+  }
+  const rows = buildBranchPayrollRows(me.branchId, startDate, endDate);
+  window._branchPayrollReviewRows = rows;
+  showModal(`
+    <div class="modal-header"><h2>Review Branch Payroll</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="alert alert-info">Review the attendance-based payroll details below before final submission for <strong>${getPayrollDateRangeLabel(startDate, endDate)}</strong>.</div>
+      <table class="data-table">
+        <thead><tr><th>Employee</th><th>Attendance Days</th><th>Daily Rate</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+        <tbody>${rows.length ? rows.map((row, idx) => `<tr>
+          <td>${row.name}</td>
+          <td class="td-mono">${row.attendanceDays}</td>
+          <td><input id="payrev-rate-${idx}" type="number" class="form-control" value="${row.dailyRate}" min="0" onchange="updateBranchPayrollReviewRow(${idx})"></td>
+          <td class="td-mono" id="payrev-gross-${idx}">PHP ${fmt(row.gross)}</td>
+          <td class="td-mono" id="payrev-deductions-${idx}" style="color:var(--danger)">PHP ${fmt(row.deductions || 0)}</td>
+          <td class="td-mono" id="payrev-net-${idx}">PHP ${fmt(row.net)}</td>
+        </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--ink-60)">No branch personnel found.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-maroon" onclick="confirmBranchPayrollReview()">Submit Payroll</button>
+    </div>`, 'modal-lg');
+}
+
+function updateBranchPayrollReviewRow(idx) {
+  const rows = window._branchPayrollReviewRows || [];
+  const row = rows[idx];
+  if (!row) return;
+  const rate = parseFloat((document.getElementById('payrev-rate-' + idx) || {}).value) || 0;
+  const calc = calcPayrollAmounts(row.attendanceDays, rate);
+  row.dailyRate = rate;
+  row.gross = calc.gross;
+  row.sss = calc.sss;
+  row.phic = calc.phic;
+  row.hdmf = calc.hdmf;
+  row.deductions = calc.deductions;
+  row.net = calc.net;
+  const grossEl = document.getElementById('payrev-gross-' + idx);
+  const deductionsEl = document.getElementById('payrev-deductions-' + idx);
+  const netEl = document.getElementById('payrev-net-' + idx);
+  if (grossEl) grossEl.textContent = `PHP ${fmt(row.gross)}`;
+  if (deductionsEl) deductionsEl.textContent = `PHP ${fmt(row.deductions || 0)}`;
+  if (netEl) netEl.textContent = `PHP ${fmt(row.net)}`;
+}
+
+function confirmBranchPayrollReview() {
+  closeModal();
+  submitBranchPayroll();
+}
+
+async function approvePayrollSubmission(submissionId) {
+  const s = getState();
+  if (!s.currentUser || !['admin', 'hr'].includes(normalizeRole(s.currentUser.role))) {
+    showToast('Only the Main Admin or HR / Master Payroll can approve payroll submissions.', 'error');
+    return;
+  }
+  const sub = (s.payrollSubmissions || []).find(x => x.id === submissionId);
+  if (!sub) return;
+  const payload = {
+    status: 'approved',
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: s.currentUser?.id || null,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    const saved = (typeof DB !== 'undefined' && DB.updatePayrollSubmission) ? await DB.updatePayrollSubmission(submissionId, payload) : payload;
+    Object.assign(sub, saved || payload);
+    saveState(s);
+    showToast('Payroll submission approved and consolidated.', 'success');
+    renderPayroll();
+  } catch (e) {
+    showToast('Failed to approve payroll: ' + e.message, 'error');
+  }
+}
+
+async function rejectPayrollSubmission(submissionId) {
+  const s = getState();
+  if (!s.currentUser || !['admin', 'hr'].includes(normalizeRole(s.currentUser.role))) {
+    showToast('Only the Main Admin or HR / Master Payroll can reject payroll submissions.', 'error');
+    return;
+  }
+  const sub = (s.payrollSubmissions || []).find(x => x.id === submissionId);
+  if (!sub) return;
+  const payload = {
+    status: 'rejected',
+    reviewedAt: new Date().toISOString(),
+    reviewedBy: s.currentUser?.id || null,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    const saved = (typeof DB !== 'undefined' && DB.updatePayrollSubmission) ? await DB.updatePayrollSubmission(submissionId, payload) : payload;
+    Object.assign(sub, saved || payload);
+    saveState(s);
+    showToast('Payroll submission rejected.', 'warning');
+    renderPayroll();
+  } catch (e) {
+    showToast('Failed to reject payroll: ' + e.message, 'error');
+  }
+}
 function getPayPeriods(userId, shifts) {
   // Group closed shifts by semi-monthly pay period:
   //   Period A: 1st–15th  → Pay Date: last day of same month
@@ -3695,7 +5174,7 @@ function calcPayslip(user, periodData, state) {
 
   // Philippine statutory deductions
   const sss = Math.round(grossPay * 0.045);
-  const philhealth = Math.round(grossPay * 0.02);
+  const philhealth = Math.round(grossPay * 0.025);
   const hdmf = Math.min(Math.round(grossPay * 0.02), 100);
   const totalDeductions = sss + philhealth + hdmf;
   const netPay = grossPay - totalDeductions;
@@ -3721,7 +5200,7 @@ function getYTDEarnings(userId, shifts, state) {
   const DAILY_RATE = u.dailyRate || 600;
   const gross = yearShifts.length * DAILY_RATE;
   const sss = Math.round(gross * 0.045);
-  const philhealth = Math.round(gross * 0.02);
+  const philhealth = Math.round(gross * 0.025);
   const hdmf = Math.min(Math.round(gross * 0.02), 100);
   const deductions = sss + philhealth + hdmf;
   return { gross, sss, philhealth, hdmf, deductions, net: gross - deductions, shifts: yearShifts.length };
@@ -3742,8 +5221,8 @@ function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
       <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${period.label}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${period.payDateLabel || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
@@ -3769,7 +5248,7 @@ function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.commissionCupsQty > 0 ? calc.commissionCupsQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.commissionCups > 0 ? '₱' + fmt(calc.commissionCups) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth EE Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.philhealth > 0 ? '₱' + fmt(calc.philhealth) : ''}</td>
         </tr>
         <tr>
@@ -3777,7 +5256,7 @@ function buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${calc.commissionGpQty > 0 ? calc.commissionGpQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.commissionGp > 0 ? '₱' + fmt(calc.commissionGp) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${calc.hdmf > 0 ? '₱' + fmt(calc.hdmf) : ''}</td>
         </tr>
         <tr style="height:22px;">
@@ -3813,7 +5292,7 @@ function viewPayslipModal(periodKey) {
   const period = periods.find(p => p.key === periodKey);
   if (!period) { showToast('Payslip not found.', 'error'); return; }
   const calc = calcPayslip(me, period, s);
-  const positionLabel = me.role === 'staff' ? 'Sales Associate' : 'Printing Personnel';
+  const positionLabel = ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(me.role)) ? 'Branch Personnel' : 'Printing Personnel';
   const empNum = me.employeeNumber || ('BPS-' + String(me.id || '001').replace(/\D/g, '').padStart(3, '0'));
   const COMPANY = getCompanyInfo();
   const html = buildPayslipHtml(me, period, calc, COMPANY, empNum, positionLabel);
@@ -3828,7 +5307,7 @@ function viewPayslipModal(periodKey) {
 function renderPayslip() {
   const s = getState();
   const me = s.currentUser;
-  if (!me || !['staff', 'print'].includes(me.role)) { accessDenied('My Payroll'); return; }
+  if (!me || !['branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'].includes(normalizeRole(me.role))) { accessDenied('My Payroll'); return; }
 
   // Only show payslips that admin has explicitly sent to this employee
   const myPayslips = (s.payslips || []).filter(p => p.userId === me.id);
@@ -3871,7 +5350,7 @@ function viewSentPayslipModal(payslipId) {
   const branch = s.branches.find(b => b.id === (p.branchId || me?.branchId));
   const COMPANY = getCompanyInfo();
   const empNum = me?.employeeNumber || ('EMP-' + String(me?.id || '001').replace(/\D/g, '').padStart(3, '0'));
-  const positionLabel = me?.role === 'staff' ? 'Sales Associate' : me?.role === 'print' ? 'Printing Personnel' : (me?.role || '');
+  const positionLabel = ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(me?.role)) ? 'Branch Personnel' : normalizeRole(me?.role) === 'print' ? 'Printing Personnel' : (me?.role || '');
 
   // Derive pay date from sentAt or notes
   const payDateStr = p.sentAt ? new Date(p.sentAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
@@ -3881,8 +5360,8 @@ function viewSentPayslipModal(payslipId) {
   // Use incentives as combined; split display as single incentive row if present
   const commissionCupsQty = p.commissionCupsQty ?? (p.incentives > 0 ? 1 : 0);
   const commissionCupsAmt = p.commissionCupsAmt ?? (p.incentives > 0 ? p.incentives : 0);
-  const commissionGpQty   = p.commissionGpQty  ?? 0;
-  const commissionGpAmt   = p.commissionGpAmt  ?? 0;
+  const commissionGpQty = p.commissionGpQty ?? 0;
+  const commissionGpAmt = p.commissionGpAmt ?? 0;
 
   const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
@@ -3894,8 +5373,8 @@ function viewSentPayslipModal(payslipId) {
       <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.sssNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.philhealthNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.hdmfNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me?.tinNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
@@ -3921,7 +5400,7 @@ function viewSentPayslipModal(payslipId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? commissionCupsQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? '₱' + fmt(commissionCupsAmt) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth EE Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : ''}</td>
         </tr>
         <tr>
@@ -3929,7 +5408,7 @@ function viewSentPayslipModal(payslipId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? commissionGpQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? '₱' + fmt(commissionGpAmt) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : ''}</td>
         </tr>
         <tr style="height:22px;">
@@ -4093,19 +5572,19 @@ function showDiscountRulesModal() {
 }
 function showDownpaymentReportModal() {
   // FIX 6: Show actual orders with downpayments recorded
-  var orders = getOrders().filter(function(o) { return (o.downpayment || 0) > 0 && o.status !== 'cancelled'; });
+  var orders = getOrders().filter(function (o) { return (o.downpayment || 0) > 0 && o.status !== 'cancelled'; });
   orders = [...orders].reverse();
-  var rows = orders.length ? orders.map(function(o) {
+  var rows = orders.length ? orders.map(function (o) {
     return '<tr>'
-      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td>' + (o.customer_name || '—') + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.downpayment || 0) + '</td>'
-      + '<td class="td-mono" style="color:' + ((o.balance||0)>0?'var(--danger)':'var(--success)') + '">&#x20B1;' + omFmt(o.balance || 0) + '</td>'
+      + '<td class="td-mono" style="color:' + ((o.balance || 0) > 0 ? 'var(--danger)' : 'var(--success)') + '">&#x20B1;' + omFmt(o.balance || 0) + '</td>'
       + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No orders with downpayments found.</td></tr>';
-  var totalDP = orders.reduce(function(s,o){ return s + (o.downpayment||0); }, 0);
+  var totalDP = orders.reduce(function (s, o) { return s + (o.downpayment || 0); }, 0);
   showModal(`<div class='modal-header'><h2>&#x1F4B3; Downpayment Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
     <div class='modal-body' style='padding:0'>
       <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
@@ -4122,12 +5601,12 @@ function showDownpaymentReportModal() {
 }
 function showBalanceDueReportModal() {
   // FIX 6: Show orders with outstanding balances
-  var orders = getOrders().filter(function(o) { return (o.balance || 0) > 0 && o.status !== 'cancelled'; });
-  orders = [...orders].sort(function(a,b){ return (b.balance||0)-(a.balance||0); });
-  var rows = orders.length ? orders.map(function(o) {
+  var orders = getOrders().filter(function (o) { return (o.balance || 0) > 0 && o.status !== 'cancelled'; });
+  orders = [...orders].sort(function (a, b) { return (b.balance || 0) - (a.balance || 0); });
+  var rows = orders.length ? orders.map(function (o) {
     var isPastDue = o.due_date && new Date(o.due_date) < new Date() && o.status !== 'completed';
     return '<tr' + (isPastDue ? ' style="background:var(--danger-l)"' : '') + '>'
-      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td>' + (o.customer_name || '—') + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.downpayment || 0) + '</td>'
@@ -4136,7 +5615,7 @@ function showBalanceDueReportModal() {
       + '<td class="td-mono">' + (o.due_date || '—') + (isPastDue ? ' <span class="badge badge-danger">PAST DUE</span>' : '') + '</td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--ink-60)">No outstanding balances. All orders are fully paid!</td></tr>';
-  var totalBal = orders.reduce(function(s,o){ return s + (o.balance||0); }, 0);
+  var totalBal = orders.reduce(function (s, o) { return s + (o.balance || 0); }, 0);
   showModal(`<div class='modal-header'><h2>&#x26A0;&#xFE0F; Balance Due Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
     <div class='modal-body' style='padding:0'>
       <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
@@ -4153,11 +5632,11 @@ function showBalanceDueReportModal() {
 }
 function showPaidOrdersReportModal() {
   // FIX 6: Show fully paid orders
-  var orders = getOrders().filter(function(o) { return o.payment_status === 'Fully Paid'; });
+  var orders = getOrders().filter(function (o) { return o.payment_status === 'Fully Paid'; });
   orders = [...orders].reverse();
-  var rows = orders.length ? orders.map(function(o) {
+  var rows = orders.length ? orders.map(function (o) {
     return '<tr>'
-      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td>' + (o.customer_name || '—') + '</td>'
       + '<td>' + (o.product_type || o.product_category || '—') + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
@@ -4165,7 +5644,7 @@ function showPaidOrdersReportModal() {
       + '<td class="td-mono">' + (o.due_date || '—') + '</td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No fully paid orders found.</td></tr>';
-  var total = orders.reduce(function(s,o){ return s + (o.total_amount||0); }, 0);
+  var total = orders.reduce(function (s, o) { return s + (o.total_amount || 0); }, 0);
   showModal(`<div class='modal-header'><h2>&#x2705; Paid Orders Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
     <div class='modal-body' style='padding:0'>
       <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
@@ -4182,19 +5661,19 @@ function showPaidOrdersReportModal() {
 }
 function showDiscountReportModal() {
   // FIX 6: Show orders where a discount was applied
-  var orders = getOrders().filter(function(o) { return (o.discount_amount || 0) > 0; });
+  var orders = getOrders().filter(function (o) { return (o.discount_amount || 0) > 0; });
   orders = [...orders].reverse();
-  var rows = orders.length ? orders.map(function(o) {
+  var rows = orders.length ? orders.map(function (o) {
     return '<tr>'
-      + '<td class="td-mono">#' + String(o.id).padStart(6,'0') + '</td>'
+      + '<td class="td-mono">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td>' + (o.customer_name || '—') + '</td>'
       + '<td class="td-mono">' + (o.quantity || '—') + '</td>'
-      + '<td class="td-mono">&#x20B1;' + omFmt((o.quantity||0)*(o.unit_price||0)) + '</td>'
+      + '<td class="td-mono">&#x20B1;' + omFmt((o.quantity || 0) * (o.unit_price || 0)) + '</td>'
       + '<td class="td-mono" style="color:var(--success);font-weight:700">- &#x20B1;' + omFmt(o.discount_amount || 0) + '</td>'
       + '<td class="td-mono">&#x20B1;' + omFmt(o.total_amount || 0) + '</td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--ink-60)">No discounted orders found.</td></tr>';
-  var totalDiscount = orders.reduce(function(s,o){ return s + (o.discount_amount||0); }, 0);
+  var totalDiscount = orders.reduce(function (s, o) { return s + (o.discount_amount || 0); }, 0);
   showModal(`<div class='modal-header'><h2>&#x1F3F7;&#xFE0F; Discount Report</h2><button class='btn-close-modal' onclick='closeModal()'>✕</button></div>
     <div class='modal-body' style='padding:0'>
       <div style='padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--ink-10);display:flex;gap:24px'>
@@ -4454,7 +5933,7 @@ function viewPosCustomerModal(cid) {
   const lastSale = custSales[0];
   const balance = c.outstandingBalance || 0;
   const displayName = c.companyName || c.contactPerson || 'Unknown Customer';
-  const initials = displayName.split(' ').slice(0,2).map(w => w[0]||'').join('').toUpperCase() || '?';
+  const initials = displayName.split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?';
 
   const salesHtml = custSales.slice(0, 10).map(sale =>
     '<tr>' +
@@ -5213,20 +6692,10 @@ function custNameSearch(val) {
   var q = (val || '').trim().toLowerCase();
   if (!q) { drop.style.display = 'none'; return; }
 
-  // Pull from both stores and normalise to a common shape
-  var posCustomers = (getState().customers || []).map(function (c) {
+  // Pull from POS customers only — OM customers are separate and should not appear here
+  var matches = (getState().customers || []).map(function (c) {
     return { _id: c.id, _src: 'pos', name: c.companyName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
-  });
-  var omCustomers = (getCustomerRecords() || []).map(function (c) {
-    return { _id: c.id, _src: 'om', name: c.businessName || '', contact: c.contactPerson || '', phone: c.phone || '', email: c.email || '', address: c.address || '', notes: c.notes || '' };
-  });
-
-  // Combine, deduplicate by name, filter by query
-  var seen = {};
-  var matches = posCustomers.concat(omCustomers).filter(function (c) {
-    var key = c.name.toLowerCase();
-    if (seen[key]) return false;
-    seen[key] = true;
+  }).filter(function (c) {
     return c.name.toLowerCase().indexOf(q) !== -1 || c.contact.toLowerCase().indexOf(q) !== -1;
   }).slice(0, 8);
 
@@ -5493,8 +6962,13 @@ function getPaymentRecords() { return JSON.parse(localStorage.getItem('om_paymen
 function savePaymentRecords(d) { localStorage.setItem('om_payments', JSON.stringify(d)); }
 function getProductionRecords() { return JSON.parse(localStorage.getItem('om_production') || '[]'); }
 function saveProductionRecords(d) { localStorage.setItem('om_production', JSON.stringify(d)); }
-function getDispatchRecords() { return JSON.parse(localStorage.getItem('om_dispatch') || '[]'); }
-function saveDispatchRecords(d) { localStorage.setItem('om_dispatch', JSON.stringify(d)); }
+function getDispatchRecords() {
+  var rows = JSON.parse(localStorage.getItem('om_dispatch') || '[]');
+  var unique = omUniqueDispatchRecords(rows);
+  if (unique.length !== rows.length) localStorage.setItem('om_dispatch', JSON.stringify(unique));
+  return unique;
+}
+function saveDispatchRecords(d) { localStorage.setItem('om_dispatch', JSON.stringify(omUniqueDispatchRecords(d || []))); }
 
 function omGenId(prefix) { return prefix + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000); }
 function omFmt(n) { return Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -5507,19 +6981,11 @@ var _omFilter = '';
 // showCustomerModal — search existing or add new customer from POS
 function showCustomerModal() {
   var s = getState();
-  var allPOS = (s.customers || []);
-  var allOM = (getCustomerRecords() || []);
-
-  // Build combined list normalised to { id, src, name, contact, phone }
+  // POS cart customer picker — POS customers only, OM customers are separate
   var combined = [];
-  var seenNames = {};
-  allPOS.forEach(function (c) {
+  (s.customers || []).forEach(function (c) {
     var n = (c.companyName || c.contactPerson || '').trim();
-    if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'pos', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
-  });
-  allOM.forEach(function (c) {
-    var n = (c.businessName || c.contactPerson || '').trim();
-    if (n && !seenNames[n.toLowerCase()]) { seenNames[n.toLowerCase()] = true; combined.push({ id: c.id, src: 'om', name: n, contact: c.contactPerson || '', phone: c.phone || '' }); }
+    if (n) combined.push({ id: c.id, src: 'pos', name: n, contact: c.contactPerson || '', phone: c.phone || '' });
   });
 
   function renderList(q) {
@@ -5590,6 +7056,8 @@ function posSelectCustomer(custId, src) {
         s.customers.push(newC);
         saveState(s);
         custId = newC.id;
+        // Persist to DB so it appears in POS Customer Records
+        DB.saveCustomer(newC).catch(function (e) { console.error('[DB] saveCustomer (cart mirror) failed:', e.message); });
       } else {
         custId = existing.id;
       }
@@ -5633,8 +7101,10 @@ function dispatchOrder(orderId) {
   var orders = getOrders();
   var order = orders.find(function (o) { return String(o.id) === String(orderId); });
   if (!order) { showToast('Order not found.', 'error'); return; }
+  if (!omIsDispatchReady(order)) { showToast('Only QC-passed jobs can be dispatched.', 'error'); return; }
   order.status = 'dispatch';
   saveOrders(orders);
+  DB.updateOrder(order.id, { status: 'dispatch', qc_status: 'passed' });
   showToast('Order marked as dispatched.', 'success');
   renderOrders();
 }
@@ -5654,6 +7124,7 @@ function confirmEditOrder(orderId) {
     if (notes) order.notes = notes.value;
     if (status) order.status = status.value;
     saveOrders(orders);
+    DB.updateOrder(order.id, { due_date: order.due_date, notes: order.notes, status: order.status });
     closeModal();
     showToast('Order updated!', 'success');
     renderOrders();
@@ -5680,6 +7151,7 @@ function confirmVoidOrder(orderId) {
     order.status = 'cancelled';
     order.cancel_reason = reason;
     saveOrders(orders);
+    DB.updateOrder(order.id, { status: 'cancelled', cancel_reason: reason });
     closeModal();
     showToast('Order cancelled.', 'warning');
     renderOrders();
@@ -5692,6 +7164,7 @@ function fulfillOrder(orderId) {
   if (order) {
     order.status = 'production';
     saveOrders(orders);
+    DB.updateOrder(order.id, { status: 'production' });
     showToast('Order moved to production.', 'success');
     renderOrders();
   }
@@ -5701,8 +7174,10 @@ function fulfillOrder(orderId) {
 function omStatusBadge(status) {
   var map = {
     pending: '<span class="badge badge-warning">' + iconSvg('clock') + ' Pending</span>',
+    approved: '<span class="badge badge-info" style="background:#0d9488;color:#fff;">' + iconSvg('check') + ' Approved</span>',
     cancelled: '<span class="badge badge-danger">' + iconSvg('error') + ' Cancelled</span>',
     production: '<span class="badge badge-info">' + iconSvg('printer') + ' In Production</span>',
+    for_qc: '<span class="badge badge-warning">' + iconSvg('clock') + ' For QC</span>',
     dispatch: '<span class="badge badge-primary">' + iconSvg('truck') + ' Dispatch</span>',
     completed: '<span class="badge badge-success">' + iconSvg('check') + ' Completed</span>',
   };
@@ -5716,12 +7191,109 @@ function omPayStatusBadge(s) {
   return '<span class="badge badge-neutral">' + s + '</span>';
 }
 
+// Lightweight background sync: pull fresh orders + production records from server,
+// update localStorage, then re-render the OM tab so all users see live status.
+var _omSyncInFlight = false;
+function omSyncFromServer(thenRender) {
+  if (_omSyncInFlight) return;
+  _omSyncInFlight = true;
+  Promise.all([
+    apiGet('/orders').catch(function () { return null; }),
+    apiGet('/production').catch(function () { return null; }),
+    apiGet('/dispatch').catch(function () { return null; }),
+    apiGet('/order-payments').catch(function () { return null; }),
+  ]).then(function (results) {
+    var serverOrders = results[0];
+    var serverProds = results[1];
+    var serverDisps = results[2];
+    var serverPays = results[3];
+
+    if (serverOrders && Array.isArray(serverOrders)) {
+      var local = JSON.parse(localStorage.getItem('orders') || '[]');
+      var serverIds = new Set(serverOrders.map(function (o) { return String(o.id); }));
+      var localOnly = local.filter(function (o) { return !serverIds.has(String(o.id)); });
+      localStorage.setItem('orders', JSON.stringify([].concat(serverOrders, localOnly)));
+    }
+
+    if (serverProds && Array.isArray(serverProds)) {
+      var localProds = JSON.parse(localStorage.getItem('om_production') || '[]');
+      var serverProdIds = new Set(serverProds.map(function (p) { return String(p.id); }));
+      var localOnlyProds = localProds.filter(function (p) { return !serverProdIds.has(String(p.id)); });
+      var mappedProds = serverProds.map(function (p) {
+        return {
+          id: p.id,
+          orderId: p.order_id,
+          orderNumber: p.order_id,
+          progress: parseInt(p.progress) || 0,
+          qcResult: p.qc_status || null,
+          qcStatus: p.qc_status || null,
+          assignedTo: p.assigned_to || null,
+          materialsUsed: p.materials_note || null,
+          updatedAt: p.updated_at || null,
+        };
+      });
+      localStorage.setItem('om_production', JSON.stringify([].concat(mappedProds, localOnlyProds)));
+    }
+
+    if (serverDisps && Array.isArray(serverDisps)) {
+      var localDisps = JSON.parse(localStorage.getItem('om_dispatch') || '[]');
+      var serverDispIds = new Set(serverDisps.map(function (d) { return String(d.id); }));
+      var localOnlyDisps = localDisps.filter(function (d) { return !serverDispIds.has(String(d.id)); });
+      var mappedDisps = serverDisps.map(function (d) {
+        return {
+          id: d.id,
+          orderId: d.order_id,
+          orderNumber: d.order_id,
+          dispatchMethod: d.dispatch_method || null,
+          dispatchedAt: d.dispatched_at || null,
+          dispatchedBy: d.dispatched_by || null,
+          notes: d.note || null,
+          date: d.dispatched_at || null,
+        };
+      });
+      localStorage.setItem('om_dispatch', JSON.stringify([].concat(mappedDisps, localOnlyDisps)));
+    }
+
+    if (serverPays && Array.isArray(serverPays)) {
+      var localPays = JSON.parse(localStorage.getItem('om_payments') || '[]');
+      var serverPayIds = new Set(serverPays.map(function (p) { return String(p.id); }));
+      var localOnlyPays = localPays.filter(function (p) { return !serverPayIds.has(String(p.id)); });
+      var mappedPays = serverPays.map(function (p) {
+        return {
+          id: p.id,
+          orderId: p.order_id,
+          orderNumber: p.order_id,
+          customerId: p.customer_id || '',
+          businessName: p.business_name || '',
+          contactPerson: p.contact_person || '',
+          totalAmount: parseFloat(p.total_amount) || 0,
+          downpayment: parseFloat(p.downpayment) || 0,
+          balance: parseFloat(p.balance) || 0,
+          modeOfPayment: p.mode_of_payment || '',
+          paymentStatus: p.payment_status || 'Pending',
+          amountPaid: parseFloat(p.downpayment) || 0,
+          note: p.note || '',
+          date: p.date || '',
+        };
+      });
+      localStorage.setItem('om_payments', JSON.stringify([].concat(mappedPays, localOnlyPays)));
+    }
+
+    _omSyncInFlight = false;
+    if (thenRender) omRefreshTab();
+  }).catch(function () { _omSyncInFlight = false; });
+}
+
 // MAIN RENDER
 function renderOrders(filterStatus, searchQuery) {
   var s = getState();
   var u = s.currentUser;
   var isPrint = u && u.role === 'print';
-  var isStaff = u && u.role === 'staff';
+  var isStaff = u && (u.role === 'cashier' || u.role === 'team_leader' || u.role === 'staff');
+
+  // Always pull fresh data from server so cross-user changes (e.g. print QC → dispatch)
+  // are visible immediately without requiring a full page reload.
+  omSyncFromServer(true);
 
   if (filterStatus !== undefined) _omFilter = filterStatus;
   if (searchQuery !== undefined) _omSearch = searchQuery;
@@ -5731,33 +7303,58 @@ function renderOrders(filterStatus, searchQuery) {
   var prods = getProductionRecords();
   var dispatches = getDispatchRecords();
   var payments = getPaymentRecords();
+  var activeProductionCount = prods.filter(function (p) {
+    var linkedOrder = orders.find(function (o) { return String(o.id) === String(p.orderId); });
+    var orderDone = linkedOrder && (linkedOrder.status === 'completed' || omIsDispatchReady(linkedOrder));
+    return !(p.status === 'completed' || orderDone);
+  }).length;
 
   var pending = orders.filter(function (o) { return o.status === 'pending'; }).length;
   var inProd = orders.filter(function (o) { return o.status === 'production'; }).length;
-  var dispCount = orders.filter(function (o) { return o.status === 'dispatch'; }).length;
+  var dispCount = orders.filter(function (o) { return omIsDispatchReady(o); }).length;
   var done = orders.filter(function (o) { return o.status === 'completed'; }).length;
   var balDue = orders.reduce(function (sum, o) { return sum + (o.balance || 0); }, 0);
 
-  // ── PRINT PERSONNEL: simplified Order Details only view ──────────────
+  // ── PRINT PERSONNEL: Production + Dispatch + Orders tabs ──────────────
   if (isPrint) {
-    var kpiHtml = '<div class="kpi-grid" style="margin-bottom:20px">'
+    var printTabIds = ['orders', 'production', 'dispatch', 'completed'];
+    if (!_omTab || !printTabIds.includes(_omTab)) {
+      var storedPrintTab = sessionStorage.getItem('omTab');
+      _omTab = (storedPrintTab && printTabIds.includes(storedPrintTab)) ? storedPrintTab : 'production';
+    }
+    var printKpi = '<div class="kpi-grid" style="margin-bottom:20px">'
       + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">' + iconSvg('printer') + '</div></div><div class="kpi-value" style="color:var(--info)">' + inProd + '</div></div>'
       + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Dispatch</div><div class="kpi-icon gold">' + iconSvg('truck') + '</div></div><div class="kpi-value" style="color:var(--gold)">' + dispCount + '</div></div>'
       + '<div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed</div><div class="kpi-icon green">' + iconSvg('check') + '</div></div><div class="kpi-value" style="color:var(--success)">' + done + '</div></div>'
       + '</div>';
-    var html = '<div class="page-header" style="margin-bottom:16px">'
-      + '<h1 class="page-title">Order Details</h1>'
-      + '<p class="page-subtitle">View order status and details.</p>'
+    var printTabs = [
+      { id: 'orders', label: '\uD83D\uDCCB Project Details', count: orders.length },
+      { id: 'production', label: '\uD83D\uDDA8\uFE0F Production & QC', count: activeProductionCount },
+      { id: 'dispatch', label: '\uD83D\uDE9A Release / Dispatch', count: dispatches.length },
+      { id: 'completed', label: '\u2705 Completed', count: done },
+    ];
+    var printTabsHtml = printTabs.map(function (t) {
+      return '<button class="om-tab' + (_omTab === t.id ? ' om-tab-active' : '') + '" onclick="omSwitchTab(\'' + t.id + '\')">' + t.label + (t.count > 0 ? ' <span class="om-tab-count">' + t.count + '</span>' : '') + '</button>';
+    }).join('');
+    var printTabContent = '';
+    if (_omTab === 'orders') printTabContent = omRenderOrdersTab();
+    else if (_omTab === 'production') printTabContent = omRenderProductionTab();
+    else if (_omTab === 'dispatch') printTabContent = omRenderDispatchTab();
+    else if (_omTab === 'completed') printTabContent = omRenderCompletedTab();
+    var printHtml = '<div class="page-header" style="margin-bottom:16px">'
+      + '<h1 class="page-title">Project Management</h1>'
+      + '<p class="page-subtitle">Manage project intake, production, quality checking, and release.</p>'
       + '</div>'
-      + kpiHtml
-      + '<div id="om-tab-content">' + omRenderOrdersTab() + '</div>';
-    setPageHtml('orders', getNavRenderId(), html);
+      + printKpi
+      + '<div class="om-tabs">' + printTabsHtml + '</div>'
+      + '<div id="om-tab-content">' + printTabContent + '</div>';
+    setPageHtml('orders', getNavRenderId(), printHtml);
     return;
   }
 
   // ── ADMIN / STAFF: full tabbed view ──────────────────────────────────
   // Default to 'orders' (Order Details) tab; persist via sessionStorage
-  var allTabIds = ['orders', 'payment', 'production', 'dispatch', 'cancelled'];
+  var allTabIds = ['orders', 'payment', 'production', 'dispatch', 'completed', 'cancelled'];
   if (!_omTab || !allTabIds.includes(_omTab)) {
     var storedTab = sessionStorage.getItem('omTab');
     _omTab = (storedTab && allTabIds.includes(storedTab)) ? storedTab : 'orders';
@@ -5767,15 +7364,16 @@ function renderOrders(filterStatus, searchQuery) {
   var cancelledOrders = orders.filter(function (o) { return o.status === 'cancelled'; });
   var activeOrders = orders.filter(function (o) { return o.status !== 'cancelled'; });
   var tabs = [
-    { id: 'orders', label: '\uD83D\uDCCB Order Details', count: orders.length },
+    { id: 'orders', label: '\uD83D\uDCCB Project Details', count: orders.length },
     { id: 'payment', label: '\uD83D\uDCB3 Payment (50% DP)', count: payments.length },
-    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production', count: prods.length },
-    { id: 'dispatch', label: '\uD83D\uDE9A Daily Dispatch', count: dispatches.length },
+    { id: 'production', label: '\uD83D\uDDA8\uFE0F Production & QC', count: activeProductionCount },
+    { id: 'dispatch', label: '\uD83D\uDE9A Release / Dispatch', count: dispatches.length },
+    { id: 'completed', label: '\u2705 Completed', count: done },
     { id: 'cancelled', label: '\u274C Cancelled', count: cancelledOrders.length },
   ];
 
   var tabsHtml = tabs.map(function (t) {
-    return '<button class="om-tab' + (_omTab === t.id ? ' om-tab-active' : '') + '" onclick="omSwitchTab(\'' + t.id + '\')">' + t.label + ' <span class="om-tab-count">' + t.count + '</span></button>';
+    return '<button class="om-tab' + (_omTab === t.id ? ' om-tab-active' : '') + '" onclick="omSwitchTab(\'' + t.id + '\')">' + t.label + (t.count > 0 ? ' <span class="om-tab-count">' + t.count + '</span>' : '') + '</button>';
   }).join('');
 
   var tabContent = '';
@@ -5784,11 +7382,12 @@ function renderOrders(filterStatus, searchQuery) {
   else if (_omTab === 'payment') tabContent = omRenderPaymentsTab();
   else if (_omTab === 'production') tabContent = omRenderProductionTab();
   else if (_omTab === 'dispatch') tabContent = omRenderDispatchTab();
+  else if (_omTab === 'completed') tabContent = omRenderCompletedTab();
   else if (_omTab === 'cancelled') tabContent = omRenderCancelledTab();
 
   var subtitle = isStaff
-    ? 'Full access to orders and payments. Production is view only.'
-    : 'Full order lifecycle \u2014 from orders to dispatch.';
+    ? 'Cashier access to project intake and payment updates. Production is view only.'
+    : 'Full project lifecycle \u2014 from client request to production, quality check, and release.';
 
   // KPI strip: Admin=all 5, Staff=none
   var kpiHtml2 = '';
@@ -5803,7 +7402,7 @@ function renderOrders(filterStatus, searchQuery) {
   }
 
   var html = '<div class="page-header" style="margin-bottom:16px">'
-    + '<h1 class="page-title">Order Management</h1>'
+    + '<h1 class="page-title">Project Management</h1>'
     + '<p class="page-subtitle">' + subtitle + '</p>'
     + '</div>'
     + kpiHtml2
@@ -5825,12 +7424,11 @@ function omSwitchTab(tab) {
 function omRefreshTab() {
   var el = document.getElementById('om-tab-content');
   if (!el) return;
-  var isPrint = (getState().currentUser || {}).role === 'print';
-  if (isPrint) { el.innerHTML = omRenderOrdersTab(); return; }
   if (_omTab === 'orders') el.innerHTML = omRenderOrdersTab();
   else if (_omTab === 'payment') el.innerHTML = omRenderPaymentsTab();
   else if (_omTab === 'production') el.innerHTML = omRenderProductionTab();
   else if (_omTab === 'dispatch') el.innerHTML = omRenderDispatchTab();
+  else if (_omTab === 'completed') el.innerHTML = omRenderCompletedTab();
   else if (_omTab === 'cancelled') el.innerHTML = omRenderCancelledTab();
 }
 
@@ -5969,7 +7567,7 @@ function omDeleteLogo(logoId) {
 function omRenderOrdersTab() {
   var u = getState().currentUser;
   var orders = getOrders().filter(function (o) { return o.status !== 'cancelled'; });
-  var sc = { pending: 0, production: 0, dispatch: 0, completed: 0 };
+  var sc = { pending: 0, approved: 0, production: 0, dispatch: 0, completed: 0 };
   orders.forEach(function (o) { if (o.status in sc) sc[o.status]++; });
 
   var filtered = orders.filter(function (o) {
@@ -5982,10 +7580,15 @@ function omRenderOrdersTab() {
     return ms && mq;
   });
 
-  var isPrintRole = u && u.role === 'print';
+  var isPrintRole = omIsPrintUser(u);
+  var isCashier = omIsCashierUser(u);
+  var isAdmin = omIsAdminUser(u);
 
   var rows = [...filtered].reverse().map(function (o) {
     var balance = o.balance || 0;
+    // Cashier can view+edit non-completed orders; Print can view only
+    var canViewOnly = isPrintRole || o.status === 'completed';
+    var cashierCanEdit = isCashier && o.status !== 'completed';
     return '<tr>'
       + '<td class="fw7 xs">#' + String(o.id).padStart(6, '0') + '</td>'
       + '<td class="xs">' + omDate(o.created_at) + '</td>'
@@ -5993,17 +7596,19 @@ function omRenderOrdersTab() {
       + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
       + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type || '') + '">' + omEsc(o.product_type || o.product_category || '\u2014') + '</td>'
       + '<td class="center xs">' + omEsc(String(o.quantity || '\u2014')) + '</td>'
-      + '<td>' + omStatusBadge(o.status) + '</td>'
+      + '<td>' + omDisplayStatusBadge(o) + '</td>'
       + '<td class="fw7 maroon xs">\u20B1' + omFmt(o.total_amount) + '</td>'
       + '<td class="xs ' + (balance > 0 ? 'danger' : 'success') + '">\u20B1' + omFmt(balance) + '</td>'
       + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
       + '<td class="actions-cell">'
       + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
-      + (isPrintRole ? '' :
-        (o.status === 'pending' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="To Production">' + iconSvg('printer') + '</button>' : '')
-        + (o.status === 'production' ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToDispatch(\'' + o.id + '\')" title="Dispatch">' + iconSvg('truck') + '</button>' : '')
-        + (u && u.role === 'admin' ? '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>' : '')
-        + (u && u.role === 'admin' ? '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>' : ''))
+      + (isAdmin && o.status === 'pending'
+        ? ' <button class="btn btn-sm btn-maroon" onclick="omApproveOrder(\'' + o.id + '\')" title="Approve for Production" style="background:#0d9488;border-color:#0d9488;">' + iconSvg('check') + ' Approve</button>'
+        : '')
+      + (canViewOnly ? '' :
+        (omCanAdvanceToProduction(o) && omCanManageProduction(u) ? '<button class="btn btn-sm btn-maroon" onclick="omMoveToProduction(\'' + o.id + '\')" title="Start Production">' + iconSvg('printer') + '</button>' : '')
+        + (cashierCanEdit || (isAdmin && o.status !== 'completed') ? '<button class="btn btn-sm btn-outline" onclick="omEditOrderModal(\'' + o.id + '\')">' + iconSvg('note') + '</button>' : '')
+        + (isAdmin ? '<button class="btn btn-sm btn-danger" onclick="voidOrderModal(\'' + o.id + '\')">' + iconSvg('error') + '</button>' : ''))
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="10" class="empty-row">No orders found.</td></tr>';
@@ -6014,11 +7619,12 @@ function omRenderOrdersTab() {
     + '<select class="form-control" onchange="_omFilter=this.value;omRefreshTab()">'
     + '<option value="" ' + (!_omFilter ? 'selected' : '') + '>All (' + orders.length + ')</option>'
     + '<option value="pending" ' + (_omFilter === 'pending' ? 'selected' : '') + '>Pending (' + sc.pending + ')</option>'
+    + '<option value="approved" ' + (_omFilter === 'approved' ? 'selected' : '') + '>Approved (' + sc.approved + ')</option>'
     + '<option value="production" ' + (_omFilter === 'production' ? 'selected' : '') + '>Production (' + sc.production + ')</option>'
     + '<option value="dispatch" ' + (_omFilter === 'dispatch' ? 'selected' : '') + '>Dispatch (' + sc.dispatch + ')</option>'
     + '<option value="completed" ' + (_omFilter === 'completed' ? 'selected' : '') + '>Completed (' + sc.completed + ')</option>'
     + '</select></div>'
-    + (!isPrintRole ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
+    + (omCanCreateOrders(u) ? '<button class="btn btn-maroon" onclick="omNewOrderModal()">+ New Order</button>' : '')
   )
     + omTable(
       '<th class="wfix80">Order #</th>'
@@ -6084,6 +7690,82 @@ function omRenderCustomersTab() {
     );
 }
 
+// ── TAB: COMPLETED ───────────────────────────────────────────────────────────
+function omRenderCompletedTab() {
+  var orders = getOrders().filter(function (o) { return o.status === 'completed'; });
+  var q = (_omSearch || '').toLowerCase();
+  var filtered = orders.filter(function (o) {
+    return !q
+      || (o.customer_name || '').toLowerCase().indexOf(q) !== -1
+      || String(o.id).indexOf(q) !== -1
+      || (o.product_type || '').toLowerCase().indexOf(q) !== -1;
+  });
+
+  var totalRevenue = filtered.reduce(function (sum, o) { return sum + (o.total_amount || 0); }, 0);
+  var fullyPaid = filtered.filter(function (o) { return o.payment_status === 'Fully Paid'; }).length;
+
+  var rows = [...filtered].reverse().map(function (o) {
+    var saleKey = 'om_order_' + o.id;
+    var s = getState();
+    var inReceipts = (s.sales || []).some(function (x) { return x.id === saleKey; });
+    var receiptBtn = inReceipts
+      ? '<button class="btn btn-sm btn-outline" onclick="omViewOrderReceipt(\'' + o.id + '\')" title="View Receipt">\uD83E\uDDFE</button>'
+      : (o.payment_status === 'Fully Paid'
+        ? '<button class="btn btn-sm btn-maroon" onclick="omForcePushReceipt(\'' + o.id + '\')" title="Push to Receipt History">\uD83D\uDDC2\uFE0F Push</button>'
+        : '');
+    return '<tr>'
+      + '<td class="fw7 xs">#' + String(o.id).padStart(6, '0') + '</td>'
+      + '<td class="xs">' + omDate(o.created_at) + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(o.customer_name || '\u2014') + '</div>'
+      + (o.contact_person ? '<div class="cell-sub">' + omEsc(o.contact_person) + '</div>' : '') + '</td>'
+      + '<td class="wgrow-sm truncate" title="' + omEsc(o.product_type || '') + '">' + omEsc(o.product_type || o.product_category || '\u2014') + '</td>'
+      + '<td class="center xs">' + omEsc(String(o.quantity || '\u2014')) + '</td>'
+      + '<td class="fw7 maroon xs">\u20B1' + omFmt(o.total_amount) + '</td>'
+      + '<td>' + omPayStatusBadge(o.payment_status) + '</td>'
+      + '<td class="actions-cell">'
+      + '<button class="btn btn-sm btn-outline" onclick="omViewOrderModal(\'' + o.id + '\')" title="View">\uD83D\uDC41</button>'
+      + receiptBtn
+      + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="8" class="empty-row">No completed orders yet.</td></tr>';
+
+  var summary = '<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">'
+    + '<div style="background:var(--success-bg,#e6f9f0);border:1px solid var(--success,#22a06b);border-radius:8px;padding:10px 18px;font-size:13px;">'
+    + '\u2705 <strong>' + filtered.length + '</strong> completed &nbsp;&middot;&nbsp; <strong>' + fullyPaid + '</strong> fully paid &nbsp;&middot;&nbsp; Revenue: <strong>\u20B1' + omFmt(totalRevenue) + '</strong>'
+    + '</div></div>';
+
+  return omToolbar(
+    '<input class="form-control pl34" placeholder="Search completed orders\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
+    '<span class="text-sm text-muted">' + filtered.length + ' order' + (filtered.length !== 1 ? 's' : '') + ' completed</span>'
+  )
+    + summary
+    + omTable(
+      '<th class="wfix80">Order #</th>'
+      + '<th class="wfix90">Date</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wgrow">Product</th>'
+      + '<th class="wfix40 center">Qty</th>'
+      + '<th class="wfix90">Total</th>'
+      + '<th class="wfix100">Pay Status</th>'
+      + '<th class="wfix120">Actions</th>',
+      rows
+    );
+}
+
+function omForcePushReceipt(orderId) {
+  var orders = getOrders();
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
+  if (!o) return;
+  if (o.payment_status !== 'Fully Paid') { showToast('Order must be Fully Paid to push receipt.', 'error'); return; }
+  omPushToReceiptHistory(orderId);
+  omRefreshTab();
+}
+
+function omViewOrderReceipt(orderId) {
+  var saleKey = 'om_order_' + orderId;
+  omViewReceiptModal(saleKey);
+}
+
 // ── TAB: CANCELLED ────────────────────────────────────────────────
 function omRenderCancelledTab() {
   var orders = getOrders().filter(function (o) { return o.status === 'cancelled'; });
@@ -6116,17 +7798,17 @@ function omRenderCancelledTab() {
     '<input class="form-control pl34" placeholder="Search order, customer, product\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     '<span class="text-sm text-muted">' + filtered.length + ' cancelled order' + (filtered.length !== 1 ? 's' : '') + '</span>'
   )
-  + omTable(
-    '<th class="wfix80">Order #</th>'
-    + '<th class="wfix90">Date</th>'
-    + '<th class="wgrow">Customer</th>'
-    + '<th class="wgrow">Product</th>'
-    + '<th class="wfix40 center">Qty</th>'
-    + '<th class="wfix90">Total</th>'
-    + '<th>Cancel Reason</th>'
-    + '<th class="wfix80"></th>',
-    rows
-  );
+    + omTable(
+      '<th class="wfix80">Order #</th>'
+      + '<th class="wfix90">Date</th>'
+      + '<th class="wgrow">Customer</th>'
+      + '<th class="wgrow">Product</th>'
+      + '<th class="wfix40 center">Qty</th>'
+      + '<th class="wfix90">Total</th>'
+      + '<th>Cancel Reason</th>'
+      + '<th class="wfix80"></th>',
+      rows
+    );
 }
 
 // ── TAB: PAYMENT (50% DP) ─────────────────────────────────────────────────────
@@ -6138,7 +7820,7 @@ function omRenderPaymentsTab() {
   // Build a map of orderId -> latest payment info
   var seenOrders = {};
   // First pass: group by orderId
-  payments.forEach(function(p) {
+  payments.forEach(function (p) {
     var oid = String(p.orderId);
     if (!seenOrders[oid]) {
       seenOrders[oid] = p;
@@ -6148,8 +7830,8 @@ function omRenderPaymentsTab() {
     }
   });
   // Sync with live order data (for balance/status accuracy)
-  var consolidated = Object.values(seenOrders).map(function(p) {
-    var o = orders.find(function(x){ return String(x.id) === String(p.orderId); });
+  var consolidated = Object.values(seenOrders).map(function (p) {
+    var o = orders.find(function (x) { return String(x.id) === String(p.orderId); });
     if (o) {
       return Object.assign({}, p, {
         totalAmount: o.total_amount || p.totalAmount,
@@ -6162,13 +7844,14 @@ function omRenderPaymentsTab() {
   });
 
   var q = (_omSearch || '').toLowerCase();
-  var filtered = [...consolidated].sort(function(a,b){ return new Date(b.date)-new Date(a.date); }).filter(function (p) {
+  var filtered = [...consolidated].sort(function (a, b) { return new Date(b.date) - new Date(a.date); }).filter(function (p) {
     return !q
       || (p.businessName || '').toLowerCase().indexOf(q) !== -1
       || String(p.orderNumber || '').indexOf(q) !== -1;
   });
 
-  var isPrint = (getState().currentUser || {}).role === 'print';
+  var currentUser = omCurrentUser();
+  var isPrint = omIsPrintUser(currentUser);
 
   var rows = filtered.map(function (p) {
     var isPaid = p.paymentStatus === 'Fully Paid';
@@ -6195,7 +7878,7 @@ function omRenderPaymentsTab() {
 
   return omToolbar(
     '<input class="form-control pl34" placeholder="Search payments\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
-    isPrint ? '' : '<button class="btn btn-maroon" onclick="omNewPaymentModal()">+ Record Payment</button>'
+    omCanManagePayments(currentUser) ? '<button class="btn btn-maroon" onclick="omNewPaymentModal()">+ Record Payment</button>' : ''
   )
     + omTable(
       '<th class="wfix90">Date</th>'
@@ -6215,7 +7898,11 @@ function omRenderPaymentsTab() {
 function omRenderProductionTab() {
   var prods = getProductionRecords();
   var q = (_omSearch || '').toLowerCase();
+  // Hide completed production records from the active list
   var filtered = [...prods].reverse().filter(function (p) {
+    var linkedOrder = getOrders().find(function (o) { return String(o.id) === String(p.orderId); });
+    var orderDone = linkedOrder && (linkedOrder.status === 'completed' || omIsDispatchReady(linkedOrder));
+    if (p.status === 'completed' || orderDone) return false; // hide completed
     return !q
       || (p.businessName || '').toLowerCase().indexOf(q) !== -1
       || String(p.orderNumber || '').indexOf(q) !== -1;
@@ -6224,12 +7911,15 @@ function omRenderProductionTab() {
   var rows = filtered.map(function (p) {
     var pct = p.progress || 0;
     var pc = pct >= 100 ? 'var(--success)' : pct >= 60 ? 'var(--gold)' : 'var(--maroon)';
-    var qcB = p.qcResult === 'Pass' ? '<span class="badge badge-success">\u2713 Pass</span>'
-      : p.qcResult === 'Fail' ? '<span class="badge badge-danger">\u2717 Fail</span>'
-        : '<span class="badge badge-neutral">Pending</span>';
+    // Resolve status from linked order if prod record is stale
+    var _linkedOrd = getOrders().find(function (o) { return String(o.id) === String(p.orderId); });
+    var qcB = omQcBadge(_linkedOrd, p);
+    var displayStatus = p.status || 'pending';
+    if (_linkedOrd) displayStatus = omDisplayStatus(_linkedOrd, p);
+    var displayBiz = p.businessName || (_linkedOrd && _linkedOrd.customer_name) || '\u2014';
     return '<tr>'
-      + '<td class="fw7 xs">#' + String(p.orderNumber || '').padStart(6, '0') + '</td>'
-      + '<td class="wgrow"><div class="cell-primary">' + omEsc(p.businessName || '\u2014') + '</div></td>'
+      + '<td class="fw7 xs">#' + String(p.orderNumber || p.orderId || '').padStart(6, '0') + '</td>'
+      + '<td class="wgrow"><div class="cell-primary">' + omEsc(displayBiz) + '</div></td>'
       + '<td class="xs">' + omEsc(p.assignedTo || '\u2014') + '</td>'
       + '<td style="min-width:110px;">'
       + '<div style="display:flex;align-items:center;gap:6px;">'
@@ -6239,12 +7929,12 @@ function omRenderProductionTab() {
       + '<span style="font-size:11px;font-weight:700;color:' + pc + ';white-space:nowrap;">' + pct + '%</span>'
       + '</div>'
       + '</td>'
-      + '<td>' + omStatusBadge(p.status || 'pending') + '</td>'
+      + '<td>' + (displayStatus === 'for_qc' ? '<span class="badge badge-warning">' + iconSvg('clock') + ' For QC</span>' : omStatusBadge(displayStatus)) + '</td>'
       + '<td>' + qcB + '</td>'
       + '<td class="truncate xs" title="' + omEsc(p.materialsUsed || '') + '">' + omEsc(p.materialsUsed || '\u2014') + '</td>'
       + '<td class="xs">' + omDate(p.completionDate) + '</td>'
       + '<td class="actions-cell">'
-      + (((getState().currentUser || {}).role === 'staff')
+      + ((omIsCashierUser(getState().currentUser))
         ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
         : '<button class="btn btn-sm btn-outline" onclick="omUpdateProductionModal(\'' + p.id + '\')">Update</button>'
         + ' <button class="btn btn-sm btn-outline" onclick="omQCModal(\'' + p.id + '\')">QC</button>')
@@ -6252,8 +7942,7 @@ function omRenderProductionTab() {
       + '</tr>';
   }).join('') || '<tr><td colspan="9" class="empty-row">No production records yet.</td></tr>';
 
-  var isPrintUser = (getState().currentUser || {}).role === 'print';
-  var isStaffUser = (getState().currentUser || {}).role === 'staff';
+  var isStaffUser = omIsCashierUser(getState().currentUser);
   return omToolbar(
     '<input class="form-control pl34" placeholder="Search production\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
     isStaffUser ? '' : '<button class="btn btn-maroon" onclick="omNewProductionModal()">+ Assign Production</button>'
@@ -6274,9 +7963,25 @@ function omRenderProductionTab() {
 
 // ── TAB: DAILY DISPATCH ───────────────────────────────────────────────────────
 function omRenderDispatchTab() {
-  var dispatches = getDispatchRecords();
+  var orders = getOrders();
+  var dispatches = getDispatchRecords().map(function (d) {
+    var order = orders.find(function (o) { return String(o.id) === String(d.orderId); });
+    if (!order) return d;
+    // Auto-derive payment status from balance to keep dispatch tab in sync
+    var derivedPayStatus = order.payment_status;
+    if (!derivedPayStatus || (order.balance === 0 && order.total_amount > 0)) {
+      derivedPayStatus = order.balance === 0 ? 'Fully Paid' : (order.downpayment > 0 ? 'Partial' : 'Pending');
+    }
+    return Object.assign({}, d, {
+      businessName: d.businessName || order.customer_name,
+      paymentStatus: derivedPayStatus || d.paymentStatus || 'Pending',
+      balance: order.balance !== undefined ? order.balance : (d.balance || 0),
+    });
+  });
   var q = (_omSearch || '').toLowerCase();
   var filtered = [...dispatches].reverse().filter(function (d) {
+    var linkedOrder = orders.find(function (o) { return String(o.id) === String(d.orderId); });
+    if (linkedOrder && linkedOrder.status !== 'completed' && !omIsDispatchReady(linkedOrder)) return false;
     return !q
       || (d.businessName || '').toLowerCase().indexOf(q) !== -1
       || String(d.orderNumber || '').indexOf(q) !== -1;
@@ -6289,6 +7994,7 @@ function omRenderDispatchTab() {
   }
 
   var rows = filtered.map(function (d) {
+    var canOverride = omCanOverrideDispatch(omCurrentUser());
     return '<tr>'
       + '<td class="xs">' + omDate(d.date) + '</td>'
       + '<td class="fw7 xs">#' + String(d.orderNumber || '').padStart(6, '0') + '</td>'
@@ -6301,18 +8007,20 @@ function omRenderDispatchTab() {
       + '<td>' + dsBadge(d.dispatchStatus) + '</td>'
       + '<td class="truncate xs" title="' + omEsc(d.notes || '') + '">' + omEsc(d.notes || '\u2014') + '</td>'
       + '<td class="actions-cell">'
-      + '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">Update</button>'
-      + (d.paymentStatus === 'Fully Paid'
-        ? ' <button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F</button>'
-        : '')
+      + ((omIsCashierUser(getState().currentUser))
+        ? '<span style="color:var(--ink-40);font-size:12px;">View Only</span>'
+        : '<button class="btn btn-sm btn-outline" onclick="omUpdateDispatchModal(\'' + d.id + '\')">' + (canOverride ? 'Override' : 'Update') + '</button>'
+        + (d.paymentStatus === 'Fully Paid'
+          ? ' <button class="btn btn-sm btn-outline" onclick="omPrintDispatchReceipt(\'' + d.id + '\')">\uD83D\uDDA8\uFE0F</button>'
+          : ''))
       + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="9" class="empty-row">No dispatch records yet.</td></tr>';
 
-  var isStaffUser2 = (getState().currentUser || {}).role === 'staff';
+  var isStaffUser2 = omIsCashierUser(getState().currentUser);
   return omToolbar(
     '<input class="form-control pl34" placeholder="Search dispatch\u2026" value="' + (_omSearch || '') + '" oninput="_omSearch=this.value;omRefreshTab()">',
-    isStaffUser2 ? '' : '<button class="btn btn-maroon" onclick="omNewDispatchModal()">+ Schedule Dispatch</button>'
+    isStaffUser2 ? '' : '<button class="btn btn-maroon" onclick="omNewDispatchModal()">' + (omCanOverrideDispatch(omCurrentUser()) ? '+ Override Dispatch' : '+ Schedule Dispatch') + '</button>'
   )
     + omTable(
       '<th class="wfix90">Date</th>'
@@ -6344,17 +8052,17 @@ function omGetBranchInventory(branchId) {
       // total v.stock so variants not yet split across branches still show up.
       var hasBranchEntry = v.branchStocks && typeof v.branchStocks[branchId] === 'number';
       var qty = hasBranchEntry ? v.branchStocks[branchId] : (v.stock || 0);
-      if (qty > 0) {
-        items.push({
-          productId: p.id,
-          variantId: v.id,
-          productName: p.name,
-          variantName: v.name,
-          category: p.category || p.name,
-          stock: qty,
-          price: v.price || 0
-        });
-      }
+      // Include ALL variants (even zero stock) so the dropdown always shows
+      // available sizes. Staff can still create orders for out-of-stock items.
+      items.push({
+        productId: p.id,
+        variantId: v.id,
+        productName: p.name,
+        variantName: v.name,
+        category: p.category || p.name,
+        stock: qty,
+        price: v.price || 0
+      });
     });
   });
   return items;
@@ -6367,10 +8075,9 @@ function omBuildProductCategoryField(branchId) {
   (s.products || []).forEach(function (p) {
     if (!p.active) return;
     var cat = p.category || p.name;
-    if (!seen[cat] && (p.variants || []).some(function (v) {
-      var hasBranchEntry = v.branchStocks && typeof v.branchStocks[branchId] === 'number';
-      return (hasBranchEntry ? v.branchStocks[branchId] : (v.stock || 0)) > 0;
-    })) {
+    // Include category if it has ANY variants, regardless of stock level,
+    // so staff can always see and select product categories in the dropdown.
+    if (!seen[cat] && (p.variants || []).length > 0) {
       seen[cat] = true;
       cats.push(cat);
     }
@@ -6415,13 +8122,14 @@ function omRenderTypeDropdown(items, q) {
   var dd = document.getElementById('om-type-dropdown');
   if (!dd) return;
   var filtered = q
-    ? items.filter(function (i) { return i.variantName.toLowerCase().indexOf(q) !== -1; })
+    ? items.filter(function (i) { return i.variantName.toLowerCase().indexOf(q) !== -1 || i.productName.toLowerCase().indexOf(q) !== -1; })
     : items;
   if (!filtered.length) { dd.style.display = 'none'; return; }
   dd.innerHTML = '';
   filtered.forEach(function (i) {
     var row = document.createElement('div');
-    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:9px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;';
+    var outOfStock = i.stock <= 0;
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:9px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;' + (outOfStock ? 'opacity:0.65;' : '');
     row.addEventListener('mouseover', function () { row.style.background = '#f5f5f5'; });
     row.addEventListener('mouseout', function () { row.style.background = ''; });
     row.addEventListener('mousedown', function () { omSelectType(i.variantId, i.variantName, i.stock, i.price); });
@@ -6432,7 +8140,7 @@ function omRenderTypeDropdown(items, q) {
     var stockBg = i.stock === 0 ? '#fee2e2' : i.stock <= 10 ? '#fef3c7' : '#dcfce7';
     var badge = document.createElement('span');
     badge.style.cssText = 'font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:' + stockBg + ';color:' + stockColor;
-    badge.textContent = i.stock + ' in stock';
+    badge.textContent = outOfStock ? 'Out of stock' : i.stock + ' in stock';
     row.appendChild(nameSpan);
     row.appendChild(badge);
     dd.appendChild(row);
@@ -6493,21 +8201,18 @@ function omOnTypeInput(typeVal) {
 }
 
 function omNewOrderModal() {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can create project orders.', 'error'); return; }
   var s = getState();
   var crs = getCustomerRecords();
   var currentUser = s.currentUser || {};
   var currentRole = currentUser.role || '';
   var branchId = getActiveBranchId(s, currentUser);
-  var staffList;
-  if (currentRole === 'staff') {
-    staffList = s.users.filter(function (u) { return u.name === currentUser.name && u.role === 'staff'; });
-  } else if (currentRole === 'admin') {
-    staffList = s.users.filter(function (u) { return u.name === currentUser.name; });
-  } else {
-    staffList = s.users.filter(function (u) { return u.role === 'staff' || u.role === 'admin'; });
-  }
+  // Assigned staff = always the currently logged-in user only
+  // (whoever is creating the order is the one assigned to it)
+  var staffList = currentUser.name ? [currentUser] : [];
   var custOptions = crs.map(function (c) { return '<option value="' + c.id + '">' + c.businessName + ' (' + c.contactPerson + ')</option>'; }).join('');
-  var staffOptions = staffList.map(function (u) { return '<option value="' + u.name + '">' + u.name + '</option>'; }).join('');
+  var staffOptions = staffList.map(function (u) { return '<option value="' + u.name + '" selected>' + u.name + '</option>'; }).join('');
 
   showModal(
     '<div class="modal-header"><h2>' + iconSvg('box') + ' Create New Order</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
@@ -6542,7 +8247,7 @@ function omNewOrderModal() {
     + '<div class="form-group"><label>Mode of Delivery</label><input id="om-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    + '<div class="form-group"><label>Branch Staff in Charge</label><div class="form-select-wrap"><select id="om-staff" class="form-control"><option value="">\u2014 None \u2014</option>' + staffOptions + '</select></div></div>'
+    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="om-staff" class="form-control" value="' + omEsc(currentUser.name || '') + '" readonly style="background:var(--cream);cursor:not-allowed;"></div>'
     + '</div>'
     + '</div>'
 
@@ -6616,7 +8321,6 @@ function omNewOrderModal() {
     + '</div>'
     + '<div class="form-row-2">'
     + '<div class="form-group"><label>Payment Status</label><div class="form-select-wrap"><select id="om-pay-status" class="form-control" onchange="omOnPayStatusChange()"><option value="Pending">Pending</option><option value="30%">30% Downpayment</option><option value="Partial">Partial</option><option value="Fully Paid">Fully Paid</option></select></div></div>'
-    + '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="om-order-status" class="form-control"><option value="pending">Pending</option><option value="production">In Production</option></select></div></div>'
     + '</div>'
 
     + '</div>'
@@ -6636,8 +8340,10 @@ function omNewOrderModal() {
     omCalcTotal();
 
     // ── SESSION STORAGE DRAFT RESTORE ──
+    // Only restore draft if it was saved by the same user (avoid stale admin draft showing for branch staff)
     try {
       var draft = JSON.parse(sessionStorage.getItem('om_new_order_draft') || 'null');
+      if (draft && draft._userId && draft._userId !== (currentUser.id || '')) draft = null;
       if (draft) {
         function sr(id, v) { var el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; }
         // Restore customer selection first so autofill + lock/unlock runs correctly
@@ -6651,7 +8357,7 @@ function omNewOrderModal() {
         sr('om-email', draft.email);
         sr('om-address', draft.address);
         sr('om-mop', draft.mop);
-        sr('om-staff', draft.staff);
+        // om-staff is always the currently logged-in user — never restore from draft
         sr('om-due-date', draft.dueDate);
         sr('om-prod-cat', draft.prodCat);
         sr('om-prod-type', draft.prodType);
@@ -6663,17 +8369,16 @@ function omNewOrderModal() {
         sr('om-product-fee', draft.productFee);
         sr('om-notes', draft.notes);
         sr('om-pay-status', draft.payStatus);
-        sr('om-order-status', draft.orderStatus);
         omOnCatInput(draft.prodCat || '');
         omCalcTotal();
         if (draft.payStatus) omOnPayStatusChange();
         showToast('\uD83D\uDCDD Draft restored from your last session!', 'info');
       }
-    } catch(e) {}
+    } catch (e) { }
 
     // Attach draft-saving listeners to all form fields
-    var draftFields = ['om-business','om-contact','om-phone','om-email','om-address','om-mop','om-staff','om-due-date','om-prod-cat','om-prod-type','om-qty','om-unit-price','om-print-color','om-cust-type','om-new-logo','om-product-fee','om-notes','om-pay-status','om-order-status','om-cust-sel'];
-    draftFields.forEach(function(id) {
+    var draftFields = ['om-business', 'om-contact', 'om-phone', 'om-email', 'om-address', 'om-mop', 'om-staff', 'om-due-date', 'om-prod-cat', 'om-prod-type', 'om-qty', 'om-unit-price', 'om-print-color', 'om-cust-type', 'om-new-logo', 'om-product-fee', 'om-notes', 'om-pay-status', 'om-cust-sel'];
+    draftFields.forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', omSaveNewOrderDraft);
       if (el && el.tagName === 'INPUT') el.addEventListener('input', omSaveNewOrderDraft);
@@ -6689,15 +8394,16 @@ function omSaveNewOrderDraft() {
   try {
     function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
     sessionStorage.setItem('om_new_order_draft', JSON.stringify({
+      _userId: currentUser.id || '',
       custSel: gv('om-cust-sel'), business: gv('om-business'), contact: gv('om-contact'),
       phone: gv('om-phone'), email: gv('om-email'), address: gv('om-address'),
-      mop: gv('om-mop'), staff: gv('om-staff'), dueDate: gv('om-due-date'),
+      mop: gv('om-mop'), dueDate: gv('om-due-date'),
       prodCat: gv('om-prod-cat'), prodType: gv('om-prod-type'),
       qty: gv('om-qty'), unitPrice: gv('om-unit-price'), printColor: gv('om-print-color'),
       custType: gv('om-cust-type'), newLogo: gv('om-new-logo'), productFee: gv('om-product-fee'),
-      notes: gv('om-notes'), payStatus: gv('om-pay-status'), orderStatus: gv('om-order-status'),
+      notes: gv('om-notes'), payStatus: gv('om-pay-status'),
     }));
-  } catch(e) {}
+  } catch (e) { }
 }
 var OM_DISCOUNT_THRESHOLD = 3000;
 var OM_DISCOUNT_RATE = 0.05; // 5% — adjust as needed
@@ -6828,7 +8534,7 @@ function omAutofillCustomer(customerId) {
     if (noticeEl) noticeEl.style.display = 'flex';
     sv('om-business', ''); sv('om-contact', ''); sv('om-phone', '');
     sv('om-email', ''); sv('om-address', '');
-    ['om-business','om-contact','om-phone','om-email','om-address'].forEach(function(id) { setReadonly(id, false); });
+    ['om-business', 'om-contact', 'om-phone', 'om-email', 'om-address'].forEach(function (id) { setReadonly(id, false); });
     var mopSel = document.getElementById('om-mop'); if (mopSel) mopSel.disabled = false;
     if (ct) ct.value = 'new';
     omCalcTotal();
@@ -6851,7 +8557,7 @@ function omAutofillCustomer(customerId) {
   if (staffSel && c.branchStaff) staffSel.value = c.branchStaff;
 
   // Lock the info fields so user can't accidentally edit an existing customer's record
-  ['om-business','om-contact','om-phone','om-email','om-address'].forEach(function(id) { setReadonly(id, true); });
+  ['om-business', 'om-contact', 'om-phone', 'om-email', 'om-address'].forEach(function (id) { setReadonly(id, true); });
 
   if (noticeEl) noticeEl.style.display = 'none';
   if (ct) ct.value = 'old';
@@ -6859,10 +8565,10 @@ function omAutofillCustomer(customerId) {
 }
 
 // Kept as no-op for compatibility (no longer needed with combined dropdown)
-function omCheckNewCustomerNotice() {}
+function omCheckNewCustomerNotice() { }
 
 function omConfirmNewOrder() {
-  var _u = getState().currentUser; if (!_u || !['admin','staff'].includes(_u.role)) { showToast('Access denied.', 'error'); return; }
+  var _u = getState().currentUser; if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can create project orders.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var businessName = gv('om-business').trim();
   var qty = parseInt(gv('om-qty')) || 0;
@@ -6913,7 +8619,7 @@ function omConfirmNewOrder() {
     print_color: gv('om-print-color'),
     plate_note: gv('om-plate-note'),
     total_amount: total,
-    status: gv('om-order-status') || 'pending',
+    status: 'pending',
     downpayment: down,
     balance: balance,
     payment_mode: gv('om-mop'),
@@ -6927,16 +8633,65 @@ function omConfirmNewOrder() {
   };
 
   // Save to DB first to get the real MySQL AUTO_INCREMENT id back
-  DB.saveOrder(newOrder).then(function (result) {
-    if (result && result.id) {
-      newOrder.id = result.id;
-      var idx = orders.findIndex(function (o) { return o.id === maxId + 1; });
-      if (idx !== -1) orders[idx].id = result.id;
-      saveOrders(orders);
-    }
-  }).catch(function () { });
+  // FIX: Push to local array FIRST (optimistic), then update ID when server responds.
+  // This preserves fast UI while ensuring the server ID is eventually correct.
   orders.push(newOrder);
   saveOrders(orders);
+
+  DB.saveOrder(newOrder).then(function (result) {
+    if (result && result.id) {
+      var tempId = newOrder.id;
+      var idx = orders.findIndex(function (o) { return String(o.id) === String(tempId); });
+      if (idx !== -1) {
+        orders[idx].id = result.id;
+        newOrder.id = result.id;
+        saveOrders(orders);
+        // Update localStorage records that used the temp id
+        var pays = getPaymentRecords();
+        pays.forEach(function (p) { if (String(p.orderId) === String(tempId)) { p.orderId = result.id; p.orderNumber = result.id; } });
+        savePaymentRecords(pays);
+        var prods2 = getProductionRecords();
+        prods2.forEach(function (p) { if (String(p.orderId) === String(tempId)) { p.orderId = result.id; p.orderNumber = result.id; } });
+        saveProductionRecords(prods2);
+        var disps2 = getDispatchRecords();
+        disps2.forEach(function (d) { if (String(d.orderId) === String(tempId)) { d.orderId = result.id; d.orderNumber = result.id; } });
+        saveDispatchRecords(disps2);
+      }
+
+      // ── NOW persist payment/production/dispatch to DB with the REAL order id ──
+      // (Must be inside .then so order exists in DB before FK-constrained children)
+      var realPays = getPaymentRecords();
+      var payRec = realPays.find(function (p) { return String(p.orderId) === String(result.id); });
+      if (payRec) {
+        DB.saveOrderPayment({
+          id: payRec.id,
+          orderId: result.id,
+          customerId: payRec.customerId || null,
+          businessName: payRec.businessName || null,
+          contactPerson: payRec.contactPerson || null,
+          totalAmount: payRec.totalAmount || 0,
+          downpayment: payRec.downpayment || 0,
+          balance: payRec.balance || 0,
+          modeOfPayment: payRec.modeOfPayment || null,
+          paymentStatus: payRec.paymentStatus || 'Pending',
+          note: payRec.note || null,
+          date: payRec.date || new Date().toISOString(),
+        }).catch(function () { });
+      }
+
+      var realProds = getProductionRecords();
+      var prodRec = realProds.find(function (p) { return String(p.orderId) === String(result.id); });
+      if (prodRec) {
+        DB.saveProduction(prodRec).catch(function () { });
+      }
+
+      var realDisps = getDispatchRecords();
+      var dispRec = realDisps.find(function (d) { return String(d.orderId) === String(result.id); });
+      if (dispRec) {
+        DB.saveDispatch(dispRec).catch(function () { });
+      }
+    }
+  }).catch(function () { });
 
   // ── Auto-add new customer to Customer Records if not already there ──
   var crs = getCustomerRecords();
@@ -7017,6 +8772,7 @@ function omConfirmNewOrder() {
     createdAt: new Date().toISOString()
   });
   saveProductionRecords(prods);
+  // NOTE: DB.saveProduction is called inside DB.saveOrder.then() to ensure order exists first
 
   // ── Auto-create Dispatch record (Scheduled status) — only if none exists yet ──
   // FIX 4: Guard against duplicate dispatch records (order creation vs manual schedule)
@@ -7038,6 +8794,7 @@ function omConfirmNewOrder() {
       createdAt: new Date().toISOString()
     });
     saveDispatchRecords(dispatches);
+    // NOTE: DB.saveDispatch is called inside DB.saveOrder.then() to ensure order exists first
   }
 
   // Push to POS receipt history if created as fully paid and completed
@@ -7045,7 +8802,7 @@ function omConfirmNewOrder() {
 
   closeModal();
   // ── Clear draft on successful order creation ──
-  try { sessionStorage.removeItem('om_new_order_draft'); } catch(e) {}
+  try { sessionStorage.removeItem('om_new_order_draft'); } catch (e) { }
   showToast('Order #' + String(newOrder.id).padStart(6, '0') + ' created!', 'success');
   _omTab = 'orders';
   renderOrders();
@@ -7103,48 +8860,91 @@ function omViewOrderModal(orderId) {
 }
 
 function omEditOrderModal(orderId) {
-  var _u = getState().currentUser; if (!_u || _u.role !== 'admin') { showToast('Admin access required.', 'error'); return; }
+  var _u = getState().currentUser; if (!_u || !['admin', 'cashier', 'print'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin, Cashier, or Production Personnel can edit project orders.', 'error'); return; }
+  var _isPrintEdit = normalizeRole(_u.role) === 'print';
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) { showToast('Order not found.', 'error'); return; }
+  if (omIsCashierUser(_u) && o.status === 'completed') {
+    showToast('Completed orders are view-only for Cashier.', 'error');
+    omViewOrderModal(orderId);
+    return;
+  }
 
+  // Print personnel: lock customer/pricing fields, only allow status, due date, notes, print color
+  var _roAttr = _isPrintEdit ? ' readonly style="background:var(--cream);color:var(--ink-60)"' : '';
   showModal('<div class="modal-header"><h2>' + iconSvg('note') + ' Edit Order #' + String(o.id).padStart(6, '0') + '</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
-    + '<div class="form-row-2"><div class="form-group"><label>Business Name</label><input id="ome-business" class="form-control" value="' + (o.customer_name || '') + '"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="ome-contact" class="form-control" value="' + (o.contact_person || '') + '"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="ome-phone" class="form-control" value="' + (o.phone || '') + '"></div>'
-    + '<div class="form-group"><label>Email</label><input id="ome-email" class="form-control" value="' + (o.email || '') + '"></div></div>'
-    + '<div class="form-group"><label>Address</label><input id="ome-address" class="form-control" value="' + (o.address || '') + '"></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Product Category</label><input id="ome-prod-cat" class="form-control" value="' + (o.product_category || '') + '"></div>'
-    + '<div class="form-group"><label>Product Type/Size</label><input id="ome-prod-type" class="form-control" value="' + (o.product_type || '') + '"></div></div>'
-    + '<div class="form-row-3"><div class="form-group"><label>Quantity</label><input id="ome-qty" type="number" class="form-control" value="' + (o.quantity || 1) + '"></div>'
-    + '<div class="form-group"><label>Print Color</label><input id="ome-print-color" class="form-control" value="' + (o.print_color || '') + '"></div>'
-    + '<div class="form-group"><label>Plate Note</label><input id="ome-plate-note" class="form-control" value="' + (o.plate_note || '') + '"></div></div>'
-    + '<div class="form-row-3"><div class="form-group"><label>Total Amount</label><input id="ome-total" type="number" class="form-control" value="' + (o.total_amount || 0) + '" oninput="omEditCalcBalance()"></div>'
-    + '<div class="form-group"><label>Downpayment</label><input id="ome-down" type="number" class="form-control" value="' + (o.downpayment || 0) + '" oninput="omEditCalcBalance()"></div>'
-    + '<div class="form-group"><label>Balance</label><input id="ome-balance" type="number" class="form-control" readonly style="background:var(--cream)" value="' + (o.balance || 0) + '"></div></div>'
-    + '<div class="form-row-2"><div class="form-group"><label>Pay Mode</label><div class="form-select-wrap"><select id="ome-mop" class="form-control">'
-    + '<option value="Cash" ' + (o.payment_mode === 'Cash' ? 'selected' : '') + '>Cash</option>'
-    + '<option value="GCash" ' + (o.payment_mode === 'GCash' ? 'selected' : '') + '>GCash</option>'
-    + '</select></div></div>'
-    + '<div class="form-group"><label>Pay Status</label><div class="form-select-wrap"><select id="ome-pay-status" class="form-control">'
-    + '<option value="Pending" ' + (o.payment_status === 'Pending' ? 'selected' : '') + '>Pending</option>'
-    + '<option value="30%" ' + (o.payment_status === '30%' ? 'selected' : '') + '>30%</option>'
-    + '<option value="Partial" ' + (o.payment_status === 'Partial' ? 'selected' : '') + '>Partial</option>'
-    + '<option value="Fully Paid" ' + (o.payment_status === 'Fully Paid' ? 'selected' : '') + '>Fully Paid</option>'
-    + '</select></div></div></div>'
+    + (_isPrintEdit ? '<div class="alert alert-info" style="margin-bottom:12px;font-size:12.5px">' + iconSvg('printer') + ' Print Personnel: you can update order status, due date, print color, and notes.</div>' : '')
+    + '<div class="form-row-2"><div class="form-group"><label>Business Name</label><input id="ome-business" class="form-control" value="' + (o.customer_name || '') + '"' + _roAttr + '></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="ome-contact" class="form-control" value="' + (o.contact_person || '') + '"' + _roAttr + '></div></div>'
+    + '<div class="form-row-2"><div class="form-group"><label>Phone</label><input id="ome-phone" class="form-control" value="' + (o.phone || '') + '"' + _roAttr + '></div>'
+    + '<div class="form-group"><label>Email</label><input id="ome-email" class="form-control" value="' + (o.email || '') + '"' + _roAttr + '></div></div>'
+    + '<div class="form-group"><label>Address</label><input id="ome-address" class="form-control" value="' + (o.address || '') + '"' + _roAttr + '></div>'
+    + '<div class="form-row-2"><div class="form-group"><label>Product Category</label><input id="ome-prod-cat" class="form-control" value="' + (o.product_category || '') + '"' + _roAttr + '></div>'
+    + '<div class="form-group"><label>Product Type/Size</label><input id="ome-prod-type" class="form-control" value="' + (o.product_type || '') + '"' + _roAttr + '></div></div>'
+
+    // ── Pricing fields (admin only; print sees readonly summary) ──
+    + (!_isPrintEdit ? '<div class="om-modal-section-label" style="margin-top:8px">\uD83D\uDCB0 Pricing & Plate</div>' : '')
+    + (!_isPrintEdit ? '<div class="form-row-3">'
+      + '<div class="form-group"><label>Quantity</label><input id="ome-qty" type="number" class="form-control" value="' + (o.quantity || 1) + '" oninput="omEditCalcTotal()"></div>'
+      + '<div class="form-group"><label>Unit Price (per pc)</label><input id="ome-unit-price" type="number" class="form-control" value="' + (o.unit_price || 0) + '" oninput="omEditCalcTotal()"></div>'
+      + '<div class="form-group"><label>Print Color</label><input id="ome-print-color" class="form-control" value="' + (o.print_color || '') + '"></div>'
+      + '</div>'
+      : '<div class="form-group"><label>Print Color</label><input id="ome-print-color" class="form-control" value="' + (o.print_color || '') + '"></div>')
+    + (!_isPrintEdit ? '<div class="form-row-3">'
+      + '<div class="form-group"><label>Customer Type</label><div class="form-select-wrap"><select id="ome-cust-type" class="form-control" onchange="omEditCalcTotal()">'
+      + '<option value="new" ' + (o.customer_type === 'new' ? 'selected' : '') + '>New Customer</option>'
+      + '<option value="old" ' + (o.customer_type === 'old' ? 'selected' : '') + '>Old Customer</option>'
+      + '</select></div></div>'
+      + '<div class="form-group"><label>New Logo?</label><div class="form-select-wrap"><select id="ome-new-logo" class="form-control" onchange="omEditCalcTotal()">'
+      + '<option value="0" ' + (!o.plate_note || o.plate_note.toLowerCase().indexOf('re-use') !== -1 ? 'selected' : '') + '>No — Reuse existing</option>'
+      + '<option value="1" ' + (o.plate_note && o.plate_note.toLowerCase().indexOf('new logo') !== -1 ? 'selected' : '') + '>Yes — New logo</option>'
+      + '</select></div></div>'
+      + '<div class="form-group"><label>Product Fee</label><input id="ome-product-fee" type="number" class="form-control" value="' + (o.product_fee || 0) + '" oninput="omEditCalcTotal()"></div>'
+      + '</div>'
+      + '<div style="background:var(--cream);border:1px solid var(--ink-10);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:13px">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">'
+      + '<div><div class="text-xs text-muted">Products Sub</div><div id="ome-summary-products" style="font-weight:700">\u20B10.00</div></div>'
+      + '<div><div class="text-xs text-muted">Plate Charge</div><div id="ome-summary-plate" style="font-weight:700;color:var(--maroon)">\u20B10.00</div></div>'
+      + '<div><div class="text-xs text-muted">Discount</div><div id="ome-summary-discount" style="font-weight:700;color:var(--success)">- \u20B10.00</div></div>'
+      + '<div><div class="text-xs text-muted">Total</div><div id="ome-summary-total" style="font-weight:800;color:var(--maroon)">\u20B10.00</div></div>'
+      + '</div>'
+      + '<div class="form-group" style="margin-top:10px;margin-bottom:0"><label>Plate Note <span class="text-xs text-muted">(auto-filled, editable)</span></label>'
+      + '<input id="ome-plate-note" class="form-control" value="' + (o.plate_note || '') + '"></div>'
+      + '</div>'
+      + '<div class="form-row-3"><div class="form-group"><label>Total Amount</label><input id="ome-total" type="number" class="form-control" value="' + (o.total_amount || 0) + '" oninput="omEditCalcBalance()" style="font-weight:700"></div>'
+      + '<div class="form-group"><label>Downpayment</label><input id="ome-down" type="number" class="form-control" value="' + (o.downpayment || 0) + '" oninput="omEditCalcBalance()"></div>'
+      + '<div class="form-group"><label>Balance</label><input id="ome-balance" type="number" class="form-control" readonly style="background:var(--cream)" value="' + (o.balance || 0) + '"></div></div>'
+      + '<div class="form-row-2"><div class="form-group"><label>Pay Mode</label><div class="form-select-wrap"><select id="ome-mop" class="form-control">'
+      + '<option value="Cash" ' + (o.payment_mode === 'Cash' ? 'selected' : '') + '>Cash</option>'
+      + '<option value="GCash" ' + (o.payment_mode === 'GCash' ? 'selected' : '') + '>GCash</option>'
+      + '</select></div></div>'
+      + '<div class="form-group"><label>Pay Status</label><div class="form-select-wrap"><select id="ome-pay-status" class="form-control">'
+      + '<option value="Pending" ' + (o.payment_status === 'Pending' ? 'selected' : '') + '>Pending</option>'
+      + '<option value="30%" ' + (o.payment_status === '30%' ? 'selected' : '') + '>30%</option>'
+      + '<option value="Partial" ' + (o.payment_status === 'Partial' ? 'selected' : '') + '>Partial</option>'
+      + '<option value="Fully Paid" ' + (o.payment_status === 'Fully Paid' ? 'selected' : '') + '>Fully Paid</option>'
+      + '</select></div></div></div>' : '')
     + '<div class="form-row-2"><div class="form-group"><label>Due Date</label><input id="ome-due" type="date" class="form-control" value="' + (o.due_date || '') + '"></div>'
-    + '<div class="form-group"><label>Order Status</label><div class="form-select-wrap"><select id="ome-status" class="form-control">'
-    + '<option value="pending" ' + (o.status === 'pending' ? 'selected' : '') + '>Pending</option>'
-    + '<option value="production" ' + (o.status === 'production' ? 'selected' : '') + '>In Production</option>'
-    + '<option value="dispatch" ' + (o.status === 'dispatch' ? 'selected' : '') + '>Dispatch</option>'
-    + '<option value="completed" ' + (o.status === 'completed' ? 'selected' : '') + '>Completed</option>'
-    + '<option value="cancelled" ' + (o.status === 'cancelled' ? 'selected' : '') + '>Cancelled</option>'
-    + '</select></div></div></div>'
+    + '<div class="form-group"><label>Order Status</label>'
+    + (omIsAdminUser(_u)
+      ? (function () {
+        var allowed = omNextAllowedStatuses(o.status);
+        var statusLabels = { pending: 'Pending', approved: 'Approved', production: 'In Production', dispatch: 'Dispatch', completed: 'Completed' };
+        return '<div class="form-select-wrap"><select id="ome-status" class="form-control">'
+          + allowed.map(function (st) { return '<option value="' + st + '"' + (o.status === st ? ' selected' : '') + '>' + (statusLabels[st] || st) + '</option>'; }).join('')
+          + '</select></div><div style="font-size:11px;color:var(--ink-50);margin-top:3px">⚠ Status can only move forward. Override logged.</div>';
+      })()
+      : '<input id="ome-status" class="form-control" value="' + (omDisplayStatus(o) === 'for_qc' ? 'For QC' : (o.status || 'pending')) + '" readonly style="background:var(--cream)">')
+    + '</div></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="ome-notes" class="form-control" rows="2">' + (o.notes || '') + '</textarea></div>'
     + '<div class="form-group"><label>Upload Additional Logo(s)</label><input id="ome-logo-files" type="file" class="form-control" multiple accept="image/*,.pdf,.ai,.eps,.svg"></div>'
     + '</div>'
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveEditOrder(\'' + o.id + '\')">Save Changes</button></div>');
+
+  // Run initial calc to populate summary with current values
+  setTimeout(function () { omEditCalcTotal(); }, 30);
 }
 
 function omEditCalcBalance() {
@@ -7154,25 +8954,119 @@ function omEditCalcBalance() {
   if (balEl) balEl.value = Math.max(0, total - down).toFixed(2);
 }
 
+// Full recalc for edit modal — mirrors omCalcTotal() but reads ome- fields
+function omEditCalcTotal() {
+  function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function sv(id, v) { var el = document.getElementById(id); if (el) el.value = v; }
+  function st(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+
+  var qty = parseInt(gv('ome-qty')) || 0;
+  var unitPrice = parseFloat(gv('ome-unit-price')) || 0;
+  var productFee = parseFloat(gv('ome-product-fee')) || 0;
+  var custType = gv('ome-cust-type');
+  var newLogo = gv('ome-new-logo') === '1';
+
+  var productsSub = qty * unitPrice;
+
+  var plateCharge = 0;
+  var plateNote = '';
+  if (custType === 'new') {
+    plateCharge = productFee + OM_PLATE_PER_COLOR;
+    plateNote = 'New plate \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge';
+  } else if (newLogo) {
+    plateCharge = productFee + OM_PLATE_PER_COLOR;
+    plateNote = 'New logo \u2014 \u20B1' + omFmt(productFee) + ' product fee + \u20B1' + OM_PLATE_PER_COLOR + ' plate charge';
+  } else {
+    plateCharge = 0;
+    plateNote = 'Re-use existing plate';
+  }
+
+  var discountAmt = 0;
+  if (productsSub >= OM_DISCOUNT_THRESHOLD) {
+    discountAmt = Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100;
+  }
+
+  var total = Math.max(0, productsSub + plateCharge - discountAmt);
+
+  // Update summary display
+  st('ome-summary-products', '\u20B1' + omFmt(productsSub));
+  st('ome-summary-plate', '\u20B1' + omFmt(plateCharge));
+  st('ome-summary-discount', '- \u20B1' + omFmt(discountAmt));
+  st('ome-summary-total', '\u20B1' + omFmt(total));
+
+  // Auto-fill plate note (but only if it hasn't been manually edited yet)
+  sv('ome-plate-note', plateNote);
+
+  // Push computed total into total field and recalc balance
+  sv('ome-total', total.toFixed(2));
+  omEditCalcBalance();
+}
+
 function omSaveEditOrder(orderId) {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier', 'print'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin, Cashier, or Production Personnel can save project updates.', 'error'); return; }
+  var _isPrintSave = _u && normalizeRole(_u.role) === 'print';
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
+  if (omIsCashierUser(_u) && o.status === 'completed') { showToast('Completed orders are view-only for Cashier.', 'error'); return; }
+  var prevStatus = o.status;
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
-  o.customer_name = gv('ome-business') || o.customer_name;
-  o.contact_person = gv('ome-contact');
-  o.phone = gv('ome-phone'); o.email = gv('ome-email'); o.address = gv('ome-address');
-  o.product_category = gv('ome-prod-cat'); o.product_type = gv('ome-prod-type');
-  o.quantity = parseInt(gv('ome-qty')) || o.quantity;
-  o.print_color = gv('ome-print-color'); o.plate_note = gv('ome-plate-note');
-  o.total_amount = parseFloat(gv('ome-total')) || 0;
-  o.downpayment = parseFloat(gv('ome-down')) || 0;
-  o.balance = parseFloat(gv('ome-balance')) || 0;
-  o.payment_mode = gv('ome-mop'); o.payment_status = gv('ome-pay-status');
-  o.due_date = gv('ome-due'); o.status = gv('ome-status'); o.notes = gv('ome-notes');
+  // Print personnel can only update: status, due date, print color, notes
+  // Admin can update everything
+  if (!_isPrintSave) {
+    o.customer_name = gv('ome-business') || o.customer_name;
+    o.contact_person = gv('ome-contact');
+    o.phone = gv('ome-phone'); o.email = gv('ome-email'); o.address = gv('ome-address');
+    o.product_category = gv('ome-prod-cat'); o.product_type = gv('ome-prod-type');
+    o.quantity = parseInt(gv('ome-qty')) || o.quantity;
+    o.unit_price = parseFloat(gv('ome-unit-price')) || o.unit_price || 0;
+    o.product_fee = parseFloat(gv('ome-product-fee')) || 0;
+    o.customer_type = gv('ome-cust-type') || o.customer_type;
+    var productsSub = o.quantity * o.unit_price;
+    var newLogo = gv('ome-new-logo') === '1';
+    o.plate_charge = (o.customer_type === 'new' || newLogo) ? (o.product_fee + OM_PLATE_PER_COLOR) : 0;
+    o.discount_amount = productsSub >= OM_DISCOUNT_THRESHOLD ? Math.round(productsSub * OM_DISCOUNT_RATE * 100) / 100 : 0;
+    o.plate_note = gv('ome-plate-note');
+    o.total_amount = parseFloat(gv('ome-total')) || 0;
+    o.downpayment = parseFloat(gv('ome-down')) || 0;
+    o.balance = parseFloat(gv('ome-balance')) || 0;
+    o.payment_mode = gv('ome-mop'); o.payment_status = gv('ome-pay-status');
+  }
+  o.print_color = gv('ome-print-color');
+  o.due_date = gv('ome-due'); o.notes = gv('ome-notes');
+  if (omIsAdminUser(_u)) {
+    var newStatus = gv('ome-status') || o.status;
+    var allowedNext = omNextAllowedStatuses(prevStatus);
+    if (newStatus !== prevStatus && allowedNext.indexOf(newStatus) === -1) {
+      showToast('Status can only move forward: ' + prevStatus + ' → ' + allowedNext.filter(function (s) { return s !== prevStatus; }).join(', '), 'error');
+      return;
+    }
+    if (newStatus !== prevStatus) {
+      var s2 = getState();
+      recordAudit(s2, { action: 'admin_status_override', message: 'Admin changed Order #' + orderId + ' status: ' + prevStatus + ' → ' + newStatus, referenceId: String(orderId), meta: { from: prevStatus, to: newStatus, by: _u.id } });
+      saveState(s2);
+    }
+    if (newStatus === 'dispatch' && omQcState(o) !== 'passed') {
+      showToast('Only QC-passed jobs can be set to dispatch.', 'error');
+      return;
+    }
+    if (newStatus === 'completed' && !omIsDispatchReady(o) && prevStatus !== 'completed') {
+      showToast('Only QC-passed dispatch jobs can be completed.', 'error');
+      return;
+    }
+    o.status = newStatus;
+  }
   o.updated_at = new Date().toISOString();
   saveOrders(orders);
   DB.updateOrder(o.id, o);
+  omSyncDispatchPaymentStatus(o.id, o.payment_status, o.balance);
+
+  // FIX: If order was just marked completed via edit, trigger stock deduction & receipt push
+  if (o.status === 'completed' && prevStatus !== 'completed') {
+    omDeductOrderStock(o.id);
+    omPushToReceiptHistory(o.id);
+  }
 
   // Logo upload removed
   if (false) {
@@ -7183,23 +9077,31 @@ function omSaveEditOrder(orderId) {
 }
 
 function omMoveToProduction(orderId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Production Personnel can move jobs to production.', 'error'); return; }
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
+  if (!omCanAdvanceToProduction(o)) { showToast('Order must be approved by Admin before starting production.', 'error'); return; }
   o.status = 'production'; saveOrders(orders); DB.updateOrder(o.id, { status: 'production' });
   showToast('Order moved to production.', 'success'); renderOrders();
 }
 
 function omMoveToDispatch(orderId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Production Personnel can move jobs to dispatch.', 'error'); return; }
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
-  o.status = 'dispatch'; saveOrders(orders); DB.updateOrder(o.id, { status: 'dispatch' });
-  showToast('Order moved to dispatch.', 'success'); renderOrders();
+  if (!omCanMoveToForQc(o)) { showToast('Only jobs in production can be moved forward.', 'error'); return; }
+  o.qc_status = 'for_qc';
+  saveOrders(orders);
+  DB.updateOrder(o.id, { status: 'production', qc_status: 'for_qc' });
+  showToast('Order forwarded to QC.', 'success'); renderOrders();
 }
 
 // CUSTOMER RECORD MODALS
 function omNewCustomerModal() {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can add project customers.', 'error'); return; }
   showModal(
     '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
     + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
@@ -7234,6 +9136,8 @@ function omNewCustomerModal() {
 }
 
 function omSaveCustomerRecord() {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can save project customers.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var businessName = gv('omcr-business').trim();
   if (!businessName) { showToast('Business name is required.', 'error'); return; }
@@ -7264,10 +9168,10 @@ function omSaveCustomerRecord() {
 
 function omEditCustomerModal(customerId) {
   var crs = getCustomerRecords();
-  var c = crs.find(function(x){ return x.id === customerId; });
+  var c = crs.find(function (x) { return x.id === customerId; });
   if (!c) return;
   var displayName = c.businessName || c.contactPerson || 'Unknown';
-  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
+  var initials = displayName.split(' ').slice(0, 2).map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '?';
   showModal(
     '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
     + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
@@ -7279,25 +9183,25 @@ function omEditCustomerModal(customerId) {
     + '</div></div>'
     + '<div class="modal-body" style="padding:20px 24px">'
     + '<div class="form-row-2">'
-    + '<div class="form-group"><label>Business / Client Name <span style="color:var(--danger)">*</span></label><input id="omce-business" class="form-control" value="' + omEsc(c.businessName||'') + '"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="omce-contact" class="form-control" value="' + omEsc(c.contactPerson||'') + '"></div>'
+    + '<div class="form-group"><label>Business / Client Name <span style="color:var(--danger)">*</span></label><input id="omce-business" class="form-control" value="' + omEsc(c.businessName || '') + '"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="omce-contact" class="form-control" value="' + omEsc(c.contactPerson || '') + '"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    + '<div class="form-group"><label>Phone</label><input id="omce-phone" class="form-control" value="' + omEsc(c.phone||'') + '"></div>'
-    + '<div class="form-group"><label>Email</label><input id="omce-email" class="form-control" value="' + omEsc(c.email||'') + '"></div>'
+    + '<div class="form-group"><label>Phone</label><input id="omce-phone" class="form-control" value="' + omEsc(c.phone || '') + '"></div>'
+    + '<div class="form-group"><label>Email</label><input id="omce-email" class="form-control" value="' + omEsc(c.email || '') + '"></div>'
     + '</div>'
-    + '<div class="form-group"><label>Address</label><input id="omce-address" class="form-control" value="' + omEsc(c.address||'') + '"></div>'
+    + '<div class="form-group"><label>Address</label><input id="omce-address" class="form-control" value="' + omEsc(c.address || '') + '"></div>'
     + '<div class="form-row-2">'
     + '<div class="form-group"><label>Mode of Payment</label><div class="form-select-wrap"><select id="omce-mop" class="form-control">'
-    + '<option value="Cash"' + (c.modeOfPayment==='Cash'?' selected':'') + '>Cash</option>'
-    + '<option value="GCash"' + (c.modeOfPayment==='GCash'?' selected':'') + '>GCash</option>'
-    + '<option value="Cash+GCash"' + (c.modeOfPayment==='Cash+GCash'?' selected':'') + '>Cash + GCash</option>'
-    + '<option value="Bank Transfer"' + (c.modeOfPayment==='Bank Transfer'?' selected':'') + '>Bank Transfer</option>'
+    + '<option value="Cash"' + (c.modeOfPayment === 'Cash' ? ' selected' : '') + '>Cash</option>'
+    + '<option value="GCash"' + (c.modeOfPayment === 'GCash' ? ' selected' : '') + '>GCash</option>'
+    + '<option value="Cash+GCash"' + (c.modeOfPayment === 'Cash+GCash' ? ' selected' : '') + '>Cash + GCash</option>'
+    + '<option value="Bank Transfer"' + (c.modeOfPayment === 'Bank Transfer' ? ' selected' : '') + '>Bank Transfer</option>'
     + '</select></div></div>'
     + '<div class="form-group"><label>Mode of Delivery</label><input id="omce-mod" class="form-control" value="Pickup" readonly style="background:var(--cream);cursor:not-allowed;color:var(--ink-60)"></div>'
     + '</div>'
-    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omce-staff" class="form-control" value="' + omEsc(c.branchStaff||'') + '"></div>'
-    + '<div class="form-group"><label>Notes</label><textarea id="omce-notes" class="form-control" rows="2">' + omEsc(c.notes||'') + '</textarea></div>'
+    + '<div class="form-group"><label>Branch Staff in Charge</label><input id="omce-staff" class="form-control" value="' + omEsc(c.branchStaff || '') + '"></div>'
+    + '<div class="form-group"><label>Notes</label><textarea id="omce-notes" class="form-control" rows="2">' + omEsc(c.notes || '') + '</textarea></div>'
     + '</div>'
     + '<div class="modal-footer">'
     + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
@@ -7335,6 +9239,8 @@ function omDeleteCustomer(customerId) {
 
 // PAYMENT MODALS
 function omNewPaymentModal() {
+  var _u = getState().currentUser;
+  if (!_u || !omCanManagePayments(_u)) { showToast('Only the Main Admin or Cashier can record payments.', 'error'); return; }
   var orders = getOrders().filter(function (o) { return o.status !== 'cancelled'; });
   var orderOptions = orders.map(function (o) { return '<option value="' + o.id + '">#' + String(o.id).padStart(6, '0') + ' \u2014 ' + o.customer_name + '</option>'; }).join('');
 
@@ -7373,6 +9279,8 @@ function omCalcNewBalance() {
 }
 
 function omSavePayment() {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can record payments.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var orderId = gv('ompay-order');
   if (!orderId) { showToast('Select an order.', 'error'); return; }
@@ -7391,8 +9299,19 @@ function omSavePayment() {
   saveOrders(orders);
 
   var payments = getPaymentRecords();
-  payments.push({ id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: gv('ompay-note') });
+  var newPay = { id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: gv('ompay-note') };
+  payments.push(newPay);
   savePaymentRecords(payments);
+  omSyncDispatchPaymentStatus(o.id, o.payment_status, o.balance);
+  // Persist payment record and updated order figures to the server
+  DB.saveOrderPayment({
+    id: newPay.id, orderId: o.id, customerId: o.customer_record_id || '',
+    businessName: o.customer_name, contactPerson: o.contact_person || '',
+    totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance,
+    modeOfPayment: o.payment_mode, paymentStatus: o.payment_status,
+    note: newPay.note, date: newPay.date,
+  }).catch(function (e) { console.error('[DB] saveOrderPayment failed:', e.message); });
+  DB.updateOrder(o.id, { downpayment: o.downpayment, balance: o.balance, payment_status: o.payment_status, payment_mode: o.payment_mode });
   // Also try pushing to receipt history if order is now fully paid and completed
   omPushToReceiptHistory(o.id);
   closeModal(); showToast('Payment recorded!', 'success'); _omTab = 'payment'; renderOrders();
@@ -7419,6 +9338,8 @@ function omUpdatePaymentModal(paymentId) {
 }
 
 function omConfirmUpdatePayment(orderId, paymentId) {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'cashier'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Cashier can update payments.', 'error'); return; }
   var amount = parseFloat((document.getElementById('omupdpay-amount') || { value: '0' }).value) || 0;
   if (amount <= 0) { showToast('Enter a valid amount.', 'error'); return; }
   var orders = getOrders();
@@ -7430,8 +9351,19 @@ function omConfirmUpdatePayment(orderId, paymentId) {
   o.payment_status = o.balance === 0 ? 'Fully Paid' : 'Partial';
   saveOrders(orders);
   var payments = getPaymentRecords();
-  payments.push({ id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: (document.getElementById('omupdpay-note') || { value: '' }).value });
+  var newPay2 = { id: omGenId('pay'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, contactPerson: o.contact_person || '', totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance, modeOfPayment: o.payment_mode, paymentStatus: o.payment_status, amountPaid: amount, date: new Date().toISOString(), note: (document.getElementById('omupdpay-note') || { value: '' }).value };
+  payments.push(newPay2);
   savePaymentRecords(payments);
+  omSyncDispatchPaymentStatus(o.id, o.payment_status, o.balance);
+  // Persist payment record and updated order figures to the server
+  DB.saveOrderPayment({
+    id: newPay2.id, orderId: o.id, customerId: o.customer_record_id || '',
+    businessName: o.customer_name, contactPerson: o.contact_person || '',
+    totalAmount: o.total_amount || 0, downpayment: o.downpayment, balance: o.balance,
+    modeOfPayment: o.payment_mode, paymentStatus: o.payment_status,
+    note: newPay2.note, date: newPay2.date,
+  }).catch(function (e) { console.error('[DB] saveOrderPayment failed:', e.message); });
+  DB.updateOrder(o.id, { downpayment: o.downpayment, balance: o.balance, payment_status: o.payment_status, payment_mode: o.payment_mode });
   // Push to receipt history if order is now fully paid and completed
   omPushToReceiptHistory(o.id);
   closeModal(); showToast('Payment updated!', 'success'); renderOrders();
@@ -7458,6 +9390,7 @@ function omPrintReceipt(paymentId) {
 
 // PRODUCTION MODALS
 function omNewProductionModal() {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage production.', 'error'); return; }
   var s = getState();
   var orders = getOrders().filter(function (o) { return o.status === 'pending' || o.status === 'production'; });
   var printPersonnel = s.users.filter(function (u) { return u.role === 'print' || u.role === 'admin'; });
@@ -7470,10 +9403,10 @@ function omNewProductionModal() {
     + '<div class="form-group"><label>Assign To <span style="color:var(--danger)">*</span></label><div class="form-select-wrap"><select id="omprod-assign" class="form-control"><option value="">\u2014 Select Personnel \u2014</option>' + personnelOptions + '</select></div></div></div>'
     + '<div id="omprod-info" style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;display:none"><div style="font-size:13px;color:var(--ink-60)">Customer: <strong id="omprod-cust-name">\u2014</strong> \u00B7 Product: <strong id="omprod-prod-type">\u2014</strong> \u00B7 Qty: <strong id="omprod-qty">\u2014</strong></div></div>'
     + '<div class="form-row-2"><div class="form-group"><label>Progress (%)</label><input id="omprod-progress" type="number" class="form-control" min="0" max="100" value="0"></div>'
-    + '<div class="form-group"><label>Status</label><div class="form-select-wrap"><select id="omprod-status" class="form-control"><option value="pending">Pending</option><option value="production" selected>In Production</option><option value="completed">Completed</option></select></div></div></div>'
+    + '<div class="form-group"><label>Status</label><div class="form-select-wrap"><select id="omprod-status" class="form-control"><option value="pending">Pending</option><option value="production" selected>In Production</option><option value="for_qc">For QC</option></select></div></div></div>'
     + '<div class="form-group"><label>Materials Used</label><input id="omprod-materials" class="form-control" placeholder="e.g. 500 sheets, 2 ink cartridges"></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="omprod-notes" class="form-control" rows="2"></textarea></div>'
-    + '<div class="form-group"><label>Completion Date (if completed)</label><input id="omprod-completion" type="date" class="form-control"></div>'
+    + '<div class="form-group"><label>Target / Completion Date</label><input id="omprod-completion" type="date" class="form-control"></div>'
     + '</div>'
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveProduction()">Assign & Start</button></div>');
 }
@@ -7488,6 +9421,7 @@ function omAutofillProd(orderId) {
 }
 
 function omSaveProduction() {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage production.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var orderId = gv('omprod-order'); var assignedTo = gv('omprod-assign');
   if (!orderId) { showToast('Select an order.', 'error'); return; }
@@ -7496,26 +9430,129 @@ function omSaveProduction() {
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
   var prodStatus = gv('omprod-status');
-  if (prodStatus === 'production') { o.status = 'production'; saveOrders(orders); }
-  else if (prodStatus === 'completed') { o.status = 'dispatch'; saveOrders(orders); }
+  o.status = 'production';
+  o.qc_status = prodStatus === 'for_qc' ? 'for_qc' : '';
+  saveOrders(orders);
 
   var prods = getProductionRecords();
-  prods.push({ id: omGenId('prod'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, orderDate: o.created_at, assignedTo: assignedTo, progress: parseInt(gv('omprod-progress')) || 0, status: prodStatus, materialsUsed: gv('omprod-materials'), notes: gv('omprod-notes'), qcResult: 'Pending', checkCount: 0, completionDate: gv('omprod-completion') || null, createdAt: new Date().toISOString() });
+  var _mProd = { id: omGenId('prod'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, orderDate: o.created_at, assignedTo: assignedTo, progress: parseInt(gv('omprod-progress')) || 0, status: prodStatus, materialsUsed: gv('omprod-materials'), notes: gv('omprod-notes'), qcResult: 'Pending', checkCount: 0, completionDate: gv('omprod-completion') || null, createdAt: new Date().toISOString() };
+  prods.push(_mProd);
   saveProductionRecords(prods);
+  DB.saveProduction(_mProd).catch(function () { });
+  // Also sync order status to DB
+  DB.updateOrder(o.id, { status: 'production', qc_status: o.qc_status || null });
   closeModal(); showToast('Production record created!', 'success'); _omTab = 'production'; renderOrders();
 }
 
+
+// Wrapper: look up production record by ORDER id (used in Job Management table)
+function omUpdateProductionByOrder(orderId) {
+  var prods = getProductionRecords();
+  var p = prods.find(function (x) { return String(x.orderId) === String(orderId); });
+  if (p) {
+    omUpdateProductionModal(p.id);
+    return;
+  }
+
+  // No production record exists yet — offer to create one on the spot
+  var orders = getOrders();
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
+  if (!o) { showToast('Order not found.', 'error'); return; }
+
+  var s = getState();
+  var staffOptions = (s.users || [])
+    .filter(function (u) { return u.role === 'print' || u.role === 'admin'; })
+    .map(function (u) { return '<option value="' + u.name + '">' + u.name + '</option>'; }).join('');
+
+  showModal('<div class="modal-header"><h2>' + iconSvg('printer') + ' Start Production Record</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="alert alert-info" style="margin-bottom:14px">No production record found for Order #'
+    + String(o.id).padStart(6, '0') + ' · <strong>' + (o.customer_name || '—') + '</strong>.<br>'
+    + '<small>Create one now to start tracking this job.</small></div>'
+    + '<div class="form-row-2">'
+    + '<div class="form-group"><label>Assigned To</label><div class="form-select-wrap">'
+    + '<select id="jm-assigned" class="form-control"><option value="">— Unassigned —</option>' + staffOptions + '</select>'
+    + '</div></div>'
+    + '<div class="form-group"><label>Initial Status</label><div class="form-select-wrap">'
+    + '<select id="jm-status" class="form-control">'
+    + '<option value="pending">Pending</option><option value="production" selected>In Production</option><option value="for_qc">For QC</option>'
+    + '</select></div></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Notes</label>'
+    + '<textarea id="jm-notes" class="form-control" rows="2" placeholder="Materials, special instructions…"></textarea>'
+    + '</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn btn-maroon" onclick="_omCreateAndOpenProd(\'' + orderId + '\')">Create &amp; Open</button>'
+    + '</div>');
+}
+
+// Helper called from the auto-create modal above
+function _omCreateAndOpenProd(orderId) {
+  var _u = getState().currentUser;
+  if (!_u || !['admin', 'print'].includes(normalizeRole(_u.role))) { showToast('Only the Main Admin or Production Personnel can create production records.', 'error'); return; }
+  function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  var orders = getOrders();
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
+  if (!o) { closeModal(); showToast('Order not found.', 'error'); return; }
+
+  var status = gv('jm-status') || 'pending';
+  var newProd = {
+    id: omGenId('prod'),
+    orderId: o.id,
+    orderNumber: o.id,
+    customerId: o.customer_record_id || '',
+    businessName: o.customer_name || '',
+    orderDate: o.created_at,
+    assignedTo: gv('jm-assigned') || '',
+    progress: status === 'production' ? 10 : 0,
+    status: status,
+    materialsUsed: '',
+    notes: gv('jm-notes') || '',
+    qcResult: 'Pending',
+    checkCount: 0,
+    completionDate: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  var prods = getProductionRecords();
+  prods.push(newProd);
+  saveProductionRecords(prods);
+  DB.saveProduction(newProd).catch(function (e) {
+    console.warn('[omCreateAndOpenProd] DB.saveProduction failed:', e.message);
+  });
+
+  // Sync order status if moving to production
+  if ((status === 'production' || status === 'for_qc') && (o.status === 'pending' || o.status === 'production')) {
+    o.status = 'production';
+    o.qc_status = status === 'for_qc' ? 'for_qc' : '';
+    saveOrders(orders);
+    DB.updateOrder(o.id, { status: 'production', qc_status: o.qc_status || null });
+  }
+
+  closeModal();
+  showToast('Production record created!', 'success');
+  omUpdateProductionModal(newProd.id);
+}
+
 function omUpdateProductionModal(prodId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can update production.', 'error'); return; }
   var p = getProductionRecords().find(function (x) { return x.id === prodId; });
   if (!p) return;
+  // Fallback: resolve businessName from the linked order if not stored on prod record
+  var _orders = getOrders();
+  var _linkedOrder = _orders.find(function (o) { return String(o.id) === String(p.orderId); });
+  var displayName = p.businessName || (_linkedOrder && _linkedOrder.customer_name) || '—';
+  var displayAssigned = p.assignedTo || '—';
   showModal('<div class="modal-header"><h2>' + iconSvg('printer') + ' Update Production</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
-    + '<div class="alert alert-info">Order #' + String(p.orderNumber || '').padStart(6, '0') + ' \u00B7 <strong>' + p.businessName + '</strong> \u00B7 Assigned to: <strong>' + p.assignedTo + '</strong></div>'
+    + '<div class="alert alert-info">Order #' + String(p.orderNumber || p.orderId || '').padStart(6, '0') + ' \u00B7 <strong>' + displayName + '</strong> \u00B7 Assigned to: <strong>' + displayAssigned + '</strong></div>'
     + '<div class="form-row-2"><div class="form-group"><label>Progress (%)</label><input id="omupd-progress" type="number" class="form-control" min="0" max="100" value="' + (p.progress || 0) + '"></div>'
-    + '<div class="form-group"><label>Status</label><div class="form-select-wrap"><select id="omupd-status" class="form-control">'
+    + '<div class="form-group"><label>Status</label><div class="form-select-wrap"><select id="omupd-status" class="form-control" onchange="omUpdAutoProgress(this.value)">'
     + '<option value="pending" ' + (p.status === 'pending' ? 'selected' : '') + '>Pending</option>'
     + '<option value="production" ' + (p.status === 'production' ? 'selected' : '') + '>In Production</option>'
-    + '<option value="completed" ' + (p.status === 'completed' ? 'selected' : '') + '>Completed</option>'
+    + '<option value="for_qc" ' + (p.status === 'for_qc' ? 'selected' : '') + '>For QC</option>'
     + '</select></div></div></div>'
     + '<div class="form-group"><label>Materials Used</label><input id="omupd-materials" class="form-control" value="' + (p.materialsUsed || '') + '"></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="omupd-notes" class="form-control" rows="2">' + (p.notes || '') + '</textarea></div>'
@@ -7524,18 +9561,50 @@ function omUpdateProductionModal(prodId) {
     + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omConfirmUpdateProd(\'' + prodId + '\')">Update</button></div>');
 }
 
+// Auto-set progress % when status changes
+function omUpdAutoProgress(status) {
+  var el = document.getElementById('omupd-progress');
+  if (!el) return;
+  if (status === 'pending') el.value = 0;
+  if (status === 'production') el.value = el.value > 0 ? el.value : 50;
+  if (status === 'for_qc') el.value = 100;
+}
+
 function omConfirmUpdateProd(prodId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can update production.', 'error'); return; }
   var prods = getProductionRecords();
   var p = prods.find(function (x) { return x.id === prodId; });
   if (!p) return;
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  var prevStatus = p.status;
   p.progress = parseInt(gv('omupd-progress')) || 0; p.status = gv('omupd-status');
   p.materialsUsed = gv('omupd-materials'); p.notes = gv('omupd-notes');
   p.completionDate = gv('omupd-completion') || null; p.updatedAt = new Date().toISOString();
-  saveProductionRecords(prods); closeModal(); showToast('Production updated!', 'success'); renderOrders();
+  saveProductionRecords(prods);
+  // Persist to DB - include notes/materialsUsed
+  DB.updateProduction(prodId, { progress: p.progress, qcStatus: p.qcResult, assignedTo: p.assignedTo, materialsUsed: p.materialsUsed, notes: p.notes }).catch(function () { });
+  // Sync ORDER status to DB based on production status change
+  if (p.status !== prevStatus) {
+    var orders = getOrders();
+    var o = orders.find(function (x) { return String(x.id) === String(p.orderId); });
+    if (o) {
+      if (p.status === 'production' && (o.status === 'pending' || o.status === 'production')) {
+        o.status = 'production'; saveOrders(orders);
+        o.qc_status = '';
+        DB.updateOrder(o.id, { status: 'production', qc_status: null });
+      } else if (p.status === 'for_qc') {
+        o.status = 'production';
+        o.qc_status = 'for_qc';
+        saveOrders(orders);
+        DB.updateOrder(o.id, { status: 'production', qc_status: 'for_qc' });
+      }
+    }
+  }
+  closeModal(); showToast('Production updated!', 'success'); renderOrders();
 }
 
 function omQCModal(prodId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can perform QC checks.', 'error'); return; }
   var p = getProductionRecords().find(function (x) { return x.id === prodId; });
   if (!p) return;
   showModal('<div class="modal-header"><h2>Quality Control Check</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
@@ -7557,7 +9626,6 @@ function omPushToReceiptHistory(orderId) {
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
-  if (o.status !== 'completed') return;
   if (o.payment_status !== 'Fully Paid') return;
   var s = getState();
   var saleKey = 'om_order_' + o.id;
@@ -7597,6 +9665,8 @@ function omPushToReceiptHistory(orderId) {
   s.sales = s.sales || [];
   s.sales.push(sale);
   saveState(s);
+  // Persist sale to DB so it shows in receipt history after page reload
+  DB.saveSale(sale).catch(function (e) { console.error('[DB] Failed to save OM sale to receipt history:', e.message); });
   showToast('Receipt #' + receiptNo + ' added to POS Receipt History!', 'success');
 }
 
@@ -7623,7 +9693,7 @@ function omDeductOrderStock(orderId) {
 }
 
 function omSaveQC(prodId, result) {
-  var _u = getState().currentUser; if (!_u || !['admin','print'].includes(_u.role)) { showToast('Access denied.', 'error'); return; }
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Access denied.', 'error'); return; }
   var prods = getProductionRecords();
   var p = prods.find(function (x) { return x.id === prodId; });
   if (!p) return;
@@ -7631,31 +9701,46 @@ function omSaveQC(prodId, result) {
   p.qcNotes = (document.getElementById('omqc-notes') || { value: '' }).value;
   p.qcDate = new Date().toISOString();
   if (result === 'Pass') {
-    p.status = 'completed';
-    // FIX 3: Advance the parent order from 'production' → 'dispatch' on QC pass
+    p.status = 'for_qc';
+    // Advance the parent order from Production/QC to Dispatch on QC pass
     var qcOrders = getOrders();
     var qcOrder = qcOrders.find(function (x) { return String(x.id) === String(p.orderId); });
     if (qcOrder && qcOrder.status === 'production') {
       qcOrder.status = 'dispatch';
+      qcOrder.qc_status = 'passed';
+      qcOrder.qc_passed_at = new Date().toISOString();
       saveOrders(qcOrders);
-      DB.updateOrder(qcOrder.id, { status: 'dispatch' });
+      DB.updateOrder(qcOrder.id, { status: 'dispatch', qc_status: 'passed', qc_passed_at: qcOrder.qc_passed_at });
     }
     // Auto-deduct branch stock on QC pass
     omDeductOrderStock(p.orderId);
     // Push to receipt history if fully paid
     omPushToReceiptHistory(p.orderId);
+  } else if (result === 'Fail') {
+    var qcOrders2 = getOrders();
+    var qcOrder2 = qcOrders2.find(function (x) { return String(x.id) === String(p.orderId); });
+    if (qcOrder2) {
+      qcOrder2.status = 'production';
+      qcOrder2.qc_status = 'failed';
+      saveOrders(qcOrders2);
+      DB.updateOrder(qcOrder2.id, { status: 'production', qc_status: 'failed', qc_fail_reason: p.qcNotes || '' });
+    }
   }
-  saveProductionRecords(prods); closeModal();
+  saveProductionRecords(prods);
+  DB.updateProduction(prodId, { qcStatus: result, qcResult: result }).catch(function () { });
+  closeModal();
   showToast('QC ' + result + ' recorded.', result === 'Pass' ? 'success' : 'error'); renderOrders();
 }
 
 // DISPATCH MODALS
 function omNewDispatchModal() {
-  var orders = getOrders().filter(function (o) { return o.status === 'dispatch' || o.status === 'production'; });
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage dispatch.', 'error'); return; }
+  var orders = getOrders().filter(function (o) { return omIsDispatchReady(o); });
   var orderOptions = orders.map(function (o) { return '<option value="' + o.id + '">#' + String(o.id).padStart(6, '0') + ' \u2014 ' + o.customer_name + '</option>'; }).join('');
 
-  showModal('<div class="modal-header"><h2>' + iconSvg('truck') + ' Schedule Dispatch</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
+  showModal('<div class="modal-header"><h2>' + iconSvg('truck') + ' ' + (omCanOverrideDispatch(_u) ? 'Override Dispatch' : 'Schedule Dispatch') + '</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
     + '<div class="modal-body">'
+    + (omCanOverrideDispatch(_u) ? '<div class="alert alert-warning" style="margin-bottom:12px">Admin override: dispatch changes from this screen will be logged.</div>' : '')
     + '<div class="form-row-2"><div class="form-group"><label>Select Order <span style="color:var(--danger)">*</span></label><div class="form-select-wrap"><select id="omdisp-order" class="form-control" onchange="omAutofillDispatch(this.value)"><option value="">\u2014 Select Order \u2014</option>' + orderOptions + '</select></div></div>'
     + '<div class="form-group"><label>Date</label><input id="omdisp-date" type="date" class="form-control" value="' + new Date().toISOString().slice(0, 10) + '"></div></div>'
     + '<div id="omdisp-cust-info" style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;display:none;font-size:13px"><strong id="omdisp-cust-name">\u2014</strong> \u00B7 <span id="omdisp-pay-status-info">\u2014</span><div style="margin-top:4px;font-weight:700" id="omdisp-balance-info"></div></div>'
@@ -7667,7 +9752,7 @@ function omNewDispatchModal() {
     + '</div></div>'
     + '<div class="form-group"><label>Notes</label><textarea id="omdisp-notes" class="form-control" rows="2"></textarea></div>'
     + '</div>'
-    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveDispatch()">Schedule Dispatch</button></div>');
+    + '<div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-maroon" onclick="omSaveDispatch()">' + (omCanOverrideDispatch(_u) ? 'Apply Override' : 'Schedule Dispatch') + '</button></div>');
 }
 
 function omAutofillDispatch(orderId) {
@@ -7680,38 +9765,53 @@ function omAutofillDispatch(orderId) {
 }
 
 function omSaveDispatch() {
-  var _u = getState().currentUser; if (!_u || _u.role !== 'admin') { showToast('Admin access required.', 'error'); return; }
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage dispatch.', 'error'); return; }
   var orderId = gv('omdisp-order');
   if (!orderId) { showToast('Select an order.', 'error'); return; }
   var orders = getOrders();
   var o = orders.find(function (x) { return String(x.id) === String(orderId); });
   if (!o) return;
+  if (!omIsDispatchReady(o)) { showToast('Only QC-passed orders can be scheduled for dispatch.', 'error'); return; }
   var dispStatus = gv('omdisp-status');
+  if (dispStatus === 'Delivered' && (o.balance || 0) > 0) { showToast('Order cannot be completed until payment is fully settled.', 'error'); return; }
   if (dispStatus === 'Delivered') {
     o.status = 'completed'; saveOrders(orders);
+    DB.updateOrder(o.id, { status: 'completed', qc_status: 'passed' });
     omDeductOrderStock(o.id);
     omPushToReceiptHistory(o.id);
-  } else if (dispStatus === 'Dispatched') { o.status = 'dispatch'; saveOrders(orders); }
+  } else if (dispStatus === 'Dispatched') {
+    o.status = 'dispatch'; saveOrders(orders);
+    DB.updateOrder(o.id, { status: 'dispatch', qc_status: 'passed' });
+  }
+  if (omCanOverrideDispatch(_u)) {
+    var s = getState();
+    recordAudit(s, { action: 'dispatch_override', message: 'Admin override on dispatch for Order #' + o.id, referenceId: String(o.id), meta: { dispatchStatus: dispStatus } });
+    saveState(s);
+  }
 
   var dispatches = getDispatchRecords();
-  // FIX 4: Update the existing 'Scheduled' dispatch record instead of pushing a duplicate
-  var existingDisp = dispatches.find(function (d) { return String(d.orderId) === String(o.id) && d.dispatchStatus === 'Scheduled'; });
+  var existingDisp = dispatches.find(function (d) { return String(d.orderId) === String(o.id); });
   if (existingDisp) {
     existingDisp.dispatchStatus = dispStatus;
     existingDisp.dispatchMethod = gv('omdisp-method');
+    existingDisp.date = existingDisp.date || new Date().toISOString();
     existingDisp.customerNotified = !!(document.getElementById('omdisp-notified-yes') || {}).checked;
     existingDisp.paymentStatus = o.payment_status || 'Pending';
     existingDisp.notes = gv('omdisp-notes');
     existingDisp.updatedAt = new Date().toISOString();
+    DB.saveDispatch(existingDisp).catch(function () { });
   } else {
-    dispatches.push({ id: omGenId('disp'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, date: new Date().toISOString(), customerNotified: !!(document.getElementById('omdisp-notified-yes') || {}).checked, paymentStatus: o.payment_status || 'Pending', dispatchMethod: gv('omdisp-method'), dispatchStatus: dispStatus, notes: gv('omdisp-notes'), createdAt: new Date().toISOString() });
+    var _newD = { id: omGenId('disp'), orderId: o.id, orderNumber: o.id, customerId: o.customer_record_id || '', businessName: o.customer_name, date: new Date().toISOString(), customerNotified: !!(document.getElementById('omdisp-notified-yes') || {}).checked, paymentStatus: o.payment_status || 'Pending', dispatchMethod: gv('omdisp-method'), dispatchStatus: dispStatus, notes: gv('omdisp-notes'), createdAt: new Date().toISOString() };
+    dispatches.push(_newD);
+    DB.saveDispatch(_newD).catch(function () { });
   }
   saveDispatchRecords(dispatches);
-  closeModal(); showToast('Dispatch scheduled!', 'success'); _omTab = 'dispatch'; renderOrders();
+  closeModal(); showToast(dispStatus === 'Delivered' ? 'Order completed from dispatch.' : 'Dispatch updated!', 'success'); _omTab = 'dispatch'; renderOrders();
 }
 
 function omUpdateDispatchModal(dispId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage dispatch.', 'error'); return; }
   var d = getDispatchRecords().find(function (x) { return x.id === dispId; });
   if (!d) return;
   showModal('<div class="modal-header"><h2>' + iconSvg('truck') + ' Update Dispatch</h2><button class="btn-close-modal" onclick="closeModal()">\u2715</button></div>'
@@ -7733,16 +9833,46 @@ function omUpdateDispatchModal(dispId) {
 }
 
 function omConfirmUpdateDispatch(dispId) {
+  var _u = getState().currentUser; if (!_u || !['admin', 'print'].includes(_u.role)) { showToast('Only Print Personnel or Admin can manage dispatch.', 'error'); return; }
   var dispatches = getDispatchRecords();
   var d = dispatches.find(function (x) { return x.id === dispId; });
   if (!d) return;
   function gv(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   var dispStatus = gv('omuddisp-status');
+  var linkedOrder = getOrders().find(function (x) { return String(x.id) === String(d.orderId); });
+  if ((dispStatus === 'Scheduled' || dispStatus === 'Dispatched' || dispStatus === 'Delivered') && linkedOrder && !omIsDispatchReady(linkedOrder) && linkedOrder.status !== 'completed') {
+    showToast('Only QC-passed orders can stay in dispatch.', 'error');
+    return;
+  }
+  if (dispStatus === 'Delivered' && linkedOrder && (linkedOrder.balance || 0) > 0) { showToast('Order cannot be completed until payment is fully settled.', 'error'); return; }
   d.dispatchMethod = gv('omuddisp-method'); d.dispatchStatus = dispStatus;
   d.customerNotified = !!(document.getElementById('omuddisp-notified-yes') || {}).checked;
   d.notes = gv('omuddisp-notes'); d.updatedAt = new Date().toISOString();
   saveDispatchRecords(dispatches);
-  if (dispStatus === 'Delivered') { var orders = getOrders(); var o = orders.find(function (x) { return String(x.id) === String(d.orderId); }); if (o) { o.status = 'completed'; saveOrders(orders); omDeductOrderStock(o.id); omPushToReceiptHistory(o.id); } }
+  if (dispStatus === 'Delivered') {
+    var _dOrders = getOrders();
+    var _dO = _dOrders.find(function (x) { return String(x.id) === String(d.orderId); });
+    if (_dO) {
+      _dO.status = 'completed';
+      saveOrders(_dOrders);
+      DB.updateOrder(_dO.id, { status: 'completed', qc_status: 'passed' }); // persist to DB
+      omDeductOrderStock(_dO.id);
+      omPushToReceiptHistory(_dO.id);
+    }
+  } else if (dispStatus === 'Dispatched') {
+    var _dOrders2 = getOrders();
+    var _dO2 = _dOrders2.find(function (x) { return String(x.id) === String(d.orderId); });
+    if (_dO2 && _dO2.status !== 'completed') {
+      _dO2.status = 'dispatch'; saveOrders(_dOrders2);
+      DB.updateOrder(_dO2.id, { status: 'dispatch', qc_status: 'passed' });
+    }
+  }
+  if (omCanOverrideDispatch(_u)) {
+    var s = getState();
+    recordAudit(s, { action: 'dispatch_override', message: 'Admin override updated dispatch for Order #' + d.orderId, referenceId: String(d.orderId), meta: { dispatchStatus: dispStatus } });
+    saveState(s);
+  }
+  DB.saveDispatch(d).catch(function () { }); // persist dispatch record update
   closeModal(); showToast('Dispatch updated!', 'success'); renderOrders();
 }
 
@@ -7897,8 +10027,10 @@ function confirmBranchTransfer() {
 // USER MANAGEMENT
 function ensureAdminUserManagementAccess() {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') {
-    showToast('Only admins can manage staff accounts.', 'error');
+  const u = s.currentUser;
+  const role = normalizeRole(u?.role);
+  if (!u || (role !== 'admin' && role !== 'branch_manager')) {
+    showToast('Only the Super Admin or a Branch Manager can manage staff accounts.', 'error');
     navigateTo('dashboard');
     return false;
   }
@@ -7908,18 +10040,25 @@ function ensureAdminUserManagementAccess() {
 function renderUsers() {
   if (!ensureAdminUserManagementAccess()) return;
   const s = getState();
-  const staffUsers = s.users.filter(u => u.role !== 'admin');
+  const u = s.currentUser;
+  const role = normalizeRole(u.role);
+  let staffUsers = s.users.filter(x => x.role !== 'admin');
+  if (role === 'branch_manager') {
+    staffUsers = staffUsers.filter(x => x.branchId === u.branchId && normalizeRole(x.role) !== 'hr');
+  }
+  const pageTitle = role === 'branch_manager' ? 'Branch Account Management' : 'Staff Account Management';
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div><h1 class="page-title">Staff Account Management</h1><p class="page-subtitle">${staffUsers.length} staff accounts</p></div>
+      <div><h1 class="page-title">${pageTitle}</h1><p class="page-subtitle">${staffUsers.length} staff accounts</p></div>
       <button class="btn btn-maroon" onclick="addStaffAccountModal()">+ Create Staff Account</button>
     </div>
     <div class="data-card"><div class="data-card-body no-pad">
       <table class="data-table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Actions</th></tr></thead>
       <tbody>${staffUsers.map(u => {
     const branch = s.branches.find(b => b.id === u.branchId);
-    const roleBadge = u.role === 'staff' ? 'badge-success' : 'badge-info';
-    const roleLabel = u.role === 'staff' ? 'Branch Staff' : 'Printing';
+    const normalizedRole = normalizeRole(u.role);
+    const roleBadge = normalizedRole === 'branch_manager' ? 'badge-warning' : (normalizedRole === 'cashier' || normalizedRole === 'inventory_staff') ? 'badge-success' : 'badge-info';
+    const roleLabel = getRoleLabel(normalizedRole);
     return `<tr>
           <td><strong>${u.name}</strong></td>
           <td class="td-mono">${u.username}</td>
@@ -7936,12 +10075,22 @@ function nuUpdatePositions() {
   const role = document.getElementById('nu-role')?.value;
   const posSel = document.getElementById('nu-position');
   if (!posSel) return;
-  const options = {
-    staff: ['Cashier'],
-    print: ['Printing Operator'],
-  };
-  const list = options[role] || options.staff;
+  const list = getPositionOptionsByRole(role);
   posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
+function nuUpdateBranchForRole() {
+  const role = document.getElementById('nu-role')?.value;
+  const branchSel = document.getElementById('nu-branch');
+  if (!branchSel) return;
+  if (roleCanBeMainBranchOnly(role)) {
+    branchSel.value = 'b1';
+    branchSel.disabled = true;
+    branchSel.title = `${getRoleLabel(role)} can only be assigned to the Main Branch`;
+  } else {
+    branchSel.disabled = false;
+    branchSel.title = '';
+  }
 }
 
 function addStaffAccountModal() {
@@ -7973,39 +10122,47 @@ function addStaffAccountModal() {
       <div class="form-row-2">
         <div class="form-group">
           <label>Role <span style="color:var(--danger)">*</span></label>
-          <div class="form-select-wrap"><select id="nu-role" class="form-control" onchange="nuUpdatePositions()"><option value="staff">Branch Staff</option><option value="print">Printing Personnel</option></select></div>
+          <div class="form-select-wrap"><select id="nu-role" class="form-control" onchange="nuUpdatePositions(); nuUpdateBranchForRole()"><option value="branch_manager">Branch Manager</option><option value="hr">HR</option><option value="cashier">Cashier</option><option value="inventory_staff">Inventory Staff</option><option value="print">Printing Personnel</option></select></div>
         </div>
         <div class="form-group">
           <label>Position <span style="color:var(--danger)">*</span></label>
           <div class="form-select-wrap"><select id="nu-position" class="form-control">
-            <option value="Cashier">Cashier</option>
+            <option value="Branch Manager">Branch Manager</option>
           </select></div>
         </div>
       </div>
       <div class="form-group">
         <label>Branch <span style="color:var(--danger)">*</span></label>
-        <div class="form-select-wrap"><select id="nu-branch" class="form-control">${s.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}</select></div>
+        <div class="form-select-wrap"><select id="nu-branch" class="form-control" >${s.branches.map(b => `<option value="${b.id}" ${b.id === s.currentUser.branchId ? 'selected' : ''}>${b.name}</option>`).join('')}</select></div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       <button class="btn btn-maroon" onclick="confirmAddStaffAccount()">Create Account</button>
     </div>`);
+  // For team leaders: ensure branch is locked to their branch
+  // Lock branch to Main Branch for Printing Personnel
+  nuUpdateBranchForRole();
 }
 
-function confirmAddStaffAccount() {
+async function confirmAddStaffAccount() {
   if (!ensureAdminUserManagementAccess()) return;
   const s = getState();
+  const meRole = normalizeRole(s.currentUser?.role);
   const name = document.getElementById('nu-name').value.trim();
   const username = document.getElementById('nu-uname').value.trim();
   const password = document.getElementById('nu-pass').value;
   const confirmPassword = document.getElementById('nu-pass-confirm').value;
   const role = document.getElementById('nu-role').value;
-  const position = document.getElementById('nu-position')?.value || '';
+  const normalizedRole = normalizeRole(role);
+  const position = normalizedRole === 'branch_manager' ? 'Branch Manager' : (document.getElementById('nu-position')?.value || '');
   const branchId = document.getElementById('nu-branch')?.value;
   if (!name || !username || !password || !confirmPassword || !role || !branchId) { showToast('All fields required', 'error'); return; }
   if (password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
   if (password !== confirmPassword) { showToast('Passwords do not match.', 'error'); return; }
+  if (roleCanBeMainBranchOnly(role) && branchId !== 'b1') { showToast(`${getRoleLabel(role)} can only be assigned to the Main Branch.`, 'error'); return; }
+  if (meRole === 'branch_manager' && branchId !== s.currentUser.branchId) { showToast('Branch Managers can only create accounts for their own branch.', 'error'); return; }
+  if (meRole === 'branch_manager' && (normalizeRole(role) === 'hr' || normalizeRole(role) === 'branch_manager')) { showToast('Branch Managers can create cashier, inventory, and printing accounts only.', 'error'); return; }
   if (s.users.find(u => u.username.toLowerCase() === username.toLowerCase())) { showToast('Username already exists', 'error'); return; }
   // Save staff account locally
   const newUser = {
@@ -8026,7 +10183,15 @@ function confirmAddStaffAccount() {
     details: { createdRole: role, createdUsername: username },
   });
   saveState(s);
-  DB.saveUser(newUser);
+  try {
+    await DB.saveUser(newUser);
+  } catch (e) {
+    // Roll back local state so it stays in sync with the server
+    s.users = s.users.filter(u => u.id !== newUser.id);
+    saveState(s);
+    showToast('Failed to save user to server: ' + e.message, 'error');
+    return;
+  }
   closeModal();
   showToast('Staff account created!', 'success');
   renderUsers();
@@ -8037,11 +10202,7 @@ function editUserModal(uid) {
   const s = getState();
   const u = s.users.find(x => x.id === uid);
   if (!u || u.role === 'admin') return;
-  const positionsByRole = {
-    staff: ['Cashier'],
-    print: ['Printing Operator'],
-  };
-  const posOpts = (positionsByRole[u.role] || positionsByRole.staff).map(p =>
+  const posOpts = getPositionOptionsByRole(u.role).map(p =>
     `<option value="${p}" ${u.position === p ? 'selected' : ''}>${p}</option>`).join('');
   showModal(`<div class="modal-header"><h2>Edit Staff Account</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
@@ -8070,7 +10231,10 @@ function editUserModal(uid) {
         <div class="form-group">
           <label>Role</label>
           <div class="form-select-wrap"><select id="eu-role" class="form-control">
-            <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Branch Staff</option>
+            <option value="branch_manager" ${normalizeRole(u.role) === 'branch_manager' ? 'selected' : ''}>Branch Manager</option>
+            <option value="hr" ${normalizeRole(u.role) === 'hr' ? 'selected' : ''}>HR</option>
+            <option value="cashier" ${normalizeRole(u.role) === 'cashier' ? 'selected' : ''}>Cashier</option>
+            <option value="inventory_staff" ${normalizeRole(u.role) === 'inventory_staff' ? 'selected' : ''}>Inventory Staff</option>
             <option value="print" ${u.role === 'print' ? 'selected' : ''}>Printing Personnel</option>
           </select></div>
         </div>
@@ -8085,12 +10249,19 @@ function editUserModal(uid) {
 function confirmEditUser(uid) {
   if (!ensureAdminUserManagementAccess()) return;
   const s = getState();
+  const meRole = normalizeRole(s.currentUser?.role);
   const u = s.users.find(x => x.id === uid);
   if (!u || u.role === 'admin') return;
+  const nextRole = document.getElementById('eu-role')?.value || u.role;
   u.name = document.getElementById('eu-name').value.trim();
   u.branchId = document.getElementById('eu-branch').value;
-  u.position = document.getElementById('eu-position')?.value || u.position || '';
-  u.role = document.getElementById('eu-role')?.value || u.role;
+  u.role = nextRole;
+  u.position = normalizeRole(nextRole) === 'branch_manager'
+    ? 'Branch Manager'
+    : (document.getElementById('eu-position')?.value || u.position || '');
+  if (roleCanBeMainBranchOnly(u.role) && u.branchId !== 'b1') { showToast(`${getRoleLabel(u.role)} can only be assigned to the Main Branch.`, 'error'); return; }
+  if (meRole === 'branch_manager' && u.branchId !== s.currentUser.branchId) { showToast('Branch Managers can only edit accounts in their own branch.', 'error'); return; }
+  if (meRole === 'branch_manager' && (normalizeRole(u.role) === 'hr' || normalizeRole(u.role) === 'branch_manager')) { showToast('Branch Managers cannot assign HR or Branch Manager roles.', 'error'); return; }
   recordAudit(s, {
     action: 'update_user',
     message: `Staff account updated: ${u.username}`,
@@ -8208,7 +10379,7 @@ function renderBranches() {
         <div class="branch-ov-name">${iconSvg('store')} ${b.name} ${b.active ? '' : '<span class="badge badge-neutral">Inactive</span>'}</div>
         <div class="branch-ov-row"><span>Address</span><strong style="font-family:var(--font-body)">${b.address}</strong></div>
         <div class="branch-ov-row"><span>Contact</span><strong style="font-family:var(--font-body)">${b.contact}</strong></div>
-        <div class="branch-ov-row"><span>Staff</span><strong>${s.users.filter(u => u.branchId === b.id && u.role === 'staff').length}</strong></div>
+        <div class="branch-ov-row"><span>Staff</span><strong>${s.users.filter(u => u.branchId === b.id && ['cashier', 'team_leader', 'staff'].includes(u.role)).length}</strong></div>
         <div style="margin-top:12px;display:flex;gap:8px">
           <button class="btn btn-sm btn-outline" onclick="editBranchModal('${b.id}')">Edit</button>
           <button class="btn btn-sm btn-outline" onclick="toggleBranch('${b.id}')">${b.active ? 'Deactivate' : 'Activate'}</button>
@@ -8507,7 +10678,7 @@ document.addEventListener('keydown', e => {
     if (checkoutBtn && !checkoutBtn.disabled) doCheckout();
   }
 
-  // ── Login form: Enter key triggers sign in ──
+  // ── Login form: Enter key triggers log in ──
   const loginPage = document.getElementById('login-page');
   if (loginPage && !loginPage.classList.contains('hidden')) {
     if (e.key === 'Enter') {
@@ -8573,88 +10744,51 @@ document.addEventListener('DOMContentLoaded', async () => {
   await window.loadStateFromServer();
 
   // ── Employee recovery: rebuild s.employees from linked user accounts ──────
-  // If localStorage was cleared, s.employees will be empty but s.users (which
-  // comes from the server) still has all users with their employeeId links.
-  // We reconstruct any missing employee records from those user accounts so
-  // Employee Records page is never empty after a localStorage clear.
+  // state.php sends employees[] directly (built from users WHERE employee_id IS NOT NULL).
+  // That is the primary source — the recovery below is only a safety net for cases
+  // where the server returns employees[] as empty (e.g. brand-new install) but users
+  // already have employee_id values stamped on them.
+  //
+  // NOTE: state.php's users[] query returns a slim set of fields (id, name, username,
+  // role, branchId, active) — it does NOT include employeeId, position, etc.
+  // So we can't reconstruct from s.users here. Instead we rely on state.php's
+  // dedicated employees[] array which IS built from the full users table.
   (function recoverEmployeesFromUsers() {
     const s = getState();
-    const users = s.users || [];
-    let employees = s.employees || [];
-    const existingEmpIds = new Set(employees.map(e => e.id));
-    let changed = false;
+    const serverEmployees = s.employees || [];
 
-    users.forEach(u => {
-      // Only non-admin users that were created via Employee Records (have employeeId)
-      if (!u.employeeId || existingEmpIds.has(u.employeeId)) return;
-      // Reconstruct a minimal employee record from the user account
-      const recovered = {
-        id:               u.employeeId,
-        name:             u.name || u.username,
-        email:            u.email || '',
-        birthdate:        u.birthdate || '',
-        gender:           u.gender || '',
-        emergencyContact: u.emergencyContact || '',
-        address:          u.address || '',
-        role:             u.role || 'staff',
-        position:         u.position || '',
-        branchId:         u.branchId || '',
-        dateHired:        u.dateHired || '',
-        employmentStatus: u.employmentStatus || '',
-        sss:              u.sss || '',
-        philhealth:       u.philhealth || '',
-        pagibig:          u.pagibig || '',
-        tin:              u.tin || '',
-        active:           u.active !== false,
-        createdAt:        u.createdAt || new Date().toISOString(),
-        _recovered:       true, // flag so you can tell these were auto-rebuilt
-      };
-      employees.push(recovered);
-      existingEmpIds.add(u.employeeId);
-      changed = true;
-      console.log('[App] Recovered employee record from user account:', u.username);
-    });
-
-    if (changed) {
-      s.employees = employees;
-      saveState(s);
-      console.log('[App] Employee records recovered from server user accounts ✓');
+    // If server sent employees, nothing to recover
+    if (serverEmployees.length > 0) {
+      console.log('[App] Employees loaded from server:', serverEmployees.length);
+      return;
     }
+
+    // Server sent empty — try to rebuild from any local-storage copy that may
+    // have survived (pre-refresh optimistic save). Don't wipe what we have.
+    console.log('[App] No employees from server yet — checking local fallback.');
   })();
   // ─────────────────────────────────────────────────────────────────────────
 
   bindOverviewClickFallback();
 
   // Restore session — check pos_currentUser first, then fall back to pos_state.currentUser
-  let restoredUser = null;
-  try {
-    const raw = localStorage.getItem('pos_currentUser');
-    if (raw) restoredUser = JSON.parse(raw);
-  } catch { }
-
-  // Second fallback: read from pos_state directly
-  if (!restoredUser) {
-    try {
-      const raw = localStorage.getItem('pos_state');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.currentUser) restoredUser = parsed.currentUser;
-      }
-    } catch { }
-  }
+  let restoredUser = getStoredSessionUser();
 
   if (restoredUser) {
-    // Ensure role is always valid
-    if (!restoredUser.role || !['admin', 'staff', 'print'].includes(restoredUser.role)) {
-      restoredUser.role = restoredUser.username === 'admin' ? 'admin' : 'staff';
+    restoredUser = normalizeUserRole(restoredUser);
+    const validRoles = VALID_USER_ROLES;
+    if (!restoredUser.role || !validRoles.includes(restoredUser.role)) {
+      restoredUser.role = restoredUser.username === 'admin' ? 'admin' : 'cashier';
     }
     // Re-stamp into state and re-save pos_currentUser so it survives future reloads
     const s = getState();
     s.currentUser = restoredUser;
     saveState(s);
-    localStorage.setItem('pos_currentUser', JSON.stringify(restoredUser));
-    showApp();
+    persistSessionUser(restoredUser);
+    const restoredPage = getStoredPage();
+    showApp(restoredPage && canAccess(restoredPage) ? restoredPage : 'dashboard');
   } else {
+    persistCurrentPage(null);
     showOverview();
   }
 
@@ -8687,10 +10821,10 @@ function getSystemConfig() {
 function getCompanyInfo() {
   const cfg = getSystemConfig();
   return {
-    name:     cfg.businessName  || 'SOUTH PAFPS PACKAGING SUPPLIES',
-    address1: cfg.bizAddress1   || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
-    address2: cfg.bizAddress2   || 'Pasong Buaya 2, Imus, Cavite',
-    tel:      cfg.bizTel        || 'Tel: (046) 436-9414',
+    name: cfg.businessName || 'SOUTH PAFPS PACKAGING SUPPLIES',
+    address1: cfg.bizAddress1 || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road',
+    address2: cfg.bizAddress2 || 'Pasong Buaya 2, Imus, Cavite',
+    tel: cfg.bizTel || 'Tel: (046) 436-9414',
   };
 }
 
@@ -9002,25 +11136,26 @@ function showDiscountImpactReportModal() {
 // PRODUCTION OVERSIGHT — Admin (full), Print (full), Staff (view-only)
 function renderProductionOversight() {
   const _po = getState();
-  if (!_po.currentUser) { accessDenied('Production Oversight'); return; }
+  if (!_po.currentUser) { accessDenied('Production Queue'); return; }
   const role = _po.currentUser.role;
-  if (role !== 'admin' && role !== 'staff' && role !== 'print') { accessDenied('Production Oversight'); return; }
-  const isViewOnly = role === 'staff'; // staff = view only; admin + print = full access
+  if (role !== 'admin' && role !== 'staff' && role !== 'print') { accessDenied('Production Queue'); return; }
+  const isViewOnly = ['cashier', 'team_leader', 'staff'].includes(role); // cashier/TL = view only; admin + print = full access
   const orders = getOrders();
   const cfg = getSystemConfig();
   const now = new Date();
 
-  const production = orders.filter(o => o.status === 'production' || o.status === 'pending');
+  const production = orders.filter(o => o.status === 'production' || o.status === 'approved' || o.status === 'pending');
   const delayed = production.filter(o => o.due_date && new Date(o.due_date) < now && o.status !== 'completed');
   const pending = orders.filter(o => o.status === 'pending');
+  const approved = orders.filter(o => o.status === 'approved');
   const inProd = orders.filter(o => o.status === 'production');
-  const dispatched = orders.filter(o => o.status === 'dispatch');
+  const dispatched = orders.filter(o => omIsDispatchReady(o));
   const completed = orders.filter(o => o.status === 'completed');
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
-        <h1 class="page-title">Production Oversight</h1>
+        <h1 class="page-title">Production Queue</h1>
         <p class="page-subtitle">Monitor all orders across production stages${isViewOnly ? ' &nbsp;·&nbsp; <span style="color:var(--ink-40);font-size:12px;font-weight:600">VIEW ONLY</span>' : ''}</p>
       </div>
       <div style="display:flex;gap:8px">
@@ -9029,8 +11164,9 @@ function renderProductionOversight() {
       </div>
     </div>
     ${delayed.length ? `<div class="alert alert-error-box">${iconSvg('warning')} ${delayed.length} order(s) are past their due date! <button class="btn btn-sm btn-danger" style="margin-left:12px" onclick="scrollToDelayed()">View Delayed</button></div>` : ''}
-    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
-      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value">${pending.length}</div></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(6,1fr)">
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Pending Approval</div><div class="kpi-icon gold">${iconSvg('clock')}</div></div><div class="kpi-value" style="color:${pending.length > 0 ? 'var(--warning)' : 'inherit'}">${pending.length}</div></div>
+      <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Approved</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value" style="color:#0d9488">${approved.length}</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">In Production</div><div class="kpi-icon maroon">${iconSvg('printer')}</div></div><div class="kpi-value">${inProd.length}</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Dispatched</div><div class="kpi-icon blue">${iconSvg('truck')}</div></div><div class="kpi-value">${dispatched.length}</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Delayed</div><div class="kpi-icon maroon">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:var(--danger)">${delayed.length}</div></div>
@@ -9074,7 +11210,7 @@ function renderProductionOversight() {
               <td>${isPastDue ? '<span class="badge badge-danger">Urgent</span>' : o.status === 'pending' ? '<span class="badge badge-neutral">Normal</span>' : '—'}</td>
               ${!isViewOnly ? `<td style="display:flex;gap:4px">
                 ${o.status === 'pending' ? `<button class="btn btn-sm btn-maroon" onclick="fulfillOrder('${o.id}')">Start Prod.</button>` : ''}
-                ${o.status === 'production' ? `<button class="btn btn-sm btn-maroon" onclick="dispatchOrder('${o.id}')">Dispatch</button>` : ''}
+                ${o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="navigateTo('print-qc')">${o.qc_status === 'rework' ? 'Rework' : 'QC'}</button>` : ''}
                 <button class="btn btn-sm btn-outline" onclick="editOrderModal('${o.id}')">Edit</button>
               </td>` : ''}
             </tr>`;
@@ -9119,7 +11255,7 @@ function renderReadyForPickup() {
   const branchOrders = u.role === 'admin' ? orders : orders.filter(o =>
     !o.branch_id || o.branch_id === u.branchId || o.branch_staff?.toLowerCase().includes(u.name?.toLowerCase())
   );
-  const ready = branchOrders.filter(o => o.status === 'dispatch');
+  const ready = branchOrders.filter(o => omIsDispatchReady(o));
   const withBalance = ready.filter(o => (o.balance || 0) > 0);
 
   document.getElementById('page-content').innerHTML = `
@@ -9201,6 +11337,7 @@ function confirmBalancePayment(orderId) {
   recordAudit(s, { action: 'balance_payment', message: `Balance payment collected for Order #${orderId}`, meta: { cash, gcash, gcashRef } });
   saveState(s);
   saveOrders(orders);
+  omSyncDispatchPaymentStatus(orderId, o.payment_status, o.balance);
   DB.updateOrder(orderId, { downpayment: o.downpayment, balance: o.balance, payment_status: o.payment_status });
   closeModal();
   showToast('Balance payment recorded!', 'success');
@@ -9260,6 +11397,7 @@ function confirmDelivered(orderId) {
   const orders = getOrders();
   const o = orders.find(x => String(x.id) === String(orderId));
   if (!o) return;
+  if (!omIsDispatchReady(o)) { showToast('Only QC-passed dispatch jobs can be delivered.', 'error'); return; }
   o.status = 'completed';
   o.delivery_date = deliveryDate;
   o.received_by = receiver;
@@ -9268,7 +11406,7 @@ function confirmDelivered(orderId) {
   recordAudit(s, { action: 'order_delivered', message: `Order #${orderId} marked as delivered`, meta: { deliveryDate, receiver } });
   saveState(s);
   saveOrders(orders);
-  DB.updateOrder(orderId, { status: 'completed', delivery_date: o.delivery_date, received_by: o.received_by });
+  DB.updateOrder(orderId, { status: 'completed', qc_status: 'passed', delivery_date: o.delivery_date, received_by: o.received_by });
   // FIX 2: Deduct stock and push to receipt history on delivery (was missing here)
   omDeductOrderStock(orderId);
   omPushToReceiptHistory(orderId);
@@ -9286,7 +11424,7 @@ function renderPrintProductionDashboard() {
 
   const pending = orders.filter(o => o.status === 'pending');
   const inProd = orders.filter(o => o.status === 'production');
-  const dispatched = orders.filter(o => o.status === 'dispatch');
+  const dispatched = orders.filter(o => omIsDispatchReady(o));
   const completedToday = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === today);
 
   document.getElementById('page-content').innerHTML = `
@@ -9300,12 +11438,7 @@ function renderPrintProductionDashboard() {
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Ready for Dispatch</div><div class="kpi-icon blue">${iconSvg('truck')}</div></div><div class="kpi-value">${dispatched.length}</div></div>
       <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Completed Today</div><div class="kpi-icon green">${iconSvg('check')}</div></div><div class="kpi-value">${completedToday.length}</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div class="print-card" onclick="navigateTo('print-orders')"><div class="print-card-icon">${iconSvg('clipboard')}</div><div class="print-card-info"><strong>My Production Queue</strong><span>${pending.length + inProd.length} orders to process</span></div><div class="print-card-action"><span class="badge badge-maroon">→</span></div></div>
-      <div class="print-card" onclick="navigateTo('print-qc')"><div class="print-card-icon">${iconSvg('check')}</div><div class="print-card-info"><strong>Quality Control</strong><span>Inspect and approve orders</span></div><div class="print-card-action"><span class="badge badge-maroon">→</span></div></div>
-      <div class="print-card" onclick="navigateTo('print-materials')"><div class="print-card-icon">${iconSvg('box')}</div><div class="print-card-info"><strong>Materials Tracking</strong><span>Check stock and record usage</span></div><div class="print-card-action"><span class="badge badge-maroon">→</span></div></div>
-      <div class="print-card" onclick="navigateTo('reports')"><div class="print-card-icon">${iconSvg('chart')}</div><div class="print-card-info"><strong>My Reports</strong><span>Daily production summary</span></div><div class="print-card-action"><span class="badge badge-maroon">→</span></div></div>
-    </div>
+
     <div class="data-card">
       <div class="data-card-header"><span class="data-card-title">Urgent / Priority Orders</span></div>
       <div class="data-card-body no-pad">
@@ -9320,9 +11453,9 @@ function renderPrintProductionDashboard() {
               <td>${o.product_type || o.product_category || '—'}</td>
               <td>${o.quantity || '—'}</td>
               <td class="td-mono">${o.due_date || '—'}</td>
-              <td>${statusBadge(o.status)}</td>
+              <td>${omDisplayStatusBadge(o)}</td>
               <td>${dpVerified ? '<span class="badge badge-success">Verified</span>' : '<span class="badge badge-danger">Not Paid</span>'}</td>
-              <td>${o.status === 'pending' && dpVerified ? `<button class="btn btn-sm btn-maroon" onclick="acceptOrderForProduction('${o.id}')">Accept</button>` : o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="updateOrderStatus('${o.id}','dispatch')">Complete</button>` : '<span class="text-muted text-xs">Awaiting DP</span>'}</td>
+              <td>${o.status === 'pending' && dpVerified ? `<button class="btn btn-sm btn-maroon" onclick="acceptOrderForProduction('${o.id}')">Accept</button>` : o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="navigateTo('print-qc')">${o.qc_status === 'rework' ? 'Rework' : 'QC'}</button>` : '<span class="text-muted text-xs">Awaiting DP</span>'}</td>
             </tr>`;
   }).join('') || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-60)">No pending or in-production orders.</td></tr>'}</tbody>
         </table>
@@ -9332,7 +11465,7 @@ function renderPrintProductionDashboard() {
 
 function renderPrintOrders() {
   const _pr = getState();
-  if (_pr.currentUser && _pr.currentUser.role === 'staff') { accessDenied('Production Queue'); return; }
+  if (_pr.currentUser && ['cashier', 'team_leader', 'staff'].includes(_pr.currentUser.role)) { accessDenied('Production Queue'); return; }
   const s = getState();
   const orders = getOrders();
   const cfg = getSystemConfig();
@@ -9372,10 +11505,10 @@ function renderPrintOrderRows(orders) {
       <td class="text-xs text-muted">${leadTime} days</td>
       <td class="td-mono">${o.due_date || '—'}</td>
       <td>${dpVerified ? '<span class="badge badge-success">Paid</span>' : '<span class="badge badge-danger">Unpaid</span>'}</td>
-      <td>${statusBadge(o.status)}</td>
+      <td>${omDisplayStatusBadge(o)}</td>
       <td style="display:flex;gap:4px;flex-wrap:wrap">
         ${o.status === 'pending' ? `<button class="btn btn-sm btn-maroon" onclick="acceptOrderForProduction('${o.id}')" ${!dpVerified ? 'disabled title="Downpayment not verified"' : ''}>Accept</button>` : ''}
-        ${o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="navigateTo('print-qc')">QC</button><button class="btn btn-sm btn-maroon" onclick="updateOrderStatus('${o.id}','dispatch')">Dispatch</button>` : ''}
+        ${o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="navigateTo('print-qc')">${o.qc_status === 'rework' ? 'Rework' : 'QC'}</button>` : ''}
         <button class="btn btn-sm btn-outline" onclick="viewOrderDetails('${o.id}')">Details</button>
         ${o.status === 'production' ? `<button class="btn btn-sm btn-outline" onclick="reportDelayModal('${o.id}')">Report Delay</button>` : ''}
       </td>
@@ -9384,7 +11517,7 @@ function renderPrintOrderRows(orders) {
 }
 
 function filterPrintOrders(status) {
-  const orders = getOrders().filter(o => o.status === status);
+  const orders = getOrders().filter(o => status === 'dispatch' ? omIsDispatchReady(o) : o.status === status);
   document.querySelector('#print-orders-table tbody').innerHTML = renderPrintOrderRows(orders);
 }
 
@@ -9465,6 +11598,10 @@ function updateOrderStatus(orderId, newStatus) {
   const orders = getOrders();
   const o = orders.find(x => String(x.id) === String(orderId));
   if (!o) return;
+  if (newStatus === 'dispatch' && !omIsDispatchReady(o)) {
+    showToast('Only QC-passed jobs can be moved to dispatch.', 'error');
+    return;
+  }
   o.status = newStatus;
   const s = getState();
   recordAudit(s, { action: 'order_status_updated', message: `Order #${orderId} → ${newStatus}`, meta: { newStatus } });
@@ -9515,9 +11652,9 @@ function confirmReportDelay(orderId) {
 // QUALITY CONTROL — Printing Personnel
 function renderQualityControl() {
   const _qc = getState();
-  if (_qc.currentUser && _qc.currentUser.role === 'staff') { accessDenied('Quality Control'); return; }
+  if (_qc.currentUser && ['cashier', 'team_leader', 'staff'].includes(_qc.currentUser.role)) { accessDenied('Quality Control'); return; }
   const orders = getOrders();
-  const inProd = orders.filter(o => o.status === 'production');
+  const inProd = orders.filter(o => omNeedsQcReview(o));
   const qcPassed = orders.filter(o => o.qc_status === 'passed');
   const qcFailed = orders.filter(o => o.qc_status === 'failed');
 
@@ -9574,13 +11711,15 @@ function qcPass(orderId) {
   const orders = getOrders();
   const o = orders.find(x => String(x.id) === String(orderId));
   if (!o) return;
+  o.status = 'dispatch';
   o.qc_status = 'passed';
+  o.qc_fail_reason = '';
   o.qc_passed_at = new Date().toISOString();
   const s = getState();
   recordAudit(s, { action: 'qc_passed', message: `QC passed for Order #${orderId}` });
   saveState(s);
   saveOrders(orders);
-  DB.updateOrder(orderId, { qc_status: 'passed', qc_passed_at: o.qc_passed_at });
+  DB.updateOrder(orderId, { status: 'dispatch', qc_status: 'passed', qc_passed_at: o.qc_passed_at, qc_fail_reason: null });
   showToast('QC passed! Order is ready for dispatch.', 'success');
   renderQualityControl();
 }
@@ -9603,13 +11742,14 @@ function confirmQcFail(orderId) {
   const orders = getOrders();
   const o = orders.find(x => String(x.id) === String(orderId));
   if (!o) return;
+  o.status = 'production';
   o.qc_status = 'failed';
   o.qc_fail_reason = reason;
   const s = getState();
   recordAudit(s, { action: 'qc_failed', message: `QC failed for Order #${orderId}: ${reason}`, meta: { reason } });
   saveState(s);
   saveOrders(orders);
-  DB.updateOrder(orderId, { qc_status: 'failed', qc_fail_reason: reason });
+  DB.updateOrder(orderId, { status: 'production', qc_status: 'failed', qc_fail_reason: reason });
   closeModal();
   showToast('Order marked as QC failed.', 'error');
   renderQualityControl();
@@ -9642,7 +11782,7 @@ function renderMaterialsTracking() {
 function _renderPrintInventoryPage() {
   const s = getState();
   const isAdmin = s.currentUser && s.currentUser.role === 'admin';
-  if (s.currentUser && s.currentUser.role === 'staff') { accessDenied('Printing Inventory'); return; }
+  if (s.currentUser && ['cashier', 'team_leader', 'staff'].includes(s.currentUser.role)) { accessDenied('Printing Inventory'); return; }
 
   const allVariants = (s.printProducts || []).filter(p => p.active).flatMap(p =>
     (p.variants || []).map(v => ({ p, v, reorderLevel: v.reorderLevel ?? 20 }))
@@ -9781,6 +11921,8 @@ function confirmAdjustPrintStock(pid, vid) {
   variant.maxStock = maxStock;
   variant.lastCountDate = new Date().toISOString();
   saveState(s);
+  // Persist updated stock + reorder levels to DB
+  DB.updatePrintProduct(pid, { variants: prod.variants }).catch(function (e) { console.error('[DB] updatePrintProduct stock:', e.message); });
   closeModal();
   showToast('Stock updated.', 'success');
   _renderPrintInventoryPage();
@@ -10547,7 +12689,7 @@ function renderAdminProductionQueue() {
   const orders = getOrders();
   const pending = orders.filter(o => o.status === 'pending').length;
   const inProd = orders.filter(o => o.status === 'production').length;
-  const dispatch = orders.filter(o => o.status === 'dispatch').length;
+  const dispatch = orders.filter(o => omIsDispatchReady(o)).length;
   const now = new Date();
   const delayed = orders.filter(o => o.due_date && new Date(o.due_date) < now && o.status !== 'completed' && o.status !== 'cancelled');
   return `<div class="data-card" style="margin-top:0">
@@ -10743,8 +12885,8 @@ function viewPrintPayslipModal(offset) {
       <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.name || '—'}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.sssNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">Printing Personnel</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.philhealthNumber || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">Printing Personnel</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.hdmfNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${pLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${me.tinNumber || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDate}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
@@ -10770,7 +12912,7 @@ function viewPrintPayslipModal(offset) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth EE Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phil > 0 ? '₱' + fmt(phil) : ''}</td>
         </tr>
         <tr>
@@ -10778,7 +12920,7 @@ function viewPrintPayslipModal(offset) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td>
         </tr>
         <tr style="height:22px;">
@@ -10815,41 +12957,8 @@ function viewPrintPayslipModal(offset) {
 }
 
 function renderPrintPayslip() {
-  // FIX 3: Now shows admin-sent payslips instead of hardcoded shift calculation (mirrors renderPayslip)
-  const s = getState();
-  const me = s.currentUser;
-  if (!me || me.role !== 'print') { accessDenied('Payroll'); return; }
-
-  const myPayslips = (s.payslips || []).filter(p => p.userId === me.id);
-
-  document.getElementById('page-content').innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">My Payslip</h1>
-      <p class="page-subtitle">View and print your payslips sent by the admin</p>
-    </div>
-    <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">${iconSvg('money')} My Payslips</span></div>
-      <div class="data-card-body no-pad">
-        <table class="data-table">
-          <thead><tr><th>Pay Period</th><th>Daily Rate</th><th>Days Present</th><th>Net Pay</th><th>Sent</th><th>Action</th></tr></thead>
-          <tbody>${myPayslips.length
-      ? myPayslips.map(p => `<tr>
-                <td><strong>${p.payPeriod}</strong></td>
-                <td class="td-mono">₱${fmt(p.dailyRate)}</td>
-                <td class="td-mono">${p.daysPresent}</td>
-                <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay)}</td>
-                <td style="font-size:12px;color:var(--ink-60)">${p.sentAt ? fmtTime(p.sentAt) : '—'}</td>
-                <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View &amp; Print</button></td>
-              </tr>`).join('')
-      : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--ink-60)">
-                <div style="font-size:28px;margin-bottom:10px">📄</div>
-                No payslips available yet.<br>
-                <span style="font-size:12px">Payslips will appear here once your admin sends them to you.</span>
-              </td></tr>`
-    }</tbody>
-        </table>
-      </div>
-    </div>`;
+  // Unified with renderPayslip — print users view admin-sent payslips the same way
+  renderPayslip();
 }
 
 // renderPrintReports is defined below near print personnel functions
@@ -10959,12 +13068,22 @@ function saveEmployees(employees) {
 
 function renderEmployeeRecords() {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Employee Records'); return; }
-  const employees = getEmployees();
+  const u = s.currentUser;
+  const role = normalizeRole(u?.role);
+  if (!u || !['admin', 'hr', 'branch_manager'].includes(role)) { accessDenied('Employee Records'); return; }
+
+  let employees = getEmployees();
+  if (role === 'branch_manager') {
+    employees = employees.filter(e => e.branchId === u.branchId);
+  }
+
+  const pageSubtitle = role === 'branch_manager'
+    ? `Staff & employee records for your branch`
+    : `HR records — separate from system login accounts`;
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-      <div><h1 class="page-title">Employee Records</h1><p class="page-subtitle">HR records — separate from system login accounts</p></div>
+      <div><h1 class="page-title">Employee Records</h1><p class="page-subtitle">${pageSubtitle}</p></div>
       <button class="btn btn-maroon" onclick="showAddEmployeeModal()">+ Add Employee</button>
     </div>
     <div class="data-card">
@@ -11066,7 +13185,7 @@ function confirmLinkAccount(empId) {
     name: e.name,
     username,
     password,
-    role: e.role || 'staff',
+    role: normalizeRole(e.role || 'cashier'),
     position: e.position || '',
     branchId: e.branchId || '',
   };
@@ -11146,7 +13265,7 @@ function showEmployeeDetail(empId) {
         ${sectionHead('🏛️', 'Government Numbers')}
         ${field('SSS Number', u.sss)}
         ${field('PhilHealth', u.philhealth)}
-        ${field('Pag-IBIG (HDMF)', u.pagibig)}
+        ${field('Pag-IBIG', u.pagibig)}
         ${field('TIN', u.tin)}
       </div>
     </div>
@@ -11241,7 +13360,7 @@ function editEmployeeModal(empId) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group"><label>SSS Number</label><input class="form-control" id="ee-sss" value="${e.sss || ''}"></div>
         <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ee-phil" value="${e.philhealth || ''}"></div>
-        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ee-pagibig" value="${e.pagibig || ''}"></div>
+        <div class="form-group"><label>Pag-IBIG</label><input class="form-control" id="ee-pagibig" value="${e.pagibig || ''}"></div>
         <div class="form-group"><label>TIN</label><input class="form-control" id="ee-tin" value="${e.tin || ''}"></div>
       </div>
     </div>
@@ -11276,7 +13395,6 @@ function saveEditEmployee(empId) {
   e.tin = document.getElementById('ee-tin')?.value.trim() || '';
   e.updatedAt = new Date().toISOString();
   saveEmployees(employees);
-  DB.updateEmployee(empId, e);
 
   // Sync name, branch, role to the linked user account if one exists
   const s = getState();
@@ -11288,6 +13406,9 @@ function saveEditEmployee(empId) {
     saveState(s);
     DB.updateUser(linkedUser.id, { name: linkedUser.name, branchId: linkedUser.branchId, position: linkedUser.position });
   }
+
+  // Persist all HR fields to the DB (via PUT /users/:linkedUserId)
+  DB.updateEmployee(empId, { ...e, linkedUserId: linkedUser?.id });
 
   closeModal();
   showToast('Employee record updated!', 'success');
@@ -11307,9 +13428,9 @@ function deleteEmployee(empId) {
 function _deleteEmployeeConfirmed(empId) {
   const employees = getEmployees().filter(x => x.id !== empId);
   saveEmployees(employees);
-  DB.deleteEmployee(empId);
 
-  // Also delete the linked system login account
+  // Delete the linked system login account — this also removes the employee_id
+  // from the DB row, so state.php will no longer reconstruct this employee on reload
   const s = getState();
   const linkedUser = s.users.find(u => u.employeeId === empId);
   if (linkedUser) {
@@ -11325,7 +13446,9 @@ function _deleteEmployeeConfirmed(empId) {
 
 function showAddEmployeeModal() {
   const s = getState();
+  const me = s.currentUser;
   const branches = s.branches || [];
+  const isTeamLeader = me && me.role === 'team_leader';
   const secHead = (title) => `<div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--maroon);padding:16px 0 8px;border-bottom:2px solid var(--maroon);margin-bottom:14px;margin-top:8px;">${title}</div>`;
 
   showModal(`
@@ -11371,8 +13494,11 @@ function showAddEmployeeModal() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label>Role / Department <span style="color:var(--danger)">*</span></label>
-          <div class="form-select-wrap"><select class="form-control" id="ae-role" onchange="aeUpdatePositions()">
-            <option value="staff">Branch Staff</option>
+          <div class="form-select-wrap"><select class="form-control" id="ae-role" onchange="aeUpdatePositions(); aeUpdateBranchForRole()">
+            <option value="cashier">Cashier</option>
+            <option value="inventory_staff">Inventory Staff</option>
+            <option value="branch_manager">Branch Manager</option>
+            <option value="hr">HR</option>
             <option value="print">Printing Personnel</option>
           </select></div>
         </div>
@@ -11407,11 +13533,12 @@ function showAddEmployeeModal() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group"><label>SSS Number</label><input class="form-control" id="ae-sss" placeholder="XX-XXXXXXX-X"></div>
         <div class="form-group"><label>PhilHealth</label><input class="form-control" id="ae-phil" placeholder="XXXX-XXXXX-X"></div>
-        <div class="form-group"><label>Pag-IBIG (HDMF)</label><input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX"></div>
+        <div class="form-group"><label>Pag-IBIG</label><input class="form-control" id="ae-pagibig" placeholder="XXXX-XXXX-XXXX"></div>
         <div class="form-group"><label>TIN</label><input class="form-control" id="ae-tin" placeholder="XXX-XXX-XXX"></div>
       </div>
 
       ${secHead('System Login Account')}
+      <div id="ae-account-section">
       <div style="background:var(--cream);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--ink-60);line-height:1.5;">
         This will create a login account so the employee can access the system (schedule, time card, leave requests).
       </div>
@@ -11428,6 +13555,7 @@ function showAddEmployeeModal() {
           </div>
         </div>
       </div>
+      </div>
 
     </div>
     <div class="modal-footer">
@@ -11440,13 +13568,24 @@ function showAddEmployeeModal() {
 function aeUpdatePositions() {
   const role = document.getElementById('ae-role')?.value;
   const posSel = document.getElementById('ae-pos');
+  const accountSection = document.getElementById('ae-account-section');
   if (!posSel) return;
-  const options = {
-    staff: ['Cashier'],
-    print: ['Printing Operator'],
-  };
-  const list = options[role] || options.staff;
+  const list = getPositionOptionsByRole(role);
   posSel.innerHTML = list.map(p => `<option value="${p}">${p}</option>`).join('');
+}
+
+function aeUpdateBranchForRole() {
+  const role = document.getElementById('ae-role')?.value;
+  const branchSel = document.getElementById('ae-branch');
+  if (!branchSel) return;
+  if (roleCanBeMainBranchOnly(role)) {
+    branchSel.value = 'b1';
+    branchSel.disabled = true;
+    branchSel.title = `${getRoleLabel(role)} can only be assigned to the Main Branch`;
+  } else {
+    branchSel.disabled = false;
+    branchSel.title = '';
+  }
 }
 
 function saveNewEmployee() {
@@ -11454,7 +13593,7 @@ function saveNewEmployee() {
   const name = document.getElementById('ae-name')?.value.trim();
   const username = document.getElementById('ae-username')?.value.trim();
   const password = document.getElementById('ae-password')?.value;
-  const role = document.getElementById('ae-role')?.value || 'staff';
+  const role = document.getElementById('ae-role')?.value || 'cashier';
   const branchId = document.getElementById('ae-branch')?.value || '';
 
   if (!name) { showToast('Full Name is required.', 'error'); return; }
@@ -11463,6 +13602,7 @@ function saveNewEmployee() {
   if (s.users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
     showToast('Username already taken — please choose another.', 'error'); return;
   }
+  if (roleCanBeMainBranchOnly(role) && branchId !== 'b1') { showToast(`${getRoleLabel(role)} can only be assigned to the Main Branch.`, 'error'); return; }
 
   const empId = 'emp_' + Date.now();
 
@@ -11487,10 +13627,15 @@ function saveNewEmployee() {
     createdAt: new Date().toISOString(),
   };
 
+  // Save employee record
+  const employees = getEmployees();
+  employees.push(newEmployee);
+  saveEmployees(employees);
+
   // Create the linked system login account
   const newUser = {
     id: 'usr_' + Date.now(),
-    employeeId: empId, // link to employee record
+    employeeId: empId,
     name,
     username,
     password,
@@ -11498,11 +13643,6 @@ function saveNewEmployee() {
     position: newEmployee.position,
     branchId,
   };
-
-  // Save employee record
-  const employees = getEmployees();
-  employees.push(newEmployee);
-  saveEmployees(employees);
 
   // Save user account first so the DB row exists before we stamp employee_id
   s.users.push(newUser);
@@ -11517,158 +13657,735 @@ function saveNewEmployee() {
   DB.saveUser(newUser);
   // Pass linkedUserId so the /api/employees handler can stamp employee_id on the correct user row
   DB.saveEmployee({ ...newEmployee, linkedUserId: newUser.id });
+  showToast(`Employee "${name}" added with login account.`, 'success');
 
   closeModal();
-  showToast(`Employee "${name}" added with login account.`, 'success');
   renderEmployeeRecords();
 }
 
 // ── TIME CARDS ────────────────────────────────────────────────────
 function renderTimecards() {
+  // Legacy timecards kept for backward compatibility – redirect to new attendance page
+  renderAttendance();
+}
+
+// ── ATTENDANCE MODULE ────────────────────────────────────────────────────────
+// Anti-cheat design:
+//  • Time-in/out timestamps are set by the system clock at the moment of tap —
+//    staff cannot type in a custom time.
+//  • Each user can only have ONE open (no time-out) record per calendar day.
+//    Attempting to time-in again on the same day is blocked.
+//  • A unique session fingerprint (userAgent + screen + timezone) is captured
+//    with every tap to help detect shared-device abuse.
+//  • All taps are written to the audit log so admins can detect anomalies.
+//  • Admins see every employee's record; staff/print only see their own.
+
+function _attFingerprintStr() {
+  try {
+    return [
+      navigator.userAgent || '',
+      screen.width + 'x' + screen.height,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    ].join('|');
+  } catch (e) { return 'unknown'; }
+}
+
+function _attTodayKey() {
+  // Returns 'YYYY-MM-DD' in local time
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function _attDurationStr(timeIn, timeOut) {
+  if (!timeIn || !timeOut) return '—';
+  const diffMs = new Date(timeOut) - new Date(timeIn);
+  if (diffMs < 0) return '—';
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor((diffMs % 3600000) / 60000);
+  return h + 'h ' + m + 'm';
+}
+
+function _attFormatTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function _attFormatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderAttendance() {
   const s = getState();
   const u = s.currentUser;
-  const isAdmin = u && u.role === 'admin';
+  if (!u) return;
+  const role = normalizeRole(u.role);
+  const isAdmin = role === 'admin' || role === 'hr';
+  const isTeamLeader = role === 'branch_manager';
 
-  // Generate semi-monthly pay periods for the past 6 months
-  function getPayPeriods() {
-    const periods = [];
-    const now = new Date();
-    for (let m = 0; m < 6; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-      const yr = d.getFullYear();
-      const mo = d.toLocaleString('en-PH', { month: 'short' });
-      const moNum = String(d.getMonth() + 1).padStart(2, '0');
-      periods.push({ label: `${mo} 16–${new Date(yr, d.getMonth() + 1, 0).getDate()}, ${yr}`, value: `${yr}-${moNum}-2` });
-      periods.push({ label: `${mo} 1–15, ${yr}`, value: `${yr}-${moNum}-1` });
-    }
-    return periods;
+  if (!s.attendanceRecords) s.attendanceRecords = [];
+
+  const today = _attTodayKey();
+  const myRecord = s.attendanceRecords.find(r => r.userId === u.id && r.date === today);
+  const hasTimedIn = !!myRecord;
+  const hasTimedOut = !!(myRecord && myRecord.timeOut);
+
+  // Which records to show
+  const filterUserId = document.getElementById('att-filter-user')?.value || '';
+  const filterMonth = document.getElementById('att-filter-month')?.value || '';
+
+  let records;
+  if (isAdmin) {
+    records = [...s.attendanceRecords];
+  } else if (isTeamLeader) {
+    // TL sees all records for their branch
+    const branchUserIds = new Set((s.users || []).filter(x => x.branchId === u.branchId).map(x => x.id));
+    branchUserIds.add(u.id);
+    records = s.attendanceRecords.filter(r => branchUserIds.has(r.userId) || r.branchId === u.branchId);
+  } else {
+    records = s.attendanceRecords.filter(r => r.userId === u.id);
   }
 
-  const timecards = s.timecards || [];
-  const myCards = isAdmin ? timecards : timecards.filter(tc => tc.userId === u.id);
+  if ((isAdmin || isTeamLeader) && filterUserId) records = records.filter(r => r.userId === filterUserId);
+  if (filterMonth) records = records.filter(r => r.date && r.date.startsWith(filterMonth));
+  records = [...records].sort((a, b) => b.date.localeCompare(a.date));
 
-  document.getElementById('page-content').innerHTML = `
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-      <div><h1 class="page-title">${isAdmin ? 'Time Card Review' : 'My Time Card'}</h1>
-      ${!isAdmin ? `<p class="page-subtitle">${u.name} — ${(s.branches || []).find(b => b.id === u.branchId)?.name || 'Unassigned'}</p>` : '<p class="page-subtitle">Review and approve submitted time cards</p>'}
+  const allStaff = isAdmin
+    ? (s.users || []).filter(x => x.active !== false && x.role !== 'admin')
+    : isTeamLeader
+      ? (s.users || []).filter(x => x.active !== false && x.branchId === u.branchId && x.role !== 'admin')
+      : [];
+
+  // Stats for admin and team leader
+  let statsHtml = '';
+  if (isAdmin || isTeamLeader) {
+    const presentToday = records.filter(r => r.date === today).length;
+    const totalStaff = allStaff.length;
+    const completedToday = records.filter(r => r.date === today && r.timeOut).length;
+    const currentlyIn = presentToday - completedToday;
+    statsHtml = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;">
+        <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:var(--maroon)">${totalStaff}</div>
+          <div style="font-size:11px;color:var(--ink-60);margin-top:2px">Total Staff</div>
+        </div>
+        <div style="background:#d1fae5;border-radius:var(--radius);padding:14px 16px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#065f46">${presentToday}</div>
+          <div style="font-size:11px;color:#065f46;margin-top:2px">Present Today</div>
+        </div>
+        <div style="background:#fef3c7;border-radius:var(--radius);padding:14px 16px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#92400e">${currentlyIn}</div>
+          <div style="font-size:11px;color:#92400e;margin-top:2px">Currently Clocked In</div>
+        </div>
+        <div style="background:#ede9fe;border-radius:var(--radius);padding:14px 16px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#5b21b6">${completedToday}</div>
+          <div style="font-size:11px;color:#5b21b6;margin-top:2px">Completed Today</div>
+        </div>
+      </div>`;
+  }
+
+  // Tap panel for non-admin users
+  let tapPanelHtml = '';
+  if (!isAdmin) {
+    const branch = (s.branches || []).find(b => b.id === u.branchId);
+    const nowStr = new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const dateStr = new Date().toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    let statusBadge = `<span class="badge badge-neutral" style="font-size:13px;padding:6px 14px;">Not Yet Timed In</span>`;
+    let timeInDisplay = '—';
+    let timeOutDisplay = '—';
+    let durationDisplay = '—';
+
+    if (hasTimedIn) {
+      timeInDisplay = _attFormatTime(myRecord.timeIn);
+      if (hasTimedOut) {
+        timeOutDisplay = _attFormatTime(myRecord.timeOut);
+        durationDisplay = _attDurationStr(myRecord.timeIn, myRecord.timeOut);
+        statusBadge = `<span class="badge badge-neutral" style="font-size:13px;padding:6px 14px;background:#ede9fe;color:#5b21b6;">✓ Shift Complete</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-success" style="font-size:13px;padding:6px 14px;">● Currently Clocked In</span>`;
+      }
+    }
+
+    let actionBtn = '';
+    const isPending = hasTimedIn && myRecord._pending;
+    const isClockingOut = hasTimedIn && !hasTimedOut && myRecord._clockingOut;
+
+    if (!hasTimedIn) {
+      actionBtn = `<button class="btn btn-maroon" style="padding:14px 32px;font-size:15px;font-weight:700;letter-spacing:0.02em;" onclick="attTimeIn()">
+        ⏱ TAP TO TIME IN
+      </button>`;
+    } else if (isPending) {
+      // Optimistic placeholder — API call still in flight
+      actionBtn = `<button class="btn btn-maroon" disabled style="padding:14px 32px;font-size:15px;font-weight:700;letter-spacing:0.02em;opacity:0.6;cursor:not-allowed;">
+        ⏳ Saving clock-in…
+      </button>`;
+    } else if (isClockingOut) {
+      actionBtn = `<button class="btn" disabled style="padding:14px 32px;font-size:15px;font-weight:700;letter-spacing:0.02em;background:var(--warning);color:#fff;opacity:0.6;cursor:not-allowed;">
+        ⏳ Saving clock-out…
+      </button>`;
+    } else if (!hasTimedOut) {
+      actionBtn = `<button class="btn" style="padding:14px 32px;font-size:15px;font-weight:700;letter-spacing:0.02em;background:var(--warning);color:#fff;" onclick="attTimeOut()">
+        ⏹ TAP TO TIME OUT
+      </button>`;
+    } else {
+      actionBtn = `<div style="color:var(--ink-60);font-size:13px;text-align:center;padding:12px 0;">Attendance for today is complete. See you tomorrow!</div>`;
+    }
+
+    tapPanelHtml = `
+      <div class="data-card" style="margin-bottom:20px;">
+        <div class="data-card-header"><span class="data-card-title">📍 Today's Attendance</span></div>
+        <div class="data-card-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+            <div>
+              <div style="font-size:15px;font-weight:600;color:var(--ink)">${u.name}</div>
+              <div style="font-size:12px;color:var(--ink-60)">${branch?.name || 'Unassigned'} · ${dateStr}</div>
+            </div>
+            ${statusBadge}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
+            <div style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;text-align:center;">
+              <div style="font-size:11px;color:var(--ink-50);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px">Time In</div>
+              <div style="font-size:17px;font-weight:700;color:var(--ink)">${timeInDisplay}</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;text-align:center;">
+              <div style="font-size:11px;color:var(--ink-50);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px">Time Out</div>
+              <div style="font-size:17px;font-weight:700;color:var(--ink)">${timeOutDisplay}</div>
+            </div>
+            <div style="background:var(--cream);border-radius:var(--radius-sm);padding:12px;text-align:center;">
+              <div style="font-size:11px;color:var(--ink-50);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px">Duration</div>
+              <div style="font-size:17px;font-weight:700;color:var(--ink)">${durationDisplay}</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:center;">${actionBtn}</div>
+          <div style="font-size:11px;color:var(--ink-40);text-align:center;margin-top:12px;">
+            ⚠ Timestamps are recorded automatically by the system and cannot be manually edited.
+          </div>
+        </div>
+      </div>`;
+  }
+
+  let teamLeaderStaffHtml = '';
+  if (isTeamLeader) {
+    const branchStaff = allStaff
+      .filter(emp => emp.id !== u.id)
+      .sort((a, b) => (a.name || a.username || '').localeCompare(b.name || b.username || ''));
+
+    teamLeaderStaffHtml = `
+      <div class="data-card" style="margin-bottom:20px;">
+        <div class="data-card-header"><span class="data-card-title">Today's Branch Staff</span></div>
+        <div class="data-card-body no-pad">
+          <table class="data-table">
+            <thead><tr>
+              <th>Name</th>
+              <th>Date</th>
+              <th>Time In</th>
+              <th>Time Out</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr></thead>
+            <tbody>
+              ${branchStaff.length ? branchStaff.map(emp => {
+      const todayRecord = (s.attendanceRecords || []).find(r => r.userId === emp.id && r.date === today);
+      const open = !!(todayRecord && todayRecord.timeIn && !todayRecord.timeOut);
+      const complete = !!(todayRecord && todayRecord.timeIn && todayRecord.timeOut);
+      const statusBadge = complete
+        ? `<span class="badge badge-success">Complete</span>`
+        : open
+          ? `<span class="badge badge-warning">In Progress</span>`
+          : `<span class="badge badge-neutral">Not Yet Timed In</span>`;
+      const actionHtml = open
+        ? `<button class="btn btn-sm btn-danger" onclick="attManagerTimeOut('${emp.id}')" title="Clock out employee">Time Out</button>`
+        : `<button class="btn btn-sm btn-maroon" onclick="attManagerTimeIn('${emp.id}')" title="Clock in employee">Time In</button>`;
+      const editHtml = todayRecord && todayRecord.timeIn && !todayRecord._pending
+        ? ` <button class="btn btn-sm btn-outline" onclick="attEditTimeModal('${todayRecord.id}','branch_manager')" title="Edit employee attendance time">✏ Edit</button>`
+        : '';
+
+      return `<tr>
+                  <td><strong>${emp.name || '—'}</strong><br><span style="font-size:11px;color:var(--ink-50)">${emp.username || ''}</span></td>
+                  <td class="td-mono">${_attFormatDate(today + 'T00:00:00')}</td>
+                  <td class="td-mono">${_attFormatTime(todayRecord?.timeIn)}</td>
+                  <td class="td-mono">${_attFormatTime(todayRecord?.timeOut)}</td>
+                  <td>${_attDurationStr(todayRecord?.timeIn, todayRecord?.timeOut)}</td>
+                  <td>${statusBadge}</td>
+                  <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${actionHtml}${editHtml}</div></td>
+                </tr>`;
+    }).join('') : `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-40)">No staff found in this branch.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // Filters
+  const filterHtml = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      ${(isAdmin || isTeamLeader) ? `<div class="form-group" style="margin-bottom:0;min-width:180px;">
+        <label style="font-size:11px;">Filter by Staff</label>
+        <div class="form-select-wrap"><select class="form-control" id="att-filter-user" onchange="renderAttendance()" style="font-size:13px;padding:7px 10px;">
+          <option value="">All Staff</option>
+          ${allStaff.map(st => `<option value="${st.id}"${filterUserId === st.id ? ' selected' : ''}>${st.name || st.username}</option>`).join('')}
+        </select></div>
+      </div>` : ''}
+      <div class="form-group" style="margin-bottom:0;min-width:150px;">
+        <label style="font-size:11px;">Filter by Month</label>
+        <input type="month" class="form-control" id="att-filter-month" value="${filterMonth}" onchange="renderAttendance()" style="font-size:13px;padding:7px 10px;">
       </div>
-      ${!isAdmin ? `<button class="btn btn-maroon" onclick="showUploadTimecardModal()">+ Upload New Time Card</button>` : ''}
-    </div>
+      ${isAdmin ? `<button class="btn btn-outline" style="font-size:12px;" onclick="attAdminExport()">⬇ Export CSV</button>` : ''}
+    </div>`;
+
+  // Records table
+  const tableHtml = `
     <div class="data-card">
-      <div class="data-card-header"><span class="data-card-title">${isAdmin ? 'Pending Review' : 'My Submissions'}</span></div>
+      <div class="data-card-header"><span class="data-card-title">${isAdmin ? 'All Attendance Records' : isTeamLeader ? 'Branch Attendance Records' : 'My Attendance History'}</span></div>
       <div class="data-card-body no-pad">
+        ${filterHtml}
         <table class="data-table">
-          <thead><tr>${isAdmin ? '<th>Full Name</th>' : ''}<th>Username</th><th>Branch</th><th>Period</th><th>Date Uploaded</th><th>Image</th><th>Notes</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr>
+            ${(isAdmin || isTeamLeader) ? '<th>Name</th>' : ''}
+            ${isAdmin ? '<th>Branch</th>' : ''}
+            <th>Date</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+            <th>Duration</th>
+            <th>Status</th>
+            ${isAdmin ? '<th>Device</th>' : ''}
+            ${(isAdmin || isTeamLeader) ? '<th>Action</th>' : ''}
+          </tr></thead>
           <tbody>
-            ${myCards.length ? myCards.map(tc => {
-    const emp = (s.users || []).find(x => x.id === tc.userId);
-    const br = (s.branches || []).find(b => b.id === (emp?.branchId || tc.branchId));
-    const statusCls = { pending: 'badge-neutral', approved: 'badge-success', rejected: 'badge-danger' }[tc.status || 'pending'] || 'badge-neutral';
+            ${records.length ? records.map(r => {
+    const emp = (s.users || []).find(x => x.id === r.userId);
+    const br = (s.branches || []).find(b => b.id === (emp?.branchId));
+    const dur = _attDurationStr(r.timeIn, r.timeOut);
+    const complete = !!(r.timeIn && r.timeOut);
+    const open = !!(r.timeIn && !r.timeOut);
+    const statusBadge = complete
+      ? `<span class="badge badge-success">Complete</span>`
+      : open
+        ? `<span class="badge badge-warning">In Progress</span>`
+        : `<span class="badge badge-neutral">Absent</span>`;
+    const deviceInfo = r.device ? `<span title="${r.device}" style="font-size:11px;color:var(--ink-50);cursor:help;">📱 ${r.device.split('|')[0].slice(0, 30)}…</span>` : '—';
     return `<tr>
-                ${isAdmin ? `<td>${emp?.name || '—'}</td>` : ''}
-                <td>${emp?.username || tc.username || '—'}</td>
-                <td>${br?.name || '—'}</td>
-                <td>${tc.period || '—'}</td>
-                <td>${tc.dateUploaded ? new Date(tc.dateUploaded).toLocaleDateString('en-PH') : '—'}</td>
-                <td>${tc.imageUrl ? `<a href="${tc.imageUrl}" target="_blank" class="btn btn-sm btn-outline">View</a>` : '—'}</td>
-                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tc.notes || '—'}</td>
-                <td><span class="badge ${statusCls}">${tc.status || 'pending'}</span></td>
-                <td>${isAdmin && tc.status === 'pending' ? `
-                  <button class="btn btn-sm btn-outline" onclick="approveTimecard('${tc.id}')">Approve</button>
-                  <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="rejectTimecard('${tc.id}')">Reject</button>
-                ` : '—'}</td>
+                ${(isAdmin || isTeamLeader) ? `<td><strong>${emp?.name || '—'}</strong><br><span style="font-size:11px;color:var(--ink-50)">${emp?.username || ''}</span></td>` : ''}
+                ${isAdmin ? `<td style="font-size:12px;">${br?.name || '—'}</td>` : ''}
+                <td class="td-mono">${_attFormatDate(r.date + 'T00:00:00')}</td>
+                <td class="td-mono">${_attFormatTime(r.timeIn)}</td>
+                <td class="td-mono">${_attFormatTime(r.timeOut)}</td>
+                <td>${dur}</td>
+                <td>${statusBadge}</td>
+                ${isAdmin ? `<td style="max-width:140px;overflow:hidden;">${deviceInfo}</td>` : ''}
+                ${(isAdmin || isTeamLeader) ? `<td>
+                  ${isAdmin
+          ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">${open && !r._pending ? `<button class="btn btn-sm btn-danger" onclick="attAdminForceOut('${r.id}')" title="Force clock-out">Force Out</button>` : ''}${!r._pending && r.timeIn ? `<button class="btn btn-sm btn-outline" onclick="attEditTimeModal('${r.id}','admin')" title="Edit time-in / time-out">✏ Edit</button>` : (r._pending ? `<span style="font-size:11px;color:var(--ink-40);">Saving…</span>` : '—')}</div>`
+          : (emp && emp.id !== u.id
+            ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">${open
+              ? `<button class="btn btn-sm btn-danger" onclick="attManagerTimeOut('${emp.id}')" title="Clock out employee">Time Out</button>`
+              : `<button class="btn btn-sm btn-maroon" onclick="attManagerTimeIn('${emp.id}')" title="Clock in employee">Time In</button>`}${!r._pending && r.timeIn ? `<button class="btn btn-sm btn-outline" onclick="attEditTimeModal('${r.id}','branch_manager')" title="Edit employee attendance time">✏ Edit</button>` : ''}</div>`
+            : '<span style="font-size:11px;color:var(--ink-40)" title="Use the tap panel above to record your own attendance.">🔒 Self-service</span>')}
+                </td>` : ''}
               </tr>`;
-  }).join('') : `<tr><td colspan="${isAdmin ? 9 : 8}" style="text-align:center;color:var(--ink-40);padding:32px">No time cards found.</td></tr>`}
+  }).join('') : `<tr><td colspan="${isAdmin ? 9 : isTeamLeader ? 7 : 5}" style="text-align:center;padding:32px;color:var(--ink-40)">No attendance records found.</td></tr>`}
           </tbody>
         </table>
       </div>
     </div>`;
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${isAdmin ? 'Attendance Management' : isTeamLeader ? 'Branch Attendance' : 'My Attendance'}</h1>
+      <p class="page-subtitle">${isAdmin ? 'Monitor and manage staff attendance. All timestamps are system-recorded.' : isTeamLeader ? 'View and manage attendance for all staff in your branch.' : 'Tap to clock in and out. Your time is recorded automatically.'}</p>
+    </div>
+    ${statsHtml}
+    ${tapPanelHtml}
+    ${teamLeaderStaffHtml}
+    ${tableHtml}`;
 }
 
-function showUploadTimecardModal() {
+function attTimeIn() {
   const s = getState();
   const u = s.currentUser;
-  const br = (s.branches || []).find(b => b.id === u.branchId);
+  if (!u) return;
+  const today = _attTodayKey();
+  if (!s.attendanceRecords) s.attendanceRecords = [];
 
-  function getPayPeriods() {
-    const periods = [];
-    const now = new Date();
-    for (let m = 0; m < 6; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
-      const yr = d.getFullYear();
-      const mo = d.toLocaleString('en-PH', { month: 'long' });
-      const moNum = String(d.getMonth() + 1).padStart(2, '0');
-      const lastDay = new Date(yr, d.getMonth() + 1, 0).getDate();
-      periods.push({ label: `${mo} 16–${lastDay}, ${yr}`, value: `${yr}-${moNum}-2` });
-      periods.push({ label: `${mo} 1–15, ${yr}`, value: `${yr}-${moNum}-1` });
-    }
-    return periods;
+  // Anti-cheat: block duplicate time-in on same day (client-side fast-fail)
+  const existing = s.attendanceRecords.find(r => r.userId === u.id && r.date === today);
+  if (existing) {
+    showToast('You have already timed in today.', 'error');
+    return;
   }
 
-  const periods = getPayPeriods();
-  // Auto-select the most recent pay period (first in list)
-  const defaultPeriod = periods[0]?.value || '';
-  showModal(`<div class="modal-header"><h2>Upload Time Card</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+  // Optimistic placeholder so the UI shows "clocked in" immediately
+  const placeholder = {
+    id: '_pending_' + u.id,
+    userId: u.id,
+    username: u.username,
+    branchId: u.branchId,
+    date: today,
+    timeIn: new Date().toISOString(),
+    timeOut: null,
+    device: _attFingerprintStr(),
+    createdAt: new Date().toISOString(),
+    _pending: true,
+  };
+  s.attendanceRecords.push(placeholder);
+  saveState(s);
+  renderAttendance();
+
+  // Persist to DB — server sets the authoritative timestamp
+  DB.saveAttendance('time-in', _attFingerprintStr())
+    .then(function (serverRecord) {
+      // Replace optimistic placeholder with the real server record
+      const st = getState();
+      if (!st.attendanceRecords) st.attendanceRecords = [];
+      const idx = st.attendanceRecords.findIndex(r => r.id === '_pending_' + u.id);
+      const confirmed = {
+        id: serverRecord.id,
+        userId: u.id,
+        username: u.username,
+        branchId: u.branchId,
+        date: serverRecord.date || today,
+        timeIn: serverRecord.timeIn,
+        timeOut: null,
+        createdAt: serverRecord.timeIn,
+      };
+      if (idx !== -1) {
+        st.attendanceRecords.splice(idx, 1, confirmed);
+      } else {
+        // Remove any duplicate pending, add confirmed
+        st.attendanceRecords = st.attendanceRecords.filter(r => r.id !== '_pending_' + u.id);
+        st.attendanceRecords.push(confirmed);
+      }
+      recordAudit(st, {
+        action: 'attendance_time_in',
+        message: `${u.name} clocked IN at ${_attFormatTime(confirmed.timeIn)} on ${confirmed.date}`,
+        userId: u.id
+      });
+      saveState(st);
+      showToast(`⏱ Clocked in at ${_attFormatTime(confirmed.timeIn)}`, 'success');
+      renderAttendance();
+    })
+    .catch(function (err) {
+      // Roll back the optimistic entry — server rejected (e.g. duplicate, offline)
+      const st = getState();
+      st.attendanceRecords = (st.attendanceRecords || []).filter(r => r.id !== '_pending_' + u.id);
+      saveState(st);
+      showToast('Clock-in failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+      renderAttendance();
+    });
+}
+
+function attTimeOut() {
+  const s = getState();
+  const u = s.currentUser;
+  if (!u) return;
+  const today = _attTodayKey();
+  if (!s.attendanceRecords) s.attendanceRecords = [];
+
+  const record = s.attendanceRecords.find(r => r.userId === u.id && r.date === today && !r.timeOut);
+  if (!record) {
+    showToast('No open time-in record found for today.', 'error');
+    return;
+  }
+
+  // Anti-cheat: minimum 1 minute between time-in and time-out (client-side fast-fail)
+  const diffMs = Date.now() - new Date(record.timeIn).getTime();
+  if (diffMs < 60000) {
+    showToast('You must wait at least 1 minute before timing out.', 'error');
+    return;
+  }
+
+  // Disable the button optimistically to prevent double-tap
+  record._clockingOut = true;
+  saveState(s);
+  renderAttendance();
+
+  DB.saveAttendance('time-out', _attFingerprintStr())
+    .then(function (serverRecord) {
+      const st = getState();
+      const rec = (st.attendanceRecords || []).find(r => r.id === serverRecord.id ||
+        (r.userId === u.id && r.date === today && !r.timeOut));
+      if (rec) {
+        rec.timeOut = serverRecord.timeOut;
+        rec.id = serverRecord.id; // confirm server ID in case it differed
+        delete rec._clockingOut;
+        recordAudit(st, {
+          action: 'attendance_time_out',
+          message: `${u.name} clocked OUT at ${_attFormatTime(rec.timeOut)} on ${today}. Duration: ${_attDurationStr(rec.timeIn, rec.timeOut)}`,
+          userId: u.id
+        });
+        saveState(st);
+        showToast(`⏹ Clocked out at ${_attFormatTime(rec.timeOut)}. Total: ${_attDurationStr(rec.timeIn, rec.timeOut)}`, 'success');
+      }
+      renderAttendance();
+    })
+    .catch(function (err) {
+      // Roll back optimistic state
+      const st = getState();
+      const rec = (st.attendanceRecords || []).find(r => r.userId === u.id && r.date === today);
+      if (rec) { delete rec._clockingOut; }
+      saveState(st);
+      showToast('Clock-out failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+      renderAttendance();
+    });
+}
+
+function attManagerTimeIn(userId) {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || normalizeRole(me.role) !== 'branch_manager') { showToast('Only the Branch Manager can clock in staff.', 'error'); return; }
+  const emp = (s.users || []).find(x => x.id === userId && x.branchId === me.branchId);
+  if (!emp) { showToast('Employee not found in your branch.', 'error'); return; }
+  if (emp.id === me.id) { showToast('Use your own attendance tap for your personal time-in.', 'error'); return; }
+  DB.saveAttendance('time-in', _attFingerprintStr(), userId)
+    .then(function (serverRecord) {
+      const st = getState();
+      st.attendanceRecords = (st.attendanceRecords || []).filter(r => !(r.userId === userId && r.date === (serverRecord.date || _attTodayKey())));
+      st.attendanceRecords.push({
+        id: serverRecord.id,
+        userId: userId,
+        username: emp.username,
+        branchId: emp.branchId,
+        date: serverRecord.date || _attTodayKey(),
+        timeIn: serverRecord.timeIn,
+        timeOut: null,
+        createdAt: serverRecord.timeIn,
+      });
+      recordAudit(st, { action: 'attendance_manager_time_in', message: `${me.name} clocked in ${emp.name}`, userId: me.id, meta: { targetUserId: userId } });
+      saveState(st);
+      showToast(emp.name + ' timed in successfully.', 'success');
+      renderAttendance();
+    })
+    .catch(function (err) {
+      showToast('Clock-in failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+    });
+}
+
+function attManagerTimeOut(userId) {
+  const s = getState();
+  const me = s.currentUser;
+  if (!me || normalizeRole(me.role) !== 'branch_manager') { showToast('Only the Branch Manager can clock out staff.', 'error'); return; }
+  const emp = (s.users || []).find(x => x.id === userId && x.branchId === me.branchId);
+  if (!emp) { showToast('Employee not found in your branch.', 'error'); return; }
+  if (emp.id === me.id) { showToast('Use your own attendance tap for your personal time-out.', 'error'); return; }
+  DB.saveAttendance('time-out', _attFingerprintStr(), userId)
+    .then(function (serverRecord) {
+      const st = getState();
+      const rec = (st.attendanceRecords || []).find(r => r.id === serverRecord.id || (r.userId === userId && r.date === _attTodayKey() && !r.timeOut));
+      if (rec) rec.timeOut = serverRecord.timeOut;
+      recordAudit(st, { action: 'attendance_manager_time_out', message: `${me.name} clocked out ${emp.name}`, userId: me.id, meta: { targetUserId: userId } });
+      saveState(st);
+      showToast(emp.name + ' timed out successfully.', 'success');
+      renderAttendance();
+    })
+    .catch(function (err) {
+      showToast('Clock-out failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+    });
+}
+
+function attAdminForceOut(recordId) {
+  const s = getState();
+  const record = (s.attendanceRecords || []).find(r => r.id === recordId);
+  if (!record) return;
+  if (record.timeOut) { showToast('This record already has a time-out.', 'error'); return; }
+
+  const emp = (s.users || []).find(x => x.id === record.userId);
+  showModal(`<div class="modal-header"><h2>Force Clock-Out</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div style="background:var(--cream);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px;">
-        <div><span style="color:var(--ink-50)">Full Name</span><div style="font-weight:600;margin-top:2px">${u.name}</div></div>
-        <div><span style="color:var(--ink-50)">Username</span><div style="font-weight:600;margin-top:2px">${u.username}</div></div>
-        <div style="grid-column:1/-1"><span style="color:var(--ink-50)">Branch</span><div style="font-weight:600;margin-top:2px">${br?.name || 'Unassigned'}</div></div>
-      </div>
+      <p style="color:var(--ink-60);font-size:14px;margin-bottom:16px;">
+        Force clock-out <strong>${emp?.name || 'this employee'}</strong> for ${_attFormatDate(record.date + 'T00:00:00')}?<br>
+        Time in was <strong>${_attFormatTime(record.timeIn)}</strong>. Current time will be used as time-out.
+      </p>
       <div class="form-group">
-        <label>Pay Period <span style="color:var(--danger)">*</span></label>
-        <div class="form-select-wrap"><select class="form-control" id="tc-period">
-          <option value="">— Select period —</option>
-          ${periods.map(p => `<option value="${p.value}"${p.value === defaultPeriod ? ' selected' : ''}>${p.label}</option>`).join('')}
-        </select></div>
-      </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Date Uploaded</label>
-          <input class="form-control" type="date" id="tc-date" value="${new Date().toISOString().split('T')[0]}">
-        </div>
-        <div class="form-group">
-          <label>Time Card Photo</label>
-          <input class="form-control" type="file" id="tc-image" accept="image/*" style="padding:6px 10px">
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Notes <span style="color:var(--ink-40);font-weight:400">(optional)</span></label>
-        <textarea class="form-control" id="tc-notes" rows="2" placeholder="Any notes about this time card…"></textarea>
+        <label>Reason / Note <span style="color:var(--danger)">*</span></label>
+        <textarea class="form-control" id="force-out-reason" rows="2" placeholder="e.g. Employee forgot to clock out, emergency departure…"></textarea>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-maroon" onclick="submitTimecard()">Submit Time Card</button>
+      <button class="btn btn-danger" onclick="attAdminForceOutConfirm('${recordId}')">Confirm Force Out</button>
     </div>`);
 }
 
-function submitTimecard() {
+function attAdminForceOutConfirm(recordId) {
+  const reason = document.getElementById('force-out-reason')?.value.trim();
+  if (!reason) { showToast('Please enter a reason.', 'error'); return; }
   const s = getState();
-  const u = s.currentUser;
-  const period = document.getElementById('tc-period')?.value;
-  const dateUploaded = document.getElementById('tc-date')?.value;
-  const notes = document.getElementById('tc-notes')?.value.trim();
-  if (!period) { showToast('Please select a pay period.', 'error'); return; }
-  if (!s.timecards) s.timecards = [];
-  const tc = {
-    id: 'tc' + Date.now(),
-    userId: u.id,
-    username: u.username,
-    branchId: u.branchId,
-    period,
-    dateUploaded,
-    notes,
-    status: 'pending',
-    submittedAt: new Date().toISOString()
-  };
-  s.timecards.push(tc);
-  saveState(s);
-  if (typeof DB !== 'undefined') DB.saveTimecard(tc);
+  const record = (s.attendanceRecords || []).find(r => r.id === recordId);
+  if (!record) return;
+
+  // Guard: don't act on pending/unconfirmed records that haven't reached the server yet
+  if (recordId.startsWith('_pending_')) {
+    showToast('This record is still being saved. Please wait a moment and try again.', 'error');
+    return;
+  }
+
   closeModal();
-  showToast('Time card submitted for review.', 'success');
-  renderTimecards();
+
+  DB.updateAttendance(recordId, { forceOut: true, forceOutReason: reason })
+    .then(function (serverRecord) {
+      const st = getState();
+      const rec = (st.attendanceRecords || []).find(r => r.id === recordId);
+      if (rec) {
+        rec.timeOut = serverRecord.timeOut;
+        rec.forceOut = true;
+        rec.forceOutReason = reason;
+        rec.forceOutBy = st.currentUser?.id;
+        rec.forceOutAt = serverRecord.timeOut;
+        recordAudit(st, {
+          action: 'attendance_force_out',
+          message: `Admin force clock-out for user ${rec.userId} on ${rec.date}. Reason: ${reason}`,
+          userId: st.currentUser?.id
+        });
+        saveState(st);
+      }
+      showToast('Employee has been clocked out.', 'success');
+      renderAttendance();
+    })
+    .catch(function (err) {
+      showToast('Force clock-out failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+      renderAttendance();
+    });
 }
+
+
+// ── attEditTimeModal ──────────────────────────────────────────────────────────
+// Opens a modal to edit time-in / time-out for an attendance record.
+// mode = 'admin'          → Super Admin editing any record (including branch managers)
+// mode = 'branch_manager' → Branch Manager editing employee records in their branch
+function attEditTimeModal(recordId, mode) {
+  const s = getState();
+  const me = s.currentUser;
+  const record = (s.attendanceRecords || []).find(r => r.id === recordId);
+  if (!record) { showToast('Record not found.', 'error'); return; }
+
+  const emp = (s.users || []).find(x => x.id === record.userId);
+  const empName = emp?.name || 'Employee';
+
+  // Guard: branch manager cannot edit their own record
+  if (mode === 'branch_manager' && record.userId === me?.id) {
+    showToast('You cannot edit your own attendance record. Please contact the Super Admin.', 'error');
+    return;
+  }
+
+  // Parse existing times to HH:MM for the time inputs
+  function toHHMM(dtStr) {
+    if (!dtStr) return '';
+    const d = new Date(dtStr);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  const currentTimeIn = toHHMM(record.timeIn);
+  const currentTimeOut = toHHMM(record.timeOut);
+  const dateLabel = _attFormatDate(record.date + 'T00:00:00');
+
+  showModal(`<div class="modal-header">
+    <h2>✏ Edit Attendance Time</h2>
+    <button class="btn-close-modal" onclick="closeModal()">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="alert alert-info" style="margin-bottom:16px;">
+      <strong>${empName}</strong> · ${dateLabel}
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label>Time In <span style="color:var(--danger)">*</span></label>
+        <input type="time" id="att-edit-timein" class="form-control" value="${currentTimeIn}">
+      </div>
+      <div class="form-group">
+        <label>Time Out <span style="color:var(--ink-50);font-size:11px;">(leave blank if still clocked in)</span></label>
+        <input type="time" id="att-edit-timeout" class="form-control" value="${currentTimeOut}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Reason for Edit <span style="color:var(--danger)">*</span></label>
+      <textarea id="att-edit-reason" class="form-control" rows="2" placeholder="e.g. Employee forgot to clock in, wrong time recorded…"></textarea>
+    </div>
+    <div style="font-size:11px;color:var(--ink-50);margin-top:4px;">
+      ⚠ This edit will be logged for audit purposes.
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-maroon" onclick="attEditTimeConfirm('${recordId}')">Save Changes</button>
+  </div>`);
+}
+
+function attEditTimeConfirm(recordId) {
+  const timeIn = document.getElementById('att-edit-timein')?.value.trim();
+  const timeOut = document.getElementById('att-edit-timeout')?.value.trim();
+  const reason = document.getElementById('att-edit-reason')?.value.trim();
+
+  if (!timeIn) { showToast('Time In is required.', 'error'); return; }
+  if (!reason) { showToast('Please enter a reason for the edit.', 'error'); return; }
+  if (timeOut && timeOut <= timeIn) { showToast('Time Out must be after Time In.', 'error'); return; }
+
+  closeModal();
+
+  DB.editAttendanceTime(recordId, timeIn, timeOut || null, reason)
+    .then(function (serverRecord) {
+      const st = getState();
+      const rec = (st.attendanceRecords || []).find(r => r.id === recordId);
+      if (rec) {
+        rec.timeIn = serverRecord.timeIn || rec.timeIn;
+        rec.timeOut = serverRecord.timeOut !== undefined ? serverRecord.timeOut : rec.timeOut;
+        recordAudit(st, {
+          action: 'attendance_time_edited',
+          message: `Attendance time edited for ${rec.userId} on ${rec.date}. Reason: ${reason}`,
+          userId: st.currentUser?.id,
+          meta: { recordId, newTimeIn: serverRecord.timeIn, newTimeOut: serverRecord.timeOut, reason }
+        });
+        saveState(st);
+      }
+      showToast('Attendance time updated successfully.', 'success');
+      renderAttendance();
+    })
+    .catch(function (err) {
+      showToast('Edit failed: ' + (err.message || 'Server error. Please try again.'), 'error');
+      renderAttendance();
+    });
+}
+
+function attAdminExport() {
+  const s = getState();
+  const filterUserId = document.getElementById('att-filter-user')?.value || '';
+  const filterMonth = document.getElementById('att-filter-month')?.value || '';
+  let records = s.attendanceRecords || [];
+  if (filterUserId) records = records.filter(r => r.userId === filterUserId);
+  if (filterMonth) records = records.filter(r => r.date && r.date.startsWith(filterMonth));
+  records = [...records].sort((a, b) => b.date.localeCompare(a.date));
+
+  const header = ['Name', 'Username', 'Branch', 'Date', 'Time In', 'Time Out', 'Duration (hrs)', 'Status', 'Force Out', 'Force Out Reason'];
+  const rows = records.map(r => {
+    const emp = (s.users || []).find(x => x.id === r.userId);
+    const br = (s.branches || []).find(b => b.id === emp?.branchId);
+    const diffMs = r.timeIn && r.timeOut ? new Date(r.timeOut) - new Date(r.timeIn) : 0;
+    const hrs = diffMs > 0 ? (diffMs / 3600000).toFixed(2) : '';
+    const status = r.timeIn && r.timeOut ? 'Complete' : r.timeIn ? 'In Progress' : 'Absent';
+    return [
+      emp?.name || '', emp?.username || '', br?.name || '', r.date || '',
+      _attFormatTime(r.timeIn), _attFormatTime(r.timeOut), hrs, status,
+      r.forceOut ? 'Yes' : 'No', r.forceOutReason || ''
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+  });
+
+  const csv = [header.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `attendance_${filterMonth || 'all'}_export.csv`;
+  a.click();
+  showToast('Attendance exported as CSV.', 'success');
+}
+
+function showUploadTimecardModal() {
+  // Legacy stub — now replaced by tap-in/out system
+  showToast('The old time card upload system has been replaced with the new Attendance tap system.', 'info');
+}
+
+function submitTimecard() { /* legacy stub */ }
 
 function approveTimecard(id) {
   const s = getState();
@@ -11678,9 +14395,8 @@ function approveTimecard(id) {
     tc.reviewedAt = new Date().toISOString();
     tc.reviewedBy = s.currentUser?.id || null;
     saveState(s);
-    if (typeof DB !== 'undefined') DB.reviewTimecard(id, 'approved', tc.reviewedBy);
     showToast('Time card approved.', 'success');
-    renderTimecards();
+    renderAttendance();
   }
 }
 
@@ -11692,9 +14408,8 @@ function rejectTimecard(id) {
     tc.reviewedAt = new Date().toISOString();
     tc.reviewedBy = s.currentUser?.id || null;
     saveState(s);
-    if (typeof DB !== 'undefined') DB.reviewTimecard(id, 'rejected', tc.reviewedBy);
     showToast('Time card rejected.', 'error');
-    renderTimecards();
+    renderAttendance();
   }
 }
 
@@ -11703,10 +14418,18 @@ function renderLeaveManagement() {
   const s = getState();
   const u = s.currentUser;
   if (!u) return;
+  const role = normalizeRole(u.role);
+  const isAdmin = role === 'admin' || role === 'hr';
+  const isBranchManager = role === 'branch_manager';
 
   // ── ADMIN VIEW: Approval Center ────────────────────────────────────────────
-  if (u.role === 'admin') {
-    const leaves = s.leaves || [];
+  if (isAdmin || isBranchManager) {
+    const leaves = isBranchManager
+      ? (s.leaves || []).filter(l => {
+        const emp = (s.users || []).find(x => x.id === l.userId);
+        return (emp?.branchId || l.branchId) === u.branchId;
+      })
+      : (s.leaves || []);
     const activeFilter = window._leaveFilter || 'pending';
 
     const pending = leaves.filter(l => l.status === 'pending');
@@ -11733,7 +14456,7 @@ function renderLeaveManagement() {
     const rows = sorted.length ? sorted.map(l => {
       const emp = (s.users || []).find(x => x.id === l.userId);
       const br = (s.branches || []).find(b => b.id === (emp?.branchId));
-      const roleLabel = { staff: 'Branch Staff', print: 'Print Dept', admin: 'Admin' }[emp?.role] || '—';
+      const roleLabel = getRoleLabel(emp?.role);
       const statusCls = { pending: 'badge-gold', approved: 'badge-success', rejected: 'badge-danger' }[l.status || 'pending'] || 'badge-neutral';
       const reviewedBy = l.reviewedBy ? (s.users || []).find(x => x.id === l.reviewedBy)?.name || '—' : '—';
       const reviewedAt = l.reviewedAt ? new Date(l.reviewedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -11768,7 +14491,7 @@ function renderLeaveManagement() {
     document.getElementById('page-content').innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Leave Management</h1>
-        <p class="page-subtitle">Review and approve leave applications from Branch Staff and Printing Department</p>
+        <p class="page-subtitle">${isBranchManager ? 'Review and approve leave applications for your branch' : 'Review and approve leave applications from all branches'}</p>
       </div>
 
       <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
@@ -11833,7 +14556,7 @@ function renderLeaveManagement() {
   ).join('');
 
   const branch = (s.branches || []).find(b => b.id === u.branchId);
-  const roleLabel = { staff: 'Branch Staff', print: 'Printing Personnel' }[u.role] || u.role;
+  const roleLabel = getRoleLabel(u.role);
 
   const rows = sorted.length ? sorted.map(l => {
     const statusCls = { pending: 'badge-gold', approved: 'badge-success', rejected: 'badge-danger' }[l.status || 'pending'] || 'badge-neutral';
@@ -11893,7 +14616,7 @@ function showApplyLeaveModal() {
   const u = s.currentUser;
   // BUGFIX: br was undefined — resolve branch from state
   const br = (s.branches || []).find(b => b.id === u.branchId);
-  const roleLabel = { admin: 'Administrator', staff: 'Branch Staff', print: 'Printing Personnel' }[u.role] || u.role;
+  const roleLabel = getRoleLabel(u.role);
   const positionValue = u.position || u.employmentStatus || roleLabel;
   showModal(`<div class="modal-header"><h2>Apply for Leave</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
@@ -12057,34 +14780,127 @@ function cancelLeave(id) {
 
 // ── PAYSLIP HISTORY ───────────────────────────────────────────────
 function renderPayslipHistory() {
-  // FIX 4: Added role guard and scoped payslip history to current user only
   const s = getState();
   const u = s.currentUser;
-  if (!u || !['staff', 'print'].includes(u.role)) { accessDenied('Payslip History'); return; }
+  const role = normalizeRole(u?.role);
+  if (!u || !['admin', 'branch_manager', 'hr', 'cashier', 'inventory_staff', 'print'].includes(role)) { accessDenied('Payslip History'); return; }
 
-  const myPayslips = (s.payslips || []).filter(p => p.userId === u.id);
+  const branches = s.branches || [];
+  const isAdminOrHr = role === 'admin' || role === 'hr';
+  const isBranchManager = role === 'branch_manager';
 
-  const rows = myPayslips.length
-    ? myPayslips.map(p => `<tr>
-        <td><strong>${p.payPeriod}</strong></td>
-        <td class="td-mono">${p.daysPresent || '—'}</td>
-        <td class="td-mono">₱${fmt(p.grossPay || 0)}</td>
-        <td class="td-mono" style="color:var(--danger)">₱${fmt(p.deductions || 0)}</td>
-        <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay || 0)}</td>
-        <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View</button></td>
-      </tr>`).join('')
-    : '<tr><td colspan="6" style="text-align:center;color:var(--ink-40);padding:40px">No payslip history available yet.</td></tr>';
+  // Determine base payslip pool: admin/HR see all, branch_manager sees their branch, others see own
+  let basePayslips;
+  if (isAdminOrHr) {
+    basePayslips = s.payslips || [];
+  } else if (isBranchManager) {
+    basePayslips = (s.payslips || []).filter(p => p.branchId === u.branchId);
+  } else {
+    basePayslips = (s.payslips || []).filter(p => p.userId === u.id);
+  }
+
+  function filterPayslipsByDateRange(payslips, startDate, endDate) {
+    if (!startDate && !endDate) return payslips;
+    const from = startDate ? new Date(startDate + 'T00:00:00') : null;
+    const to = endDate ? new Date(endDate + 'T23:59:59') : null;
+    return payslips.filter(p => {
+      const bounds = parsePayrollPeriodBounds(p.periodKey, p.payPeriod);
+      if (!bounds) return true;
+      return (!from || bounds.end >= from) && (!to || bounds.start <= to);
+    });
+  }
+
+  // Get current filter values
+  const startDate = document.getElementById('payslip-start-date')?.value || '';
+  const endDate = document.getElementById('payslip-end-date')?.value || '';
+  const selectedBranchId = document.getElementById('payslip-branch-filter')?.value || '';
+
+  // Apply branch filter
+  let branchFilteredPayslips = basePayslips;
+  if (selectedBranchId) {
+    branchFilteredPayslips = basePayslips.filter(p => p.branchId === selectedBranchId);
+  }
+
+  const filteredPayslips = filterPayslipsByDateRange(branchFilteredPayslips, startDate, endDate);
+  const totalGross = filteredPayslips.reduce((sum, p) => sum + (p.grossPay || 0), 0);
+  const totalDeductions = filteredPayslips.reduce((sum, p) => sum + (p.deductions || 0), 0);
+  const totalNet = filteredPayslips.reduce((sum, p) => sum + (p.netPay || 0), 0);
+
+  // Show branch column for admin/hr/branch_manager
+  const showBranchCol = isAdminOrHr || isBranchManager;
+  const colSpan = showBranchCol ? 8 : 7;
+
+  const rows = filteredPayslips.length
+    ? filteredPayslips.map(p => {
+      const branchName = showBranchCol ? ((branches.find(b => b.id === p.branchId)?.name) || '—') : '';
+      const empName = p.employeeName || '—';
+      return `<tr>
+          <td><strong>${p.payPeriod}</strong></td>
+          <td>${empName}</td>
+          ${showBranchCol ? `<td><span class="badge badge-neutral" style="font-size:11px">${branchName}</span></td>` : ''}
+          <td class="td-mono">${p.daysPresent || '—'}</td>
+          <td class="td-mono">₱${fmt(p.grossPay || 0)}</td>
+          <td class="td-mono" style="color:var(--danger)">₱${fmt(p.deductions || 0)}</td>
+          <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay || 0)}</td>
+          <td><button class="btn btn-sm btn-maroon" onclick="viewSentPayslipModal('${p.id}')">${iconSvg('printer')} View</button></td>
+        </tr>`;
+    }).join('')
+    : `<tr><td colspan="${colSpan}" style="text-align:center;color:var(--ink-40);padding:40px">No payslip history available for the selected filters.</td></tr>`;
+
+  // Branch dropdown options: for branch_manager, only show their branch; for admin/hr show all
+  const branchOptions = isBranchManager
+    ? (branches.filter(b => b.id === u.branchId).map(b => `<option value="${b.id}" ${selectedBranchId === b.id ? 'selected' : ''}>${b.name}</option>`).join(''))
+    : branches.map(b => `<option value="${b.id}" ${selectedBranchId === b.id ? 'selected' : ''}>${b.name}</option>`).join('');
+
+  const subtitleText = (isAdminOrHr || isBranchManager) ? 'All Employees' : u.name;
+
+  const clearAll = `
+    document.getElementById('payslip-start-date').value='';
+    document.getElementById('payslip-end-date').value='';
+    document.getElementById('payslip-branch-filter').value='';
+    renderPayslipHistory()`;
 
   document.getElementById('page-content').innerHTML = `
-    <div class="page-header"><h1 class="page-title">Payslip History</h1><p class="page-subtitle">${u.name}</p></div>
+    <div class="page-header"><h1 class="page-title">Payslip History</h1><p class="page-subtitle">${subtitleText}</p></div>
+    <div class="payroll-summary" style="margin-bottom:18px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) !important;grid-auto-rows:minmax(120px,auto);gap:16px;">
+      <div class="payroll-item"><label>Payslips in Range</label><strong>${filteredPayslips.length}</strong></div>
+      <div class="payroll-item"><label>Total Gross</label><strong>PHP ${fmt(totalGross)}</strong></div>
+      <div class="payroll-item"><label>Total Deductions</label><strong style="color:var(--danger)">PHP ${fmt(totalDeductions)}</strong></div>
+      <div class="payroll-item"><label>Total Net Pay</label><strong style="color:var(--success)">PHP ${fmt(totalNet)}</strong></div>
+    </div>
     <div class="data-card">
-      <div class="data-card-header">
-        <span class="data-card-title">All Pay Periods</span>
-        <span class="badge badge-neutral">${myPayslips.length} payslip${myPayslips.length !== 1 ? 's' : ''}</span>
+      <div class="data-card-header" style="flex-direction:column;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="data-card-title">All Pay Periods</span>
+          <span class="badge badge-neutral">${filteredPayslips.length} payslip${filteredPayslips.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <label style="font-size:13px;color:var(--ink-70);">Filter by Branch:</label>
+          <select id="payslip-branch-filter" class="form-control" style="width:180px;font-size:13px;" onchange="renderPayslipHistory()">
+            <option value="">All Branches</option>
+            ${branchOptions}
+          </select>
+          <label style="font-size:13px;color:var(--ink-70);">Date Range:</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="date" id="payslip-start-date" class="form-control" style="width:140px;font-size:13px;" value="${startDate}" onchange="renderPayslipHistory()">
+            <span style="font-size:13px;color:var(--ink-50);">to</span>
+            <input type="date" id="payslip-end-date" class="form-control" style="width:140px;font-size:13px;" value="${endDate}" onchange="renderPayslipHistory()">
+            <button class="btn btn-sm btn-outline" onclick="${clearAll}">Clear All</button>
+          </div>
+        </div>
       </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Period</th><th>Days Worked</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
+          <thead><tr>
+            <th>Period</th>
+            <th>Name</th>
+            ${showBranchCol ? '<th>Branch</th>' : ''}
+            <th>Days Worked</th>
+            <th>Gross Pay</th>
+            <th>Deductions</th>
+            <th>Net Pay</th>
+            <th>Action</th>
+          </tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -12133,27 +14949,150 @@ function renderBranchInvOverview() {
   const branches = s.branches || [];
   const products = s.products || [];
 
-  const rows = products.flatMap(p => (p.variants || []).map(v => {
+  const allVariants = products.flatMap(p => (p.variants || []).map(v => {
     const totalStock = Object.values(v.branchStocks || {}).reduce((a, b) => a + b, 0) || v.stock || 0;
-    return `<tr>
-      <td>${p.name}</td>
-      <td>${v.name || '—'}</td>
-      ${branches.map(b => `<td style="text-align:center">${(v.branchStocks || {})[b.id] ?? '—'}</td>`).join('')}
-      <td style="text-align:center;font-weight:600">${totalStock}</td>
-      <td style="text-align:center"><span class="badge ${totalStock <= (v.reorderLevel || 20) ? 'badge-danger' : 'badge-success'}">${totalStock <= (v.reorderLevel || 20) ? 'Low' : 'OK'}</span></td>
-    </tr>`;
+    const reorder = v.reorderLevel || 20;
+    return { p, v, totalStock, reorder };
   }));
 
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">Branch Inventory Overview</h1><p class="page-subtitle">Stock levels across all branches</p></div>
+
     <div class="data-card">
+      <div class="data-card-header" style="gap:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;flex:1;flex-wrap:wrap;align-items:center">
+          <input id="bio-search" class="form-control" placeholder="Search product or variant…" style="flex:1;min-width:200px;font-size:13px" oninput="bioApplyFilters()">
+          <div class="form-select-wrap" style="width:160px">
+            <select id="bio-status-filter" class="form-control" style="font-size:13px" onchange="bioApplyFilters()">
+              <option value="all">All Statuses</option>
+              <option value="ok">In Stock</option>
+              <option value="low">Low Stock</option>
+              <option value="out">Out of Stock</option>
+            </select>
+          </div>
+          <div class="form-select-wrap" style="width:160px">
+            <select id="bio-branch-filter" class="form-control" style="font-size:13px" onchange="bioApplyFilters()">
+              <option value="">All Branches</option>
+              ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="bioClearFilters()">Clear</button>
+        </div>
+      </div>
       <div class="data-card-body no-pad">
-        <table class="data-table">
-          <thead><tr><th>Product</th><th>Variant</th>${branches.map(b => `<th style="text-align:center">${b.name}</th>`).join('')}<th style="text-align:center">Total</th><th style="text-align:center">Status</th></tr></thead>
-          <tbody>${rows.join('') || '<tr><td colspan="' + (4 + branches.length) + '" style="text-align:center;color:var(--ink-40);padding:40px">No products found.</td></tr>'}</tbody>
+        <table class="data-table" id="bio-table">
+          <thead><tr>
+            <th>Product</th>
+            <th>Variant</th>
+            ${branches.map(b => `<th style="text-align:center">${b.name}</th>`).join('')}
+            <th style="text-align:center">Total</th>
+            <th style="text-align:center">Status</th>
+          </tr></thead>
+          <tbody id="bio-tbody"></tbody>
         </table>
       </div>
     </div>`;
+
+  // Store data for live filtering
+  window._bioData = { branches, allVariants };
+  bioApplyFilters();
+}
+
+function _getBioStatusInfo(totalStock, reorder) {
+  if (totalStock <= 0) return { key: 'out', label: 'Out of Stock', badgeClass: 'badge-danger' };
+  if (totalStock <= reorder) return { key: 'low', label: 'Low Stock', badgeClass: 'badge-warning' };
+  return { key: 'ok', label: 'In Stock', badgeClass: 'badge-success' };
+}
+
+function biofFilterStatus(status) {
+  const sel = document.getElementById('bio-status-filter');
+  if (sel) sel.value = status;
+  // Update active stat card
+  document.querySelectorAll('.bio-stat').forEach(el => el.classList.remove('bio-stat-active'));
+  const map = { all: '.bio-stat-all', ok: '.bio-stat-ok', low: '.bio-stat-low', out: '.bio-stat-out' };
+  const card = document.querySelector(map[status]);
+  if (card) card.classList.add('bio-stat-active');
+  bioApplyFilters();
+}
+
+function bioClearFilters() {
+  const search = document.getElementById('bio-search');
+  const statusSel = document.getElementById('bio-status-filter');
+  const branchSel = document.getElementById('bio-branch-filter');
+  if (search) search.value = '';
+  if (statusSel) statusSel.value = 'all';
+  if (branchSel) branchSel.value = '';
+  document.querySelectorAll('.bio-stat').forEach(el => el.classList.remove('bio-stat-active'));
+  const allCard = document.querySelector('.bio-stat-all');
+  if (allCard) allCard.classList.add('bio-stat-active');
+  bioApplyFilters();
+}
+
+function bioApplyFilters() {
+  const data = window._bioData;
+  if (!data) return;
+  const { branches, allVariants } = data;
+
+  const query = (document.getElementById('bio-search')?.value || '').toLowerCase().trim();
+  const statusFilter = document.getElementById('bio-status-filter')?.value || 'all';
+  const branchFilter = document.getElementById('bio-branch-filter')?.value || '';
+
+  // Update active stat button to match dropdown
+  document.querySelectorAll('.bio-stat').forEach(el => el.classList.remove('bio-stat-active'));
+  const map = { all: '.bio-stat-all', ok: '.bio-stat-ok', low: '.bio-stat-low', out: '.bio-stat-out' };
+  const activeCard = document.querySelector(map[statusFilter]);
+  if (activeCard) activeCard.classList.add('bio-stat-active');
+
+  let filtered = allVariants;
+
+  // Search filter
+  if (query) {
+    filtered = filtered.filter(({ p, v }) =>
+      p.name.toLowerCase().includes(query) ||
+      (v.name || '').toLowerCase().includes(query) ||
+      (v.sku || '').toLowerCase().includes(query)
+    );
+  }
+
+  // Status filter — if a branch is selected, evaluate status for that branch only
+  if (statusFilter !== 'all') {
+    filtered = filtered.filter(({ v, totalStock, reorder }) => {
+      const stockVal = branchFilter
+        ? ((v.branchStocks || {})[branchFilter] ?? 0)
+        : totalStock;
+      const info = _getBioStatusInfo(stockVal, reorder);
+      return info.key === statusFilter;
+    });
+  }
+
+  const colSpan = 4 + branches.length;
+  const tbody = document.getElementById('bio-tbody');
+  if (!tbody) return;
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;color:var(--ink-40);padding:40px">No matching products found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(({ p, v, totalStock, reorder }) => {
+    const displayStock = branchFilter
+      ? ((v.branchStocks || {})[branchFilter] ?? 0)
+      : totalStock;
+    const info = _getBioStatusInfo(displayStock, reorder);
+    return `<tr>
+      <td>${p.name}</td>
+      <td>${v.name || '—'}${v.sku ? `<div style="font-size:11px;color:var(--ink-40)">${v.sku}</div>` : ''}</td>
+      ${branches.map(b => {
+      const bStock = (v.branchStocks || {})[b.id] ?? '—';
+      const isNum = typeof bStock === 'number';
+      const bReorder = v.reorderLevel || 20;
+      const color = !isNum ? 'var(--ink-40)' : bStock <= 0 ? 'var(--danger)' : bStock <= bReorder ? 'var(--warning)' : 'var(--success)';
+      return `<td style="text-align:center;font-weight:600;color:${color}">${bStock}</td>`;
+    }).join('')}
+      <td style="text-align:center;font-weight:700">${displayStock}</td>
+      <td style="text-align:center"><span class="badge ${info.badgeClass}">${info.label}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 // ── BRANCH REPORTS ────────────────────────────────────────────────
@@ -12402,35 +15341,122 @@ function generateCustomReport() {
   if (el) el.innerHTML = html;
 }
 // ── SYSTEM CONFIG ─────────────────────────────────────────────────
-function renderSystemConfig() {
+var _sysConfigTab = 'business';
+
+function renderSystemConfig(tab) {
   const s = getState();
   if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('System Info'); return; }
+  if (tab) _sysConfigTab = tab;
   const cfg = getSystemConfig ? getSystemConfig() : (s.systemConfig || {});
+  const branches = s.branches || [];
+
+  // Build tab list: Business + one per branch
+  const tabs = [
+    { id: 'business', label: 'Business Info' },
+    ...branches.map((b, i) => ({ id: b.id, label: b.name, branchIdx: i, branch: b }))
+  ];
+
+  const tabBar = `
+    <div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-bottom:24px;flex-wrap:wrap;">
+      ${tabs.map(t => `
+        <button onclick="renderSystemConfig('${t.id}')"
+          style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;
+                 border-bottom:${_sysConfigTab === t.id ? '2px solid var(--maroon)' : '2px solid transparent'};
+                 color:${_sysConfigTab === t.id ? 'var(--maroon)' : 'var(--ink-60)'};
+                 margin-bottom:-2px;border-radius:4px 4px 0 0;transition:color .15s;
+                 ${t.branch ? '' : ''}
+                 white-space:nowrap;">
+          ${t.branch ? `<span style="display:inline-flex;align-items:center;gap:6px;">${t.label}${t.branch.active ? '' : ' <span style="font-size:10px;background:#f3f4f6;color:var(--ink-40);border-radius:8px;padding:1px 6px;">Inactive</span>'}</span>` : t.label}
+        </button>`).join('')}
+    </div>`;
+
+  let panelHtml = '';
+
+  if (_sysConfigTab === 'business') {
+    panelHtml = `
+      <div class="data-card" style="max-width:560px">
+        <div class="data-card-header"><span class="data-card-title">Business Information</span></div>
+        <div class="data-card-body" style="display:grid;gap:14px;">
+          <div class="form-group"><label>Business Name</label><input class="form-control" id="cfg-biz-name" value="${cfg.businessName || 'South Pafps Packaging Supplies'}"></div>
+          <div class="form-group"><label>Address Line 1</label><input class="form-control" id="cfg-biz-addr1" value="${cfg.bizAddress1 || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road'}" placeholder="Street / Building"></div>
+          <div class="form-group"><label>Address Line 2</label><input class="form-control" id="cfg-biz-addr2" value="${cfg.bizAddress2 || 'Pasong Buaya 2, Imus, Cavite'}" placeholder="City, Province"></div>
+          <div class="form-group"><label>Phone / Tel</label><input class="form-control" id="cfg-biz-tel" value="${cfg.bizTel || 'Tel: (046) 436-9414'}" placeholder="e.g. Tel: (046) 436-9414"></div>
+          <div class="form-group"><label>Default Currency Symbol</label><input class="form-control" id="cfg-currency" value="${cfg.currency || '₱'}" style="max-width:100px"></div>
+          <div class="form-group"><label>Receipt Footer Note</label><textarea class="form-control" id="cfg-receipt-note" rows="2">${cfg.receiptNote || 'Thank you for your business!'}</textarea></div>
+          <button class="btn btn-maroon" style="width:fit-content" onclick="saveSystemConfigLocal()">Save Settings</button>
+        </div>
+      </div>`;
+  } else {
+    const b = branches.find(br => br.id === _sysConfigTab);
+    const i = branches.findIndex(br => br.id === _sysConfigTab);
+    if (b) {
+      panelHtml = `
+        <div class="data-card" style="max-width:560px">
+          <div class="data-card-header">
+            <span class="data-card-title" style="display:flex;align-items:center;gap:8px;">
+              <span style="background:var(--maroon);color:#fff;font-size:11px;font-weight:700;border-radius:20px;padding:2px 10px;letter-spacing:0.5px;">Branch ${i + 1}</span>
+              ${omEsc(b.name)}
+            </span>
+            <span class="badge ${b.active ? 'badge-success' : 'badge-danger'}" style="font-size:11px;">${b.active ? 'Active' : 'Inactive'}</span>
+          </div>
+          <div class="data-card-body" style="display:grid;gap:14px;">
+            <div class="form-group"><label>Branch Name</label><input class="form-control" id="branch-name-${b.id}" value="${omEsc(b.name || '')}"></div>
+            <div class="form-group"><label>Address</label><input class="form-control" id="branch-address-${b.id}" value="${omEsc(b.address || '')}" placeholder="e.g. San Pedro, Laguna"></div>
+            <div class="form-group"><label>Contact Number</label><input class="form-control" id="branch-contact-${b.id}" value="${omEsc(b.contact || '')}" placeholder="e.g. 049-123-4567"></div>
+            <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;display:flex;">
+              <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;">
+                <input type="checkbox" id="branch-active-${b.id}" ${b.active ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--maroon);">
+                Branch is Active
+              </label>
+            </div>
+            <button class="btn btn-maroon" style="width:fit-content" onclick="saveBranchInfoLocal('${b.id}')">Save Branch</button>
+          </div>
+        </div>`;
+    }
+  }
+
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">System Info</h1><p class="page-subtitle">Global configuration for the POS system</p></div>
-    <div class="data-card" style="max-width:560px">
-      <div class="data-card-header"><span class="data-card-title">Business Information</span></div>
-      <div class="data-card-body" style="display:grid;gap:14px;">
-        <div class="form-group"><label>Business Name</label><input class="form-control" id="cfg-biz-name" value="${cfg.businessName || 'South Pafps Packaging Supplies'}"></div>
-        <div class="form-group"><label>Address Line 1</label><input class="form-control" id="cfg-biz-addr1" value="${cfg.bizAddress1 || 'Unit F&G FACL Commercial Building, Pasong Buaya 2 Road'}" placeholder="Street / Building"></div>
-        <div class="form-group"><label>Address Line 2</label><input class="form-control" id="cfg-biz-addr2" value="${cfg.bizAddress2 || 'Pasong Buaya 2, Imus, Cavite'}" placeholder="City, Province"></div>
-        <div class="form-group"><label>Phone / Tel</label><input class="form-control" id="cfg-biz-tel" value="${cfg.bizTel || 'Tel: (046) 436-9414'}" placeholder="e.g. Tel: (046) 436-9414"></div>
-        <div class="form-group"><label>Default Currency Symbol</label><input class="form-control" id="cfg-currency" value="${cfg.currency || '₱'}" style="max-width:100px"></div>
-        <div class="form-group"><label>Receipt Footer Note</label><textarea class="form-control" id="cfg-receipt-note" rows="2">${cfg.receiptNote || 'Thank you for your business!'}</textarea></div>
-        <button class="btn btn-maroon" style="width:fit-content" onclick="saveSystemConfigLocal()">Save Settings</button>
-      </div>
-    </div>`;
+    ${tabBar}
+    ${panelHtml}`;
+}
+
+function saveBranchInfoLocal(branchId) {
+  const s = getState();
+  const idx = (s.branches || []).findIndex(b => b.id === branchId);
+  if (idx === -1) { showToast('Branch not found.', 'error'); return; }
+
+  const name = document.getElementById('branch-name-' + branchId)?.value.trim() || '';
+  const address = document.getElementById('branch-address-' + branchId)?.value.trim() || '';
+  const contact = document.getElementById('branch-contact-' + branchId)?.value.trim() || '';
+  const active = document.getElementById('branch-active-' + branchId)?.checked ?? true;
+
+  if (!name) { showToast('Branch name cannot be empty.', 'error'); return; }
+
+  s.branches[idx] = { ...s.branches[idx], name, address, contact, active };
+  saveState(s);
+
+  if (typeof DB !== 'undefined') DB.updateBranch(branchId, { name, address, contact, active });
+
+  // Update topbar branch badge if the edited branch is the one being viewed
+  const topbarBranch = document.getElementById('topbar-branch');
+  if (topbarBranch && s.currentUser?.branchId === branchId) topbarBranch.textContent = name;
+
+  showToast(`Branch "${name}" updated successfully.`, 'success');
+
+  // Re-render keeping the current tab active
+  renderSystemConfig(branchId);
 }
 
 function saveSystemConfigLocal() {
   const s = getState();
   if (!s.systemConfig) s.systemConfig = {};
   s.systemConfig.businessName = document.getElementById('cfg-biz-name')?.value || '';
-  s.systemConfig.bizAddress1  = document.getElementById('cfg-biz-addr1')?.value || '';
-  s.systemConfig.bizAddress2  = document.getElementById('cfg-biz-addr2')?.value || '';
-  s.systemConfig.bizTel       = document.getElementById('cfg-biz-tel')?.value || '';
-  s.systemConfig.currency     = document.getElementById('cfg-currency')?.value || '₱';
-  s.systemConfig.receiptNote  = document.getElementById('cfg-receipt-note')?.value || '';
+  s.systemConfig.bizAddress1 = document.getElementById('cfg-biz-addr1')?.value || '';
+  s.systemConfig.bizAddress2 = document.getElementById('cfg-biz-addr2')?.value || '';
+  s.systemConfig.bizTel = document.getElementById('cfg-biz-tel')?.value || '';
+  s.systemConfig.currency = document.getElementById('cfg-currency')?.value || '₱';
+  s.systemConfig.receiptNote = document.getElementById('cfg-receipt-note')?.value || '';
   saveState(s);
   if (typeof DB !== 'undefined') DB.saveSystemConfig(s.systemConfig);
   showToast('System settings saved.', 'success');
@@ -12453,7 +15479,7 @@ function renderLogoUpload() {
 // ── DISPATCH (existing) ──────────────────────────────────────────────────────
 function renderDispatch() {
   const orders = getOrders ? getOrders() : [];
-  const dispatchOrders = orders.filter(o => o.status === 'dispatch');
+  const dispatchOrders = orders.filter(o => omIsDispatchReady(o));
   document.getElementById('page-content').innerHTML = `
     <div class="page-header"><h1 class="page-title">Daily Dispatch</h1><p class="page-subtitle">Orders ready for delivery or pickup today</p></div>
     <div class="data-card">
@@ -12467,12 +15493,32 @@ function renderDispatch() {
               <td>${o.branch || '—'}</td>
               <td>${(o.items || []).length} item(s)</td>
               <td>${o.due_date || '—'}</td>
-              <td><button class="btn btn-sm btn-maroon" onclick="updateOrderStatus('${o.id}','completed');renderDispatch()">Mark Delivered</button></td>
+              <td><button class="btn btn-sm btn-maroon" onclick="omConfirmMarkDelivered('${o.id}')">Mark Delivered</button></td>
             </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--ink-40);padding:40px">No orders ready for dispatch today.</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>`;
+}
+
+// Confirm delivery from the Daily Dispatch page — properly syncs to DB and receipt history
+function omConfirmMarkDelivered(orderId) {
+  var orders = getOrders();
+  var o = orders.find(function (x) { return String(x.id) === String(orderId); });
+  if (!o) return;
+  if (!omIsDispatchReady(o)) { showToast('Only QC-passed dispatch jobs can be delivered.', 'error'); return; }
+  if (!confirm('Mark order #' + String(orderId).padStart(6, '0') + ' as Delivered/Completed?')) return;
+  o.status = 'completed';
+  o.delivery_date = new Date().toISOString().slice(0, 10);
+  saveOrders(orders);
+  DB.updateOrder(o.id, { status: 'completed', qc_status: 'passed', delivery_date: o.delivery_date });
+  omDeductOrderStock(o.id);
+  omPushToReceiptHistory(o.id);
+  var s = getState();
+  recordAudit(s, { action: 'order_delivered', message: 'Order #' + orderId + ' marked as delivered', referenceId: String(orderId) });
+  saveState(s);
+  showToast('Order #' + String(orderId).padStart(6, '0') + ' marked as delivered!', 'success');
+  renderDispatch();
 }
 
 // ── OM CUSTOMER RECORDS (standalone sidebar page) ───────────────────────────
@@ -12481,19 +15527,21 @@ function renderDispatch() {
 var _crFilter = { search: '', tab: 'om' };
 
 function renderCustomerRecordsManagement() {
+  navigateTo('orders');
+  return;
   var s = getState();
   var u = s.currentUser;
-  if (!u || !['admin','staff'].includes(u.role)) { accessDenied('Customer Records'); return; }
+  if (!u || !['admin', 'staff', 'cashier'].includes(u.role)) { accessDenied('Customer Records'); return; }
   var isAdmin = u.role === 'admin';
 
   var omCrs = getCustomerRecords();
-  var posCrs = (s.customers || []).filter(function(c) { return c.source === 'pos' || !c.source; });
+  var posCrs = (s.customers || []).filter(function (c) { return c.source === 'pos' || !c.source; });
 
   var q = (_crFilter.search || '').toLowerCase();
   var activeTab = _crFilter.tab || 'om';
 
   var totalSpentMap = {}, visitCountMap = {}, lastVisitMap = {};
-  (s.sales || []).forEach(function(sale) {
+  (s.sales || []).forEach(function (sale) {
     if (sale.voided || !sale.customerId) return;
     totalSpentMap[sale.customerId] = (totalSpentMap[sale.customerId] || 0) + (sale.total || 0);
     visitCountMap[sale.customerId] = (visitCountMap[sale.customerId] || 0) + 1;
@@ -12501,27 +15549,27 @@ function renderCustomerRecordsManagement() {
       lastVisitMap[sale.customerId] = sale.createdAt;
   });
 
-  var filteredOm = omCrs.filter(function(c) {
-    return !q || (c.businessName||'').toLowerCase().indexOf(q)!==-1
-      || (c.contactPerson||'').toLowerCase().indexOf(q)!==-1
-      || (c.phone||'').indexOf(q)!==-1 || (c.email||'').toLowerCase().indexOf(q)!==-1;
+  var filteredOm = omCrs.filter(function (c) {
+    return !q || (c.businessName || '').toLowerCase().indexOf(q) !== -1
+      || (c.contactPerson || '').toLowerCase().indexOf(q) !== -1
+      || (c.phone || '').indexOf(q) !== -1 || (c.email || '').toLowerCase().indexOf(q) !== -1;
   });
-  var filteredPos = posCrs.filter(function(c) {
-    return !q || (c.companyName||'').toLowerCase().indexOf(q)!==-1
-      || (c.contactPerson||'').toLowerCase().indexOf(q)!==-1
-      || (c.phone||'').indexOf(q)!==-1;
+  var filteredPos = posCrs.filter(function (c) {
+    return !q || (c.companyName || '').toLowerCase().indexOf(q) !== -1
+      || (c.contactPerson || '').toLowerCase().indexOf(q) !== -1
+      || (c.phone || '').indexOf(q) !== -1;
   });
 
   var orders = getOrders();
-  var omRows = filteredOm.map(function(c) {
-    var orderCount = orders.filter(function(o){ return o.customer_id === c.id || (o.customer_name && o.customer_name.toLowerCase() === (c.businessName||'').toLowerCase()); }).length;
+  var omRows = filteredOm.map(function (c) {
+    var orderCount = orders.filter(function (o) { return o.customer_id === c.id || (o.customer_name && o.customer_name.toLowerCase() === (c.businessName || '').toLowerCase()); }).length;
     return '<tr>'
-      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.businessName||'\u2014') + '</div>'
+      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.businessName || '\u2014') + '</div>'
       + (c.contactPerson ? '<div style="font-size:11px;color:var(--ink-50)">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
-      + '<td class="td-mono">' + omEsc(c.phone||'\u2014') + '</td>'
-      + '<td>' + omEsc(c.email||'\u2014') + '</td>'
-      + '<td>' + omEsc(c.address||'\u2014') + '</td>'
-      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment||'\u2014') + '</span></td>'
+      + '<td class="td-mono">' + omEsc(c.phone || '\u2014') + '</td>'
+      + '<td>' + omEsc(c.email || '\u2014') + '</td>'
+      + '<td>' + omEsc(c.address || '\u2014') + '</td>'
+      + '<td><span class="badge badge-neutral">' + omEsc(c.modeOfPayment || '\u2014') + '</span></td>'
       + '<td class="td-mono">' + orderCount + '</td>'
       + '<td style="font-size:12px;color:var(--ink-50)">' + omDate(c.createdAt) + '</td>'
       + '<td class="actions-cell">'
@@ -12531,17 +15579,17 @@ function renderCustomerRecordsManagement() {
       + '</td></tr>';
   }).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)"><div style="font-size:28px;margin-bottom:8px">\uD83D\uDCC2</div>No order management customers yet.</td></tr>';
 
-  var posRows = filteredPos.map(function(c) {
+  var posRows = filteredPos.map(function (c) {
     var balance = c.outstandingBalance || 0;
     var balCell = balance > 0
       ? '<span class="td-mono" style="color:var(--danger);font-weight:700">\u20b1' + fmt(balance) + '</span>'
       : '<span class="badge badge-success">Clear</span>';
     return '<tr>'
-      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.companyName||c.contactPerson||'Unknown') + '</div>'
+      + '<td class="wgrow"><div style="font-weight:600">' + omEsc(c.companyName || c.contactPerson || 'Unknown') + '</div>'
       + (c.contactPerson && c.companyName ? '<div style="font-size:11px;color:var(--ink-50)">' + omEsc(c.contactPerson) + '</div>' : '') + '</td>'
-      + '<td class="td-mono">' + omEsc(c.phone||'\u2014') + '</td>'
-      + '<td class="td-mono">' + (visitCountMap[c.id]||0) + '</td>'
-      + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(totalSpentMap[c.id]||0) + '</td>'
+      + '<td class="td-mono">' + omEsc(c.phone || '\u2014') + '</td>'
+      + '<td class="td-mono">' + (visitCountMap[c.id] || 0) + '</td>'
+      + '<td class="td-mono" style="font-weight:700;color:var(--maroon)">\u20b1' + fmt(totalSpentMap[c.id] || 0) + '</td>'
       + '<td>' + (lastVisitMap[c.id] ? fmtDate(lastVisitMap[c.id]) : '\u2014') + '</td>'
       + '<td>' + balCell + '</td>'
       + '<td class="actions-cell">'
@@ -12551,29 +15599,29 @@ function renderCustomerRecordsManagement() {
   }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)"><div style="font-size:28px;margin-bottom:8px">\uD83C\uDFEA</div>No POS walk-in customers found.</td></tr>';
 
   var totalOm = omCrs.length, totalPos = posCrs.length;
-  var totalRev = Object.values(totalSpentMap).reduce(function(a,b){return a+b;},0);
+  var totalRev = Object.values(totalSpentMap).reduce(function (a, b) { return a + b; }, 0);
 
   var tabToggle = '<div style="display:flex;gap:0;border:1px solid var(--ink-20);border-radius:var(--radius);overflow:hidden">'
-    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;background:' + (activeTab==='om'?'var(--maroon)':'transparent') + ';color:' + (activeTab==='om'?'#fff':'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'om\';renderCustomerRecordsManagement()">\uD83D\uDCCB OM Clients (' + totalOm + ')</button>'
-    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;border-left:1px solid var(--ink-20);background:' + (activeTab==='pos'?'var(--maroon)':'transparent') + ';color:' + (activeTab==='pos'?'#fff':'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'pos\';renderCustomerRecordsManagement()">\uD83C\uDFEA POS Walk-ins (' + totalPos + ')</button>'
+    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;background:' + (activeTab === 'om' ? 'var(--maroon)' : 'transparent') + ';color:' + (activeTab === 'om' ? '#fff' : 'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'om\';renderCustomerRecordsManagement()">\uD83D\uDCCB OM Clients (' + totalOm + ')</button>'
+    + '<button class="btn btn-sm" style="border-radius:0;border:none;padding:7px 16px;border-left:1px solid var(--ink-20);background:' + (activeTab === 'pos' ? 'var(--maroon)' : 'transparent') + ';color:' + (activeTab === 'pos' ? '#fff' : 'var(--ink)') + ';font-weight:600" onclick="_crFilter.tab=\'pos\';renderCustomerRecordsManagement()">\uD83C\uDFEA POS Walk-ins (' + totalPos + ')</button>'
     + '</div>';
 
   var tableSection = activeTab === 'om'
     ? '<div class="data-card-header" style="padding:10px 20px;border-bottom:1px solid var(--ink-10)">'
-      + '<span class="data-card-title">' + iconSvg('clipboard') + ' Order Management Clients</span>'
-      + '<span class="badge badge-neutral">' + filteredOm.length + ' record' + (filteredOm.length!==1?'s':'') + '</span>'
-      + (isAdmin ? '<button class="btn btn-sm btn-maroon" style="margin-left:auto" onclick="omNewCustomerModal()">+ New Client</button>' : '')
-      + '</div>'
-      + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
-      + '<th>Business / Contact</th><th>Phone</th><th>Email</th><th>Address</th><th>Pay Mode</th><th>Orders</th><th>Added</th><th>Actions</th>'
-      + '</tr></thead><tbody>' + omRows + '</tbody></table></div>'
+    + '<span class="data-card-title">' + iconSvg('clipboard') + ' Order Management Clients</span>'
+    + '<span class="badge badge-neutral">' + filteredOm.length + ' record' + (filteredOm.length !== 1 ? 's' : '') + '</span>'
+    + (isAdmin ? '<button class="btn btn-sm btn-maroon" style="margin-left:auto" onclick="omNewCustomerModal()">+ New Client</button>' : '')
+    + '</div>'
+    + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
+    + '<th>Business / Contact</th><th>Phone</th><th>Email</th><th>Address</th><th>Pay Mode</th><th>Orders</th><th>Added</th><th>Actions</th>'
+    + '</tr></thead><tbody>' + omRows + '</tbody></table></div>'
     : '<div class="data-card-header" style="padding:10px 20px;border-bottom:1px solid var(--ink-10)">'
-      + '<span class="data-card-title">' + iconSvg('users') + ' POS Walk-in Customers</span>'
-      + '<span class="badge badge-neutral">' + filteredPos.length + ' record' + (filteredPos.length!==1?'s':'') + '</span>'
-      + '</div>'
-      + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
-      + '<th>Customer</th><th>Phone</th><th>Visits</th><th>Total Spent</th><th>Last Visit</th><th>AR Balance</th><th>Actions</th>'
-      + '</tr></thead><tbody>' + posRows + '</tbody></table></div>';
+    + '<span class="data-card-title">' + iconSvg('users') + ' POS Walk-in Customers</span>'
+    + '<span class="badge badge-neutral">' + filteredPos.length + ' record' + (filteredPos.length !== 1 ? 's' : '') + '</span>'
+    + '</div>'
+    + '<div class="data-card-body no-pad"><table class="data-table"><thead><tr>'
+    + '<th>Customer</th><th>Phone</th><th>Visits</th><th>Total Spent</th><th>Last Visit</th><th>AR Balance</th><th>Actions</th>'
+    + '</tr></thead><tbody>' + posRows + '</tbody></table></div>';
 
   document.getElementById('page-content').innerHTML =
     '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">'
@@ -12587,29 +15635,29 @@ function renderCustomerRecordsManagement() {
     + '</div>'
     + '<div class="data-card">'
     + '<div class="data-card-body" style="padding:12px 20px;border-bottom:1px solid var(--ink-10);display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
-    + '<input class="form-control" style="flex:1;min-width:200px;max-width:320px" placeholder="Search customers\u2026" value="' + (_crFilter.search||'') + '" oninput="_crFilter.search=this.value;renderCustomerRecordsManagement()">'
+    + '<input class="form-control" style="flex:1;min-width:200px;max-width:320px" placeholder="Search customers\u2026" value="' + (_crFilter.search || '') + '" oninput="_crFilter.search=this.value;renderCustomerRecordsManagement()">'
     + tabToggle + '</div>'
     + tableSection + '</div>';
 }
 
 function crViewOmCustomer(id) {
   var crs = getCustomerRecords();
-  var c = crs.find(function(x){ return x.id === id; });
+  var c = crs.find(function (x) { return x.id === id; });
   if (!c) return;
-  var orders = getOrders().filter(function(o){ return o.customer_name && o.customer_name.toLowerCase() === (c.businessName||'').toLowerCase(); });
+  var orders = getOrders().filter(function (o) { return o.customer_name && o.customer_name.toLowerCase() === (c.businessName || '').toLowerCase(); });
   var s = getState();
   var isAdmin = s.currentUser && s.currentUser.role === 'admin';
   var displayName = c.businessName || c.contactPerson || 'Unknown';
-  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
-  var totalOrderValue = orders.reduce(function(sum,o){ return sum+(o.total_amount||0); }, 0);
+  var initials = displayName.split(' ').slice(0, 2).map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '?';
+  var totalOrderValue = orders.reduce(function (sum, o) { return sum + (o.total_amount || 0); }, 0);
 
-  var ordersHtml = orders.slice(0,8).map(function(o){
+  var ordersHtml = orders.slice(0, 8).map(function (o) {
     return '<tr>'
-      + '<td class="td-mono" style="font-weight:600">#' + String(o.id).padStart(6,'0') + '</td>'
-      + '<td>' + omEsc(o.product_type||'\u2014') + '</td>'
-      + '<td class="td-mono">\u20b1' + omFmt(o.total_amount||0) + '</td>'
+      + '<td class="td-mono" style="font-weight:600">#' + String(o.id).padStart(6, '0') + '</td>'
+      + '<td>' + omEsc(o.product_type || '\u2014') + '</td>'
+      + '<td class="td-mono">\u20b1' + omFmt(o.total_amount || 0) + '</td>'
       + '<td>' + omStatusBadge(o.status) + '</td>'
-      + '<td style="font-size:12px;color:var(--ink-50)">' + omDate(o.created_at||o.createdAt) + '</td>'
+      + '<td style="font-size:12px;color:var(--ink-50)">' + omDate(o.created_at || o.createdAt) + '</td>'
       + '</tr>';
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-40)"><div style="font-size:24px;margin-bottom:6px">\uD83D\uDCCB</div>No orders yet.</td></tr>';
 
@@ -12639,12 +15687,12 @@ function crViewOmCustomer(id) {
     + '</div>'
 
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">'
-    + _crInfoField('Phone', c.phone||'\u2014', true)
-    + _crInfoField('Email', c.email||'\u2014')
-    + _crInfoField('Address', c.address||'\u2014')
-    + _crInfoField('Branch Staff', c.branchStaff||'\u2014')
-    + _crInfoField('Mode of Delivery', c.modeOfDelivery||'\u2014')
-    + _crInfoField('Mode of Payment', c.modeOfPayment||'\u2014')
+    + _crInfoField('Phone', c.phone || '\u2014', true)
+    + _crInfoField('Email', c.email || '\u2014')
+    + _crInfoField('Address', c.address || '\u2014')
+    + _crInfoField('Branch Staff', c.branchStaff || '\u2014')
+    + _crInfoField('Mode of Delivery', c.modeOfDelivery || '\u2014')
+    + _crInfoField('Mode of Payment', c.modeOfPayment || '\u2014')
     + (c.notes ? '<div style="grid-column:span 2">' + _crInfoField('Notes', c.notes) + '</div>' : '')
     + '</div>'
 
@@ -12664,7 +15712,7 @@ function crViewOmCustomer(id) {
 function _crInfoField(label, value, mono) {
   return '<div style="background:var(--cream);border-radius:8px;padding:10px 14px">'
     + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--ink-40);margin-bottom:3px">' + label + '</div>'
-    + '<div style="font-size:13px;color:var(--ink);' + (mono?'font-family:monospace;':'') + '">' + omEsc(String(value)) + '</div>'
+    + '<div style="font-size:13px;color:var(--ink);' + (mono ? 'font-family:monospace;' : '') + '">' + omEsc(String(value)) + '</div>'
     + '</div>';
 }
 
@@ -12675,8 +15723,8 @@ function crDeleteOmCustomer(id) {
     confirmText: 'Delete Client',
     icon: '👤',
     onConfirm: function () {
-      saveCustomerRecords(getCustomerRecords().filter(function(c){ return c.id!==id; }));
-      try { DB.deleteOMCustomer(id); } catch(e) {}
+      saveCustomerRecords(getCustomerRecords().filter(function (c) { return c.id !== id; }));
+      try { DB.deleteOMCustomer(id); } catch (e) { }
       showToast('Customer deleted.', 'warning');
       renderCustomerRecordsManagement();
     }
@@ -12685,10 +15733,10 @@ function crDeleteOmCustomer(id) {
 
 function crEditPosCustomer(id) {
   var s = getState();
-  var c = (s.customers||[]).find(function(x){ return x.id===id; });
+  var c = (s.customers || []).find(function (x) { return x.id === id; });
   if (!c) return;
   var displayName = c.companyName || c.contactPerson || 'Customer';
-  var initials = displayName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';
+  var initials = displayName.split(' ').slice(0, 2).map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '?';
   showModal(
     '<div class="modal-header" style="border-bottom:none;padding-bottom:0">'
     + '<button class="btn-close-modal" onclick="closeModal()" style="margin-left:auto">&#x2715;</button></div>'
@@ -12700,15 +15748,15 @@ function crEditPosCustomer(id) {
     + '</div></div>'
     + '<div class="modal-body" style="padding:20px 24px">'
     + '<div class="form-row-2">'
-    + '<div class="form-group"><label>Company / Business Name</label><input id="crpos-company" class="form-control" value="' + omEsc(c.companyName||'') + '" placeholder="Company name (optional)"></div>'
-    + '<div class="form-group"><label>Contact Person</label><input id="crpos-contact" class="form-control" value="' + omEsc(c.contactPerson||'') + '" placeholder="Full name"></div>'
+    + '<div class="form-group"><label>Company / Business Name</label><input id="crpos-company" class="form-control" value="' + omEsc(c.companyName || '') + '" placeholder="Company name (optional)"></div>'
+    + '<div class="form-group"><label>Contact Person</label><input id="crpos-contact" class="form-control" value="' + omEsc(c.contactPerson || '') + '" placeholder="Full name"></div>'
     + '</div>'
     + '<div class="form-row-2">'
-    + '<div class="form-group"><label>Phone</label><input id="crpos-phone" class="form-control" value="' + omEsc(c.phone||'') + '" placeholder="09XX-XXX-XXXX"></div>'
-    + '<div class="form-group"><label>Email</label><input id="crpos-email" class="form-control" value="' + omEsc(c.email||'') + '" placeholder="email@example.com"></div>'
+    + '<div class="form-group"><label>Phone</label><input id="crpos-phone" class="form-control" value="' + omEsc(c.phone || '') + '" placeholder="09XX-XXX-XXXX"></div>'
+    + '<div class="form-group"><label>Email</label><input id="crpos-email" class="form-control" value="' + omEsc(c.email || '') + '" placeholder="email@example.com"></div>'
     + '</div>'
-    + '<div class="form-group"><label>Address</label><input id="crpos-address" class="form-control" value="' + omEsc(c.address||'') + '" placeholder="Street, City"></div>'
-    + '<div class="form-group"><label>Notes</label><textarea id="crpos-notes" class="form-control" rows="2" placeholder="Any additional notes...">' + omEsc(c.notes||'') + '</textarea></div>'
+    + '<div class="form-group"><label>Address</label><input id="crpos-address" class="form-control" value="' + omEsc(c.address || '') + '" placeholder="Street, City"></div>'
+    + '<div class="form-group"><label>Notes</label><textarea id="crpos-notes" class="form-control" rows="2" placeholder="Any additional notes...">' + omEsc(c.notes || '') + '</textarea></div>'
     + '</div>'
     + '<div class="modal-footer">'
     + '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>'
@@ -12719,13 +15767,13 @@ function crEditPosCustomer(id) {
 
 function crSavePosCustomer(id) {
   var s = getState();
-  var c = (s.customers||[]).find(function(x){ return x.id===id; });
+  var c = (s.customers || []).find(function (x) { return x.id === id; });
   if (!c) return;
   function gv(eid) { var el = document.getElementById(eid); return el ? el.value.trim() : ''; }
-  c.companyName=gv('crpos-company'); c.contactPerson=gv('crpos-contact');
-  c.phone=gv('crpos-phone'); c.email=gv('crpos-email');
-  c.address=gv('crpos-address'); c.notes=gv('crpos-notes');
-  c.updatedAt=new Date().toISOString();
+  c.companyName = gv('crpos-company'); c.contactPerson = gv('crpos-contact');
+  c.phone = gv('crpos-phone'); c.email = gv('crpos-email');
+  c.address = gv('crpos-address'); c.notes = gv('crpos-notes');
+  c.updatedAt = new Date().toISOString();
   saveState(s); closeModal();
   showToast('Customer updated!', 'success');
   renderCustomerRecordsManagement();
@@ -12739,7 +15787,7 @@ function crDeletePosCustomer(id) {
     icon: '👤',
     onConfirm: function () {
       var s = getState();
-      s.customers = (s.customers||[]).filter(function(c){ return c.id!==id; });
+      s.customers = (s.customers || []).filter(function (c) { return c.id !== id; });
       saveState(s); showToast('POS customer deleted.', 'warning');
       renderCustomerRecordsManagement();
     }
@@ -12914,7 +15962,7 @@ function renderAdminReports(tab) {
         const out = totalStock <= 0;
         const badge = out ? '<span class="badge badge-danger">Out of Stock</span>'
           : low ? '<span class="badge badge-warning">Low Stock</span>'
-          : '<span class="badge badge-success">OK</span>';
+            : '<span class="badge badge-success">OK</span>';
         invRows += `<tr>
           <td><strong>${p.name}</strong></td>
           <td>${v.name}</td>
@@ -12930,8 +15978,8 @@ function renderAdminReports(tab) {
     tabContent = `
       <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
         <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Total Products</div><div class="kpi-icon maroon">${iconSvg('box')}</div></div><div class="kpi-value">${products.length}</div></div>
-        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div><div class="kpi-icon gold">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:var(--warning)">${products.flatMap(p => p.variants || []).filter(v => { const t = Object.values(v.branchStocks || {}).reduce((a,b2)=>a+(b2||0),0); return t>0 && t<=(v.reorderLevel||20); }).length}</div></div>
-        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Out of Stock</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div><div class="kpi-value" style="color:var(--danger)">${products.flatMap(p => p.variants || []).filter(v => Object.values(v.branchStocks || {}).reduce((a,b2)=>a+(b2||0),0) <= 0).length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Low Stock</div><div class="kpi-icon gold">${iconSvg('warning')}</div></div><div class="kpi-value" style="color:var(--warning)">${products.flatMap(p => p.variants || []).filter(v => { const t = Object.values(v.branchStocks || {}).reduce((a, b2) => a + (b2 || 0), 0); return t > 0 && t <= (v.reorderLevel || 20); }).length}</div></div>
+        <div class="kpi-card"><div class="kpi-header"><div class="kpi-label">Out of Stock</div><div class="kpi-icon maroon">${iconSvg('error')}</div></div><div class="kpi-value" style="color:var(--danger)">${products.flatMap(p => p.variants || []).filter(v => Object.values(v.branchStocks || {}).reduce((a, b2) => a + (b2 || 0), 0) <= 0).length}</div></div>
       </div>
       <div class="data-card">
         <div class="data-card-header"><span class="data-card-title">${iconSvg('box')} All Product Variants</span></div>
@@ -12988,7 +16036,7 @@ function viewSubmittedReport(reportId) {
   const s = getState();
   const branch = s.branches.find(b => b.id === r.branchId);
   const isPrint = r.type === 'print_dept_forwarded';
-  const sourceLabel = isPrint ? 'Print Dept (via Main Branch)' : (r.role === 'staff' ? 'Branch Staff' : r.role);
+  const sourceLabel = isPrint ? 'Print Dept (via Main Branch)' : getRoleLabel(r.role);
   showModal(`
     <div class="modal-header"><h2>${iconSvg('clipboard')} Submitted Report — ${r.submitterName}</h2><button class="btn-close-modal" onclick="closeModal()">&#10005;</button></div>
     <div class="modal-body">
@@ -13009,60 +16057,98 @@ function viewSubmittedReport(reportId) {
 }
 
 // ── ADMIN PAYSLIP GENERATION ─────────────────────────────────────────────────
-function renderAdminPayslipGen() {
+function renderAdminPayslipGenLegacyOld() {
   const s = getState();
-  if (!s.currentUser || s.currentUser.role !== 'admin') { accessDenied('Payslip Generation'); return; }
-  const employees = s.users.filter(u => u.role !== 'admin');
+  const role = normalizeRole(s.currentUser?.role);
+  if (!s.currentUser || !['admin', 'hr', 'branch_manager'].includes(role)) { accessDenied('Payslip Generation'); return; }
+  const employees = s.users.filter(u => {
+    const userRole = normalizeRole(u.role);
+    if (userRole === 'admin') return false;
+    if (role === 'branch_manager') return u.branchId === s.currentUser.branchId && !['hr', 'branch_manager'].includes(userRole);
+    return true;
+  });
+  const branches = (s.branches || []).filter(b => {
+    if (role === 'branch_manager') return b.id === s.currentUser.branchId;
+    return b.active !== false;
+  });
   const now = new Date();
   const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
-  const sentPayslips = s.payslips || [];
+  const defaultRunStart = window._adminPayrollRunStartDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+  const defaultRunEnd = window._adminPayrollRunEndDate || toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  window._adminPayrollRunStartDate = defaultRunStart;
+  window._adminPayrollRunEndDate = defaultRunEnd;
+  const activePayrollStart = defaultRunStart;
+  const activePayrollEnd = defaultRunEnd;
+  const activePayrollStartDate = activePayrollStart ? new Date(activePayrollStart + 'T00:00:00') : null;
+  const activePayrollEndDate = activePayrollEnd ? new Date(activePayrollEnd + 'T23:59:59') : null;
+  const sentPayslips = (s.payslips || []).filter(p => role === 'branch_manager' ? p.branchId === s.currentUser.branchId : true);
+  const payrollRuns = role === 'branch_manager' ? [] : getPayrollRunsHistory();
+  const filterStart = document.getElementById('admin-payslip-sent-start')?.value || '';
+  const filterEnd = document.getElementById('admin-payslip-sent-end')?.value || '';
+
+  function filterPayslipsByDateRange(items, startDate, endDate) {
+    if (!startDate && !endDate) return items;
+    const from = startDate ? new Date(startDate + 'T00:00:00') : null;
+    const to = endDate ? new Date(endDate + 'T23:59:59') : null;
+    return items.filter(p => {
+      const bounds = parsePayrollPeriodBounds(p.periodKey, p.payPeriod);
+      if (!bounds) return true;
+      return (!from || bounds.end >= from) && (!to || bounds.start <= to);
+    });
+  }
+
+  const sentPayslipsFiltered = filterPayslipsByDateRange(sentPayslips, filterStart, filterEnd);
+  const filteredGross = sentPayslipsFiltered.reduce((sum, p) => sum + (p.grossPay || 0), 0);
+  const filteredDeductions = sentPayslipsFiltered.reduce((sum, p) => sum + (p.deductions || 0), 0);
+  const filteredNet = sentPayslipsFiltered.reduce((sum, p) => sum + (p.netPay || 0), 0);
 
   // Helper: check if a payslip was already sent for an employee+period
-  function alreadySent(empId, periodKey) {
-    return sentPayslips.some(p => p.userId === empId && p.periodKey === periodKey);
+  function alreadySent(empId) {
+    return sentPayslips.some(p => {
+      if (p.userId !== empId) return false;
+      const bounds = parsePayrollPeriodBounds(p.periodKey, p.payPeriod);
+      if (bounds && bounds.start && bounds.end && activePayrollStartDate && activePayrollEndDate) {
+        return bounds.start.getTime() === activePayrollStartDate.getTime() && bounds.end.getTime() === activePayrollEndDate.getTime();
+      }
+      if (p.payPeriod && currentPeriod.label && p.payPeriod === currentPeriod.label) return true;
+      return false;
+    });
   }
 
   // Compute current pay period key + label for display
   function currentPeriodInfo() {
-    const d = now;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    const day = d.getDate();
-    const isA = day <= 15;
-    const key = `${y}-${String(m + 1).padStart(2, '0')}-${isA ? 'A' : 'B'}`;
-    const start = isA ? new Date(y, m, 1) : new Date(y, m, 16);
-    const end = isA ? new Date(y, m, 15) : new Date(y, m + 1, 0);
+    const start = activePayrollStartDate || new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = activePayrollEndDate || new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const key = getPayrollDateRangeKey(activePayrollStart, activePayrollEnd) || `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${start.getDate() <= 15 ? 'A' : 'B'}`;
     const fmt2 = dt => dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-    const label = `${fmt2(start)} – ${fmt2(end)}, ${y}`;
-    return { key, label, isA, y, m };
+    const label = `${fmt2(start)} – ${fmt2(end)}, ${end.getFullYear()}`;
+    const totalDays = Math.max(0, Math.round((end.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0)) / 86400000) + 1);
+    return { key, label, startKey: getDateOnlyKey(start), endKey: getDateOnlyKey(end), totalDays, start, end };
   }
   const currentPeriod = currentPeriodInfo();
+  if (!window._adminPayslipBranchId) window._adminPayslipBranchId = role === 'branch_manager' ? s.currentUser.branchId : (branches[0]?.id || '');
+  const activeBranchId = role === 'branch_manager' ? s.currentUser.branchId : window._adminPayslipBranchId;
+  const activeBranch = branches.find(b => b.id === activeBranchId);
+  const visibleEmployees = employees.filter(emp => emp.branchId === activeBranchId);
 
-  const genPayslipRows = () => employees.map(emp => {
+  const genPayslipRows = () => visibleEmployees.map(emp => {
     const dailyRate = emp.dailyRate || 500;
-    const timecards = (s.timecards || []).filter(tc => tc.userId === emp.id && tc.status === 'approved');
-    const workingDays = 26;
-    const daysPresent = timecards.length;
-    const daysAbsent = Math.max(0, workingDays - daysPresent);
-    const grossPay = daysPresent * dailyRate;
-    const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
-    const phic = grossPay > 0 ? Math.round(grossPay * 0.025) : 0;
-    const hdmf = grossPay > 0 ? Math.min(100, Math.round(grossPay * 0.02)) : 0;
-    const deductions = sss + phic + hdmf;
-    const netPay = grossPay - deductions;
-    const sent = alreadySent(emp.id, currentPeriod.key);
+    const daysPresent = getAttendanceDaysForRange(emp.id, currentPeriod.startKey, currentPeriod.endKey);
+    const daysAbsent = Math.max(0, currentPeriod.totalDays - daysPresent);
+    const calc = calcPayrollAmounts(daysPresent, dailyRate);
+    const sent = alreadySent(emp.id);
     return `<tr>
       <td><strong>${emp.name || emp.username}</strong><br><span style="font-size:11px;color:var(--ink-60)">${emp.position || emp.role}</span></td>
       <td class="td-mono">₱${fmt(dailyRate)}</td>
       <td class="td-mono">${daysPresent}</td>
       <td class="td-mono" style="color:var(--danger)">${daysAbsent}</td>
-      <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(grossPay)}</td>
-      <td class="td-mono" style="color:var(--danger)">₱${fmt(deductions)}</td>
-      <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(netPay)}</td>
+      <td class="td-mono" style="color:var(--maroon);font-weight:600">₱${fmt(calc.gross)}</td>
+      <td class="td-mono" style="color:var(--danger)">₱${fmt(calc.deductions)}</td>
+      <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(calc.net)}</td>
       <td>
         ${sent
         ? `<span class="badge badge-success" style="font-size:11px">✓ Sent</span>`
-        : `<button class="btn btn-sm btn-maroon" onclick="adminGeneratePayslipModal('${emp.id}')">Generate &amp; Send</button>`
+        : `<button class="btn btn-sm btn-outline" onclick="showPayslipDetailsModal('${emp.id}')">View Payslip</button>`
       }
       </td>
     </tr>`;
@@ -13072,19 +16158,85 @@ function renderAdminPayslipGen() {
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
       <div>
         <h1 class="page-title">Payslip Generation</h1>
-        <p class="page-subtitle">Generate and send payslips — <strong>${currentPeriod.label}</strong></p>
+        <p class="page-subtitle">Generate and send payslips by branch — <strong>${currentPeriod.label}</strong></p>
       </div>
-      <button class="btn btn-maroon" onclick="showPayslipDetailsModal()">
-        ${iconSvg('money')} + Payslip Details
-      </button>
+    </div>
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <span class="data-card-title">Create Payroll List</span>
+          <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Choose a payroll period, build the employee list, then generate payslips for everyone from the saved payroll.</div>
+        </div>
+        <button class="btn btn-maroon" onclick="showCreatePayrollPreviewModal()">${iconSvg('money')} Create Payroll</button>
+      </div>
+      <div class="data-card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Payroll Start Date</label>
+            <input id="admin-payroll-run-start" type="date" class="form-control" value="${defaultRunStart}" onchange="setPayrollRunStartDate(this.value)">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Payroll End Date</label>
+            <input id="admin-payroll-run-end" type="date" class="form-control" value="${defaultRunEnd}" onchange="setPayrollRunEndDate(this.value)">
+          </div>
+          <div class="alert alert-info" style="margin:0">
+            Payroll label: <strong>${getPayrollDateRangeLabel(defaultRunStart, defaultRunEnd)}</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${payrollRuns.length ? `
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header"><span class="data-card-title">Saved Payroll Lists</span><span class="badge badge-neutral">${payrollRuns.length} payroll${payrollRuns.length !== 1 ? 's' : ''}</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Payroll Period</th><th>Pay Date Range</th><th>Employees</th><th>Total Net Pay</th><th>Payslips Sent</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>${payrollRuns.map(run => `<tr>
+            <td><strong>${run.periodLabel || getPayrollDateRangeLabel(run.periodStart, run.periodEnd)}</strong></td>
+            <td class="td-mono">${run.periodStart} → ${run.periodEnd}</td>
+            <td class="td-mono">${run.employeeCount || 0}</td>
+            <td class="td-mono" style="color:var(--success);font-weight:600">PHP ${fmt(run.totalNet || 0)}</td>
+            <td class="td-mono">${run.payslipsSentCount || 0} / ${run.employeeCount || 0}</td>
+            <td>${getPayrollStatusBadge(run.status)}</td>
+            <td><button class="btn btn-sm btn-outline" onclick="viewPayrollRunDetails('${run.id}')">View</button> <button class="btn btn-sm btn-maroon" onclick="sendPayrollRunPayslips('${run.id}')">Send All</button> <button class="btn btn-sm btn-danger" onclick="deletePayrollRun('${run.id}')">Delete</button></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>` : ''}
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header"><span class="data-card-title">Branches</span></div>
+      <div class="data-card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        ${branches.map(branch => {
+    const branchEmployees = employees.filter(emp => emp.branchId === branch.id);
+    const active = branch.id === activeBranchId;
+    return `<button class="btn ${active ? 'btn-maroon' : 'btn-outline'}" style="justify-content:space-between;padding:14px 16px" onclick="selectAdminPayslipBranch('${branch.id}')">
+            <span>${branch.name}</span>
+            <span>${branchEmployees.length}</span>
+          </button>`;
+  }).join('') || '<div style="color:var(--ink-60)">No branches available.</div>'}
+      </div>
     </div>
     <div class="data-card">
       <div class="data-card-header">
-        <span class="data-card-title">Employee Payroll — ${monthLabel}</span>
+        <span class="data-card-title">Employee Payroll — ${(activeBranch?.name || 'No Branch Selected')} · ${monthLabel}</span>
         <span style="display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-60)">Pay Period:</span>
           <span style="background:var(--maroon);color:#fff;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700">${currentPeriod.label}</span>
         </span>
+      </div>
+      ${branchApprovedRows.length ? `<div class="data-card-body"><div class="alert alert-success" style="margin:0">${iconSvg('check')} Showing approved payroll submission for ${activeBranch?.name || 'selected branch'}.</div></div>` : `<div class="data-card-body"><div class="alert alert-warning" style="margin:0">${iconSvg('info')} No approved payroll submission found for this branch and date range. Only approved branch payrolls can be included.</div></div>`}
+      <div class="data-card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end;padding-bottom:0">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Payroll Start Date</label>
+          <input id="admin-payroll-run-start" type="date" class="form-control" value="${defaultRunStart}" onchange="setPayrollRunStartDate(this.value)">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Payroll End Date</label>
+          <input id="admin-payroll-run-end" type="date" class="form-control" value="${defaultRunEnd}" onchange="setPayrollRunEndDate(this.value)">
+        </div>
+        <div class="alert alert-info" style="margin:0">
+          Payroll label: <strong>${getPayrollDateRangeLabel(defaultRunStart, defaultRunEnd)}</strong>
+        </div>
       </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
@@ -13093,16 +16245,36 @@ function renderAdminPayslipGen() {
             <th>Days Absent</th><th>Gross Pay</th><th>Deductions</th>
             <th>Net Pay</th><th>Action</th>
           </tr></thead>
-          <tbody>${employees.length ? genPayslipRows() : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">No employees found.</td></tr>'}</tbody>
+          <tbody>${visibleEmployees.length ? genPayslipRows() : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">No employees found in this branch.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
     <div class="data-card" style="margin-top:20px">
-      <div class="data-card-header"><span class="data-card-title">Sent Payslips History</span></div>
+      <div class="data-card-header" style="flex-direction:column;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <span class="data-card-title">Sent Payslips History</span>
+          <span class="badge badge-neutral">${sentPayslipsFiltered.length} of ${sentPayslips.length} sent</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <label style="font-size:13px;color:var(--ink-70);margin:0;">Filter by sent period:</label>
+          <input class="form-control" type="date" id="admin-payslip-sent-start" value="${filterStart}" style="width:160px;font-size:13px;" onchange="renderAdminPayslipGen()">
+          <span style="font-size:13px;color:var(--ink-50);">to</span>
+          <input class="form-control" type="date" id="admin-payslip-sent-end" value="${filterEnd}" style="width:160px;font-size:13px;" onchange="renderAdminPayslipGen()">
+          <button class="btn btn-sm btn-outline" style="white-space:nowrap" onclick="document.getElementById('admin-payslip-sent-start').value='';document.getElementById('admin-payslip-sent-end').value='';renderAdminPayslipGen()">Clear</button>
+        </div>
+      </div>
+      <div class="data-card-body">
+        <div class="payroll-summary">
+          <div class="payroll-item"><label>Payslips in Range</label><strong>${sentPayslipsFiltered.length}</strong></div>
+          <div class="payroll-item"><label>Total Gross</label><strong>PHP ${fmt(filteredGross)}</strong></div>
+          <div class="payroll-item"><label>Total Deductions</label><strong style="color:var(--danger)">PHP ${fmt(filteredDeductions)}</strong></div>
+          <div class="payroll-item"><label>Total Net Pay</label><strong style="color:var(--success)">PHP ${fmt(filteredNet)}</strong></div>
+        </div>
+      </div>
       <div class="data-card-body no-pad">
         <table class="data-table">
-          <thead><tr><th>Employee</th><th>Pay Period</th><th>Net Pay</th><th>Sent At</th><th>Action</th></tr></thead>
-          <tbody>${sentPayslips.length ? [...sentPayslips].map(p => `<tr>
+          <thead><tr><th>Employee</th><th>Pay Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Sent At</th><th>Action</th></tr></thead>
+          <tbody>${sentPayslipsFiltered.length ? [...sentPayslipsFiltered].map(p => `<tr>
             <td><strong>${p.employeeName}</strong></td>
             <td>${p.payPeriod}</td>
             <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay)}</td>
@@ -13111,116 +16283,409 @@ function renderAdminPayslipGen() {
               <button class="btn btn-sm btn-outline" onclick="adminViewSentPayslipModal('${p.id}')">View</button>
               <button class="btn btn-sm btn-danger" onclick="adminDeletePayslip('${p.id}','${(p.employeeName || '').replace(/'/g, '')}')" style="margin-left:4px">Retract</button>
             </td>
-          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No payslips sent yet.</td></tr>'}</tbody>
+          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--ink-60)">No payslips match the selected date range.</td></tr>'}</tbody>
         </table>
       </div>
     </div>`;
 }
 
 // ── +Payslip Details modal — manual entry form ─────────────────────────────
-function showPayslipDetailsModal() {
+function renderAdminPayslipGen() {
   const s = getState();
-  const employees = s.users.filter(u => u.role !== 'admin');
+  const role = normalizeRole(s.currentUser?.role);
+  if (!s.currentUser || !['admin', 'hr', 'branch_manager'].includes(role)) { accessDenied('Payslip Generation'); return; }
 
-  // Build pay period options (current + last 3)
-  function getPeriodOptions() {
-    const options = [];
-    const now = new Date();
-    for (let offset = 0; offset < 4; offset++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - Math.floor(offset / 2), 1);
-      const isA = offset % 2 === 0 ? now.getDate() <= 15 : offset % 2 !== 0;
-      const variants = offset === 0 ? [now.getDate() <= 15 ? 'A' : 'B'] : ['A', 'B'];
-      variants.forEach(half => {
-        const y = d.getFullYear(), m = d.getMonth();
-        const start = half === 'A' ? new Date(y, m, 1) : new Date(y, m, 16);
-        const end = half === 'A' ? new Date(y, m, 15) : new Date(y, m + 1, 0);
-        const key = `${y}-${String(m + 1).padStart(2, '0')}-${half}`;
-        const fmt2 = dt => dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-        const label = `${fmt2(start)} – ${fmt2(end)}, ${y}`;
-        if (!options.find(o => o.key === key)) options.push({ key, label });
-      });
-    }
-    return options.slice(0, 6);
+  const employees = (s.users || []).filter(user => {
+    const userRole = normalizeRole(user.role);
+    if (userRole === 'admin') return false;
+    if (role === 'branch_manager') return user.branchId === s.currentUser.branchId && !['hr', 'branch_manager'].includes(userRole);
+    return true;
+  });
+  const branches = (s.branches || []).filter(branch => {
+    if (role === 'branch_manager') return branch.id === s.currentUser.branchId;
+    return branch.active !== false;
+  });
+  const payrollRuns = role === 'branch_manager' ? [] : getPayrollRunsHistory().filter(run => run.status !== 'sent');
+  const now = new Date();
+  const monthLabel = now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+  const isAdminOrHr = role === 'admin' || role === 'hr';
+  const payslipHistoryFilters = {
+    startDate: document.getElementById('payslip-start-date')?.value || '',
+    endDate: document.getElementById('payslip-end-date')?.value || '',
+    selectedBranchId: document.getElementById('payslip-branch-filter')?.value || '',
+  };
+  const basePayslips = isAdminOrHr
+    ? (s.payslips || [])
+    : (s.payslips || []).filter(p => p.branchId === s.currentUser.branchId);
+
+  const selectedRunStart = window._adminPayrollRunStartDate || '';
+  const selectedRunEnd = window._adminPayrollRunEndDate || '';
+  const selectedRunStartDate = selectedRunStart ? new Date(selectedRunStart + 'T00:00:00') : null;
+  const selectedRunEndDate = selectedRunEnd ? new Date(selectedRunEnd + 'T23:59:59') : null;
+
+  function filterPayslipsByDateRange(items, startDate, endDate) {
+    if (!startDate && !endDate) return items;
+    const from = startDate ? new Date(startDate + 'T00:00:00') : null;
+    const to = endDate ? new Date(endDate + 'T23:59:59') : null;
+    return items.filter(item => {
+      const bounds = parsePayrollPeriodBounds(item.periodKey, item.payPeriod);
+      if (!bounds) return true;
+      return (!from || bounds.end >= from) && (!to || bounds.start <= to);
+    });
   }
 
-  const periods = getPeriodOptions();
-  const empOptions = employees.map(e => `<option value="${e.id}" data-rate="${e.dailyRate || 500}">${e.name || e.username}</option>`).join('');
-  const periodOptions = periods.map(p => `<option value="${p.key}" data-label="${p.label}">${p.label}</option>`).join('');
+  function alreadySent(empId) {
+    return (s.payslips || []).some(p => {
+      if (p.userId !== empId) return false;
+      const bounds = parsePayrollPeriodBounds(p.periodKey, p.payPeriod);
+      if (bounds && selectedRunStartDate && selectedRunEndDate) {
+        return bounds.start.getTime() === selectedRunStartDate.getTime() && bounds.end.getTime() === selectedRunEndDate.getTime();
+      }
+      if (p.periodKey && p.periodKey === currentPeriod.key) return true;
+      if (p.payPeriod && currentPeriod.label && p.payPeriod === currentPeriod.label) return true;
+      return false;
+    });
+  }
+
+  function currentPeriodInfo() {
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const half = now.getDate() <= 15 ? 'A' : 'B';
+    const defaultKey = `${year}-${String(month + 1).padStart(2, '0')}-${half}`;
+    const defaultBounds = parsePayrollPeriodBounds(defaultKey) || {
+      start: new Date(year, month, half === 'A' ? 1 : 16),
+      end: new Date(year, half === 'A' ? month : month + 1, half === 'A' ? 15 : 0, 23, 59, 59),
+    };
+    const start = selectedRunStartDate || defaultBounds.start;
+    const end = selectedRunEndDate || defaultBounds.end;
+    const key = (selectedRunStart && selectedRunEnd) ? getPayrollDateRangeKey(selectedRunStart, selectedRunEnd) : defaultKey;
+    const shortFmt = date => date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+    return {
+      key,
+      startKey: getDateOnlyKey(start),
+      endKey: getDateOnlyKey(end),
+      totalDays: Math.max(1, Math.round((new Date(end).setHours(0, 0, 0, 0) - new Date(start).setHours(0, 0, 0, 0)) / 86400000) + 1),
+      label: `${shortFmt(start)} - ${shortFmt(end)}, ${end.getFullYear()}`,
+    };
+  }
+
+  const currentPeriod = currentPeriodInfo();
+  if (!window._adminPayslipBranchId) window._adminPayslipBranchId = role === 'branch_manager' ? s.currentUser.branchId : (branches[0]?.id || '');
+  const activeBranchId = role === 'branch_manager' ? s.currentUser.branchId : window._adminPayslipBranchId;
+  const activeBranch = branches.find(branch => branch.id === activeBranchId);
+  const visibleEmployees = employees.filter(emp => emp.branchId === activeBranchId);
+
+  const defaultRunStart = window._adminPayrollRunStartDate || currentPeriod.startKey || toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+  const defaultRunEnd = window._adminPayrollRunEndDate || currentPeriod.endKey || toLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  window._adminPayrollRunStartDate = defaultRunStart;
+  window._adminPayrollRunEndDate = defaultRunEnd;
+  const branchApprovedRows = getApprovedBranchSubmissionPayrollRows(defaultRunStart, defaultRunEnd, activeBranchId);
+  const pendingEmployees = branchApprovedRows.filter(row => !alreadySent(row.userId));
+
+  function datesOverlap(startA, endA, startB, endB) {
+    return !(endA < startB || startA > endB);
+  }
+
+  function parseRunBounds(run) {
+    const bounds = parsePayrollPeriodBounds(run.periodKey, run.periodLabel || run.payPeriod || getPayrollDateRangeLabel(run.periodStart, run.periodEnd));
+    if (!bounds) return null;
+    return bounds;
+  }
+
+  const selectedStart = defaultRunStart ? new Date(defaultRunStart + 'T00:00:00') : null;
+  const selectedEnd = defaultRunEnd ? new Date(defaultRunEnd + 'T23:59:59') : null;
+  const overlappingRun = selectedStart && selectedEnd
+    ? getPayrollRunsHistory().find(run => {
+      const bounds = parseRunBounds(run);
+      return bounds && datesOverlap(selectedStart, selectedEnd, bounds.start, bounds.end);
+    })
+    : null;
+
+  const payrollOverlapWarning = overlappingRun
+    ? `<div class="alert alert-warning" style="margin-bottom:18px;">⚠️ This payroll range overlaps with an existing payroll list for <strong>${overlappingRun.periodLabel || getPayrollDateRangeLabel(overlappingRun.periodStart, overlappingRun.periodEnd)}</strong>. Creating a payroll with overlapping dates may create duplicate or conflicting payroll entries.</div>`
+    : '';
+
+  const branchFilteredPayslips = payslipHistoryFilters.selectedBranchId
+    ? basePayslips.filter(p => p.branchId === payslipHistoryFilters.selectedBranchId)
+    : basePayslips;
+  const historyPayslips = filterPayslipsByDateRange(branchFilteredPayslips, payslipHistoryFilters.startDate, payslipHistoryFilters.endDate);
+  const totalGross = historyPayslips.reduce((sum, p) => sum + (p.grossPay || 0), 0);
+  const totalDeductions = historyPayslips.reduce((sum, p) => sum + (p.deductions || 0), 0);
+  const totalNet = historyPayslips.reduce((sum, p) => sum + (p.netPay || 0), 0);
+  const showBranchCol = true;
+  const colSpan = showBranchCol ? 8 : 7;
+  const branchOptions = isAdminOrHr
+    ? branches.map(b => `<option value="${b.id}" ${payslipHistoryFilters.selectedBranchId === b.id ? 'selected' : ''}>${b.name}</option>`).join('')
+    : branches.filter(b => b.id === s.currentUser.branchId).map(b => `<option value="${b.id}" ${payslipHistoryFilters.selectedBranchId === b.id ? 'selected' : ''}>${b.name}</option>`).join('');
+  const historyRows = historyPayslips.length
+    ? historyPayslips.map(p => {
+      const branchName = showBranchCol ? ((branches.find(b => b.id === p.branchId)?.name) || '—') : '';
+      return `<tr>
+          <td><strong>${p.payPeriod}</strong></td>
+          <td>${p.employeeName || '—'}</td>
+          ${showBranchCol ? `<td><span class="badge badge-neutral" style="font-size:11px">${branchName}</span></td>` : ''}
+          <td class="td-mono">${p.daysPresent || '—'}</td>
+          <td class="td-mono">₱${fmt(p.grossPay || 0)}</td>
+          <td class="td-mono" style="color:var(--danger)">₱${fmt(p.deductions || 0)}</td>
+          <td class="td-mono" style="color:var(--success);font-weight:700">₱${fmt(p.netPay || 0)}</td>
+          <td><button class="btn btn-sm btn-maroon" onclick="adminViewSentPayslipModal('${p.id}')">${iconSvg('printer')} View</button></td>
+        </tr>`;
+    }).join('')
+    : `<tr><td colspan="${colSpan}" style="text-align:center;color:var(--ink-40);padding:40px">No payslip history available for the selected filters.</td></tr>`;
+
+  const genPayslipRows = () => pendingEmployees.map(row => {
+    const dailyRate = row.dailyRate || 500;
+    const daysPresent = row.attendanceDays || 0;
+    const daysAbsent = Math.max(0, currentPeriod.totalDays - daysPresent);
+    return `<tr>
+      <td><strong>${row.name}</strong><br><span style="font-size:11px;color:var(--ink-60)">${getRoleLabel(row.role)}</span></td>
+      <td class="td-mono">PHP ${fmt(dailyRate)}</td>
+      <td class="td-mono">${daysPresent}</td>
+      <td class="td-mono" style="color:var(--danger)">${daysAbsent}</td>
+      <td class="td-mono" style="color:var(--maroon);font-weight:600">PHP ${fmt(row.gross)}</td>
+      <td class="td-mono" style="color:var(--danger)">PHP ${fmt(row.deductions)}</td>
+      <td class="td-mono" style="color:var(--success);font-weight:700">PHP ${fmt(row.net)}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="showPayslipDetailsModal('${row.userId}')">View Payslip</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('page-content').innerHTML = `
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1 class="page-title">Payslip Generation</h1>
+        <p class="page-subtitle">Generate and send payslips by branch - <strong>${currentPeriod.label}</strong></p>
+      </div>
+    </div>
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <span class="data-card-title">Create Payroll List</span>
+          <div style="font-size:12px;color:var(--ink-60);margin-top:4px">Choose a payroll period, build the employee list, then generate payslips for everyone from the saved payroll.</div>
+        </div>
+        <button class="btn btn-maroon" onclick="showCreatePayrollPreviewModal()">${iconSvg('money')} Create Payroll</button>
+      </div>
+      <div class="data-card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Payroll Start Date</label>
+            <input id="admin-payroll-run-start" type="date" class="form-control" value="${defaultRunStart}" onchange="setPayrollRunStartDate(this.value)">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Payroll End Date</label>
+            <input id="admin-payroll-run-end" type="date" class="form-control" value="${defaultRunEnd}" onchange="setPayrollRunEndDate(this.value)">
+          </div>
+          <div class="alert alert-info" style="margin:0">
+            Payroll label: <strong>${getPayrollDateRangeLabel(defaultRunStart, defaultRunEnd)}</strong>
+          </div>
+        </div>
+        ${payrollOverlapWarning}
+      </div>
+    </div>
+    ${payrollRuns.length ? `
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header"><span class="data-card-title">Saved Payroll Lists</span><span class="badge badge-neutral">${payrollRuns.length} payroll${payrollRuns.length !== 1 ? 's' : ''}</span></div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Payroll Period</th><th>Pay Date Range</th><th>Employees</th><th>Total Net Pay</th><th>Payslips Sent</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>${payrollRuns.map(run => `<tr>
+            <td><strong>${run.periodLabel || getPayrollDateRangeLabel(run.periodStart, run.periodEnd)}</strong></td>
+            <td class="td-mono">${run.periodStart} → ${run.periodEnd}</td>
+            <td class="td-mono">${run.employeeCount || 0}</td>
+            <td class="td-mono" style="color:var(--success);font-weight:600">PHP ${fmt(run.totalNet || 0)}</td>
+            <td class="td-mono">${run.payslipsSentCount || 0} / ${run.employeeCount || 0}</td>
+            <td>${getPayrollStatusBadge(run.status)}</td>
+            <td><button class="btn btn-sm btn-outline" onclick="viewPayrollRunDetails('${run.id}')">View</button> <button class="btn btn-sm btn-maroon" onclick="sendPayrollRunPayslips('${run.id}')">Send All</button> <button class="btn btn-sm btn-danger" onclick="deletePayrollRun('${run.id}')">Delete</button></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>` : ''}
+    <div class="data-card" style="margin-bottom:18px">
+      <div class="data-card-header"><span class="data-card-title">Branches</span></div>
+      <div class="data-card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        ${branches.map(branch => {
+    const branchEmployees = employees.filter(emp => emp.branchId === branch.id);
+    const active = branch.id === activeBranchId;
+    return `<button class="btn ${active ? 'btn-maroon' : 'btn-outline'}" style="justify-content:space-between;padding:14px 16px" onclick="selectAdminPayslipBranch('${branch.id}')">
+            <span>${branch.name}</span>
+            <span>${branchEmployees.length}</span>
+          </button>`;
+  }).join('') || '<div style="color:var(--ink-60)">No branches available.</div>'}
+      </div>
+    </div>
+    <div class="data-card">
+      <div class="data-card-header">
+        <span class="data-card-title">Employee Payroll - ${(activeBranch?.name || 'No Branch Selected')} · ${monthLabel}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-60)">Pay Period:</span>
+          <span style="background:var(--maroon);color:#fff;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700">${currentPeriod.label}</span>
+        </span>
+      </div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr><th>Employee</th><th>Daily Rate</th><th>Days Present</th><th>Days Absent</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Action</th></tr></thead>
+          <tbody>${pendingEmployees.length ? genPayslipRows() : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--ink-60)">No pending payslips found in this branch.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="data-card" style="margin-top:20px">
+      <div class="data-card-header" style="flex-direction:column;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <span class="data-card-title">Payslip History</span>
+          <span class="badge badge-neutral">${historyPayslips.length} payslip${historyPayslips.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <label style="font-size:13px;color:var(--ink-70);">Filter by Branch:</label>
+          <select id="payslip-branch-filter" class="form-control" style="width:180px;font-size:13px;" onchange="renderAdminPayslipGen()">
+            <option value="">All Branches</option>
+            ${branchOptions}
+          </select>
+          <label style="font-size:13px;color:var(--ink-70);">Date Range:</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="date" id="payslip-start-date" class="form-control" style="width:140px;font-size:13px;" value="${payslipHistoryFilters.startDate}" onchange="renderAdminPayslipGen()">
+            <span style="font-size:13px;color:var(--ink-50);">to</span>
+            <input type="date" id="payslip-end-date" class="form-control" style="width:140px;font-size:13px;" value="${payslipHistoryFilters.endDate}" onchange="renderAdminPayslipGen()">
+            <button class="btn btn-sm btn-outline" onclick="document.getElementById('payslip-start-date').value='';document.getElementById('payslip-end-date').value='';document.getElementById('payslip-branch-filter').value='';renderAdminPayslipGen()">Clear All</button>
+          </div>
+        </div>
+      </div>
+      <div class="data-card-body">
+        <div class="payroll-summary">
+          <div class="payroll-item"><label>Payslips in Range</label><strong>${historyPayslips.length}</strong></div>
+          <div class="payroll-item"><label>Total Gross</label><strong>PHP ${fmt(totalGross)}</strong></div>
+          <div class="payroll-item"><label>Total Deductions</label><strong style="color:var(--danger)">PHP ${fmt(totalDeductions)}</strong></div>
+          <div class="payroll-item"><label>Total Net Pay</label><strong style="color:var(--success)">PHP ${fmt(totalNet)}</strong></div>
+        </div>
+      </div>
+      <div class="data-card-body no-pad">
+        <table class="data-table">
+          <thead><tr>
+            <th>Period</th>
+            <th>Name</th>
+            ${showBranchCol ? '<th>Branch</th>' : ''}
+            <th>Days Worked</th>
+            <th>Gross Pay</th>
+            <th>Deductions</th>
+            <th>Net Pay</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function showPayslipDetailsModal(empId) {
+  const s = getState();
+  const emp = s.users.find(u => u.id === empId);
+  if (!emp) { showToast('Employee not found.', 'error'); return; }
+
+  const branchId = window._adminPayslipBranchId || emp.branchId;
+  const branch = s.branches.find(b => b.id === branchId) || {};
+  const startDate = window._adminPayrollRunStartDate || '';
+  const endDate = window._adminPayrollRunEndDate || '';
+  const payPeriod = (startDate && endDate) ? getPayrollDateRangeLabel(startDate, endDate) : getPayrollDateRangeLabel(new Date(), new Date());
+  const bounds = window._adminPayrollRunStartDate && window._adminPayrollRunEndDate ? `${startDate} → ${endDate}` : '';
+  const now = new Date();
+  const payDateStr = now.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const approvedRow = (startDate && endDate)
+    ? getApprovedBranchSubmissionPayrollRows(startDate, endDate, branchId).find(r => r.userId === empId)
+    : null;
+
+  const dailyRate = approvedRow?.dailyRate || emp.dailyRate || 500;
+  const daysPresent = approvedRow?.attendanceDays || 0;
+  const { gross, sss, phic, hdmf, deductions, net } = calcPayrollAmounts(daysPresent, dailyRate);
+  const employeeNumber = emp.employeeNumber || ('EMP-' + String(emp.id || '1').replace(/\D/g, '').padStart(3, '0'));
+  const positionLabel = ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(emp.role))
+    ? 'Branch Personnel'
+    : normalizeRole(emp.role) === 'print' ? 'Printing Personnel' : (emp.role || '');
+
+  const html = `
+    <div class="payslip-card">
+      <div class="payslip-card-header">
+        <div class="payslip-card-logo"><img src="logo.png" alt="South Pafps" onerror="this.style.display='none'"></div>
+        <div class="payslip-card-company">
+          <div class="payslip-card-company-name">${getCompanyInfo().name}</div>
+          <div class="payslip-card-company-address">${getCompanyInfo().address1}<br>${getCompanyInfo().address2}<br>${getCompanyInfo().tel}</div>
+        </div>
+      </div>
+      <div class="payslip-card-title">PAYSLIP</div>
+      <table class="payslip-card-table">
+        <colgroup><col style="width:22%"><col style="width:28%"><col style="width:22%"><col style="width:28%"></colgroup>
+        <tbody>
+          <tr><td><strong>Employee Name:</strong></td><td>${emp.name || emp.username || '—'}</td><td><strong>SSS Number:</strong></td><td>${emp.sss || '—'}</td></tr>
+          <tr><td><strong>Employee Number:</strong></td><td>${employeeNumber}</td><td><strong>PhilHealth Number:</strong></td><td>${emp.philhealth || '—'}</td></tr>
+          <tr><td><strong>Position:</strong></td><td>${positionLabel}</td><td><strong>Pag-IBIG Number:</strong></td><td>${emp.pagibig || '—'}</td></tr>
+          <tr><td><strong>Pay Period:</strong></td><td>${payPeriod}</td><td><strong>TIN Number:</strong></td><td>${emp.tin || '—'}</td></tr>
+          <tr><td><strong>Pay Date:</strong></td><td>${payDateStr}</td><td></td><td></td></tr>
+        </tbody>
+      </table>
+      <table class="payslip-card-table payslip-card-earnings">
+        <colgroup><col style="width:40%"><col style="width:12%"><col style="width:20%"><col style="width:4px"><col style="width:16%"><col style="width:8%"></colgroup>
+        <thead>
+          <tr>
+            <th colspan="3">EARNINGS/INCOME</th>
+            <th></th>
+            <th colspan="2">DEDUCTIONS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Basic Pay @ ₱${fmt(dailyRate)}/day</td>
+            <td class="td-mono">${daysPresent}</td>
+            <td class="td-mono">₱${fmt(gross)}</td>
+            <td class="payslip-divider"></td>
+            <td>SSS EE Contribution</td>
+            <td class="td-mono">₱${fmt(sss)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="payslip-divider"></td>
+            <td>PhilHealth EE Contribution</td>
+            <td class="td-mono">₱${fmt(phic)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="payslip-divider"></td>
+            <td>Pag-IBIG Contribution</td>
+            <td class="td-mono">₱${fmt(hdmf)}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" class="payslip-summary-label">GROSS PAY</td>
+            <td class="payslip-divider"></td>
+            <td class="payslip-summary-label">TOTAL DEDUCTION</td>
+            <td class="td-mono">₱${fmt(deductions)}</td>
+          </tr>
+          <tr>
+            <td colspan="3"></td>
+            <td class="payslip-divider"></td>
+            <td class="payslip-summary-label">NET PAY</td>
+            <td class="td-mono">₱${fmt(net)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${bounds ? `<div class="payslip-card-note">Notes: Generated from payroll list for ${bounds}.</div>` : ''}
+    </div>`;
 
   showModal(`
-    <div class="modal-header">
-      <h2>${iconSvg('money')} Payslip Details</h2>
-      <button class="btn-close-modal" onclick="closeModal()">✕</button>
-    </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;padding:20px 24px">
-      <div style="background:#fff8e1;border:1px solid #f6d860;border-radius:8px;padding:10px 14px;font-size:12px;color:#7a5c00;line-height:1.6">
-        💡 <strong>Incentive:</strong> ₱300 per new customer they get in printed items.
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div class="form-group">
-          <label class="form-label">Employee</label>
-          <select id="ps-employee" class="form-control" onchange="psAutoFillRate()">
-            <option value="">Select employee…</option>
-            ${empOptions}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Pay Period</label>
-          <select id="ps-period" class="form-control">
-            <option value="">Select period…</option>
-            ${periodOptions}
-          </select>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div class="form-group">
-          <label class="form-label">Daily Rate (₱)</label>
-          <input type="number" id="ps-daily-rate" class="form-control" placeholder="500" min="0" oninput="psRecalc()">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Incentives (₱) <span style="font-size:11px;color:var(--ink-60)">₱300/new customer</span></label>
-          <input type="number" id="ps-incentives" class="form-control" placeholder="0" min="0" oninput="psRecalc()">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Days Present</label>
-        <input type="number" id="ps-days-present" class="form-control" placeholder="13" min="0" max="31" oninput="psRecalc()">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Days Absent</label>
-        <input type="number" id="ps-days-absent" class="form-control" placeholder="0" min="0" oninput="psRecalc()">
-      </div>
-      <div style="background:var(--cream,#f9f5f0);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
-        <div style="display:flex;justify-content:space-between;font-size:13px">
-          <span>Gross Pay</span>
-          <strong id="ps-gross" style="color:var(--maroon)">₱0.00</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px">
-          <span style="color:var(--ink-60)">SSS (4.5%)</span>
-          <span id="ps-sss" style="color:var(--danger)">- ₱0.00</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px">
-          <span style="color:var(--ink-60)">PhilHealth (2.5%)</span>
-          <span id="ps-phic" style="color:var(--danger)">- ₱0.00</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px">
-          <span style="color:var(--ink-60)">Pag-IBIG</span>
-          <span id="ps-hdmf" style="color:var(--danger)">- ₱0.00</span>
-        </div>
-        <div style="border-top:1px solid var(--border,#ddd);padding-top:8px;margin-top:4px;display:flex;justify-content:space-between;font-size:15px;font-weight:700">
-          <span>Net Pay</span>
-          <strong id="ps-net" style="color:var(--success,#16a34a)">₱0.00</strong>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Notes (optional)</label>
-        <input type="text" id="ps-notes" class="form-control" placeholder="e.g. Perfect attendance bonus included">
-      </div>
-    </div>
+    <div class="modal-header"><h2>📄 Payslip — ${emp.name || emp.username}</h2><button class="btn-close-modal" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="payslip-modal-doc" style="padding:20px;max-height:80vh;overflow-y:auto;">${html}</div>
     <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-maroon" onclick="psSubmitPayslip()">Send to Employee →</button>
-    </div>`, 'modal-md');
+      <button class="btn btn-outline" onclick="closeModal()">Close</button>
+      <button class="btn btn-maroon" onclick="printContent(document.getElementById('payslip-modal-doc').innerHTML,'Payslip — ${emp.name ? emp.name.replace(/'/g, '') : 'Employee'}')">${iconSvg('printer')} Print</button>
+    </div>
+  `, 'modal-lg');
+}
+
+function selectAdminPayslipBranch(branchId) {
+  window._adminPayslipBranchId = branchId;
+  renderAdminPayslipGen();
 }
 
 function psAutoFillRate() {
@@ -13228,6 +16693,39 @@ function psAutoFillRate() {
   const opt = sel.options[sel.selectedIndex];
   const rate = opt ? (opt.dataset.rate || 500) : 500;
   document.getElementById('ps-daily-rate').value = rate;
+  psAutoComputeFromPeriod();
+}
+
+function psAutoComputeFromPeriod() {
+  const s = getState();
+  const empId = document.getElementById('ps-employee')?.value;
+  const periodSel = document.getElementById('ps-period');
+  const periodKey = periodSel?.value;
+  if (!empId || !periodKey) { psRecalc(); return; }
+
+  // Parse period key: YYYY-MM-A or YYYY-MM-B
+  const [year, month, half] = periodKey.split('-');
+  const y = parseInt(year), m = parseInt(month) - 1;
+  const startDay = half === 'A' ? 1 : 16;
+  const endDay = half === 'A' ? 15 : new Date(y, m + 1, 0).getDate();
+  const periodStart = new Date(y, m, startDay);
+  const periodEnd = new Date(y, m, endDay, 23, 59, 59);
+
+  // Count attendance records within this period
+  const attRecords = (s.attendanceRecords || []).filter(r => {
+    if (r.userId !== empId || !r.timeIn || !r.timeOut) return false;
+    const d = new Date(r.timeIn);
+    return d >= periodStart && d <= periodEnd;
+  });
+
+  const daysPresent = attRecords.length;
+  const workingDays = endDay - startDay + 1;
+  const daysAbsent = Math.max(0, workingDays - daysPresent);
+
+  const dpEl = document.getElementById('ps-days-present');
+  const daEl = document.getElementById('ps-days-absent');
+  if (dpEl) dpEl.value = daysPresent;
+  if (daEl) daEl.value = daysAbsent;
   psRecalc();
 }
 
@@ -13320,13 +16818,13 @@ function adminViewSentPayslipModal(payslipId) {
   const branch = s.branches.find(b => b.id === (p.branchId || emp.branchId));
   const COMPANY = getCompanyInfo();
   const empNum = emp.employeeNumber || ('EMP-' + String(emp.id || '001').replace(/\D/g, '').padStart(3, '0'));
-  const positionLabel = emp.role === 'staff' ? 'Sales Associate' : emp.role === 'print' ? 'Printing Personnel' : (emp.role || '');
+  const positionLabel = ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(emp.role)) ? 'Branch Personnel' : normalizeRole(emp.role) === 'print' ? 'Printing Personnel' : (emp.role || '');
   const payDateStr = p.sentAt ? new Date(p.sentAt).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
   const basicPay = p.daysPresent * p.dailyRate;
   const commissionCupsQty = p.commissionCupsQty ?? (p.incentives > 0 ? 1 : 0);
   const commissionCupsAmt = p.commissionCupsAmt ?? (p.incentives > 0 ? p.incentives : 0);
-  const commissionGpQty   = p.commissionGpQty  ?? 0;
-  const commissionGpAmt   = p.commissionGpAmt  ?? 0;
+  const commissionGpQty = p.commissionGpQty ?? 0;
+  const commissionGpAmt = p.commissionGpAmt ?? 0;
   // Build a lightweight payslip view from stored data
   const html = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;">
@@ -13338,8 +16836,8 @@ function adminViewSentPayslipModal(payslipId) {
       <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.employeeName}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.sss || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${p.payPeriod}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.tin || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
@@ -13365,7 +16863,7 @@ function adminViewSentPayslipModal(payslipId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? commissionCupsQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionCupsQty > 0 ? '₱' + fmt(commissionCupsAmt) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth EE Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.philhealth > 0 ? '₱' + fmt(p.philhealth) : ''}</td>
         </tr>
         <tr>
@@ -13373,7 +16871,7 @@ function adminViewSentPayslipModal(payslipId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? commissionGpQty : ''}</td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;text-align:right;">${commissionGpQty > 0 ? '₱' + fmt(commissionGpAmt) : ''}</td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${p.hdmf > 0 ? '₱' + fmt(p.hdmf) : ''}</td>
         </tr>
         <tr style="height:22px;">
@@ -13436,9 +16934,9 @@ function adminGeneratePayslipModal(empId) {
   const emp = s.users.find(u => u.id === empId);
   if (!emp) return;
   const dailyRate = emp.dailyRate || 500;
-  const timecards = (s.timecards || []).filter(tc => tc.userId === emp.id && tc.status === 'approved');
+  const attRecords = (s.attendanceRecords || []).filter(r => r.userId === emp.id && r.timeIn && r.timeOut);
   const workingDays = 26;
-  const daysPresent = timecards.length;
+  const daysPresent = attRecords.length;
   const daysAbsent = Math.max(0, workingDays - daysPresent);
   const grossPay = daysPresent * dailyRate;
   const sss = grossPay > 0 ? Math.round(grossPay * 0.045) : 0;
@@ -13452,7 +16950,7 @@ function adminGeneratePayslipModal(empId) {
 
   const COMPANY = getCompanyInfo();
   const empNum = emp.employeeNumber || ('BPS-' + String(emp.id || '001').replace(/\D/g, '').padStart(3, '0'));
-  const positionLabel = emp.role === 'staff' ? 'Sales Associate' : emp.role === 'print' ? 'Printing Personnel' : (emp.role || '');
+  const positionLabel = ['cashier', 'branch_manager', 'inventory_staff'].includes(normalizeRole(emp.role)) ? 'Branch Personnel' : normalizeRole(emp.role) === 'print' ? 'Printing Personnel' : (emp.role || '');
   const payDateStr = new Date(now.getFullYear(), now.getMonth() + 1, 15).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const payslipHtml = `<div style="font-family:'Arial',sans-serif;font-size:12px;color:#111;padding:24px 32px;">
@@ -13465,8 +16963,8 @@ function adminGeneratePayslipModal(empId) {
       <colgroup><col style="width:20%"><col style="width:30%"><col style="width:20%"><col style="width:30%"></colgroup>
       <tbody>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Name:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.name || emp.username}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>SSS Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.sss || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Philhealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>HDMF Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Employee Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${empNum}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>PhilHealth Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.philhealth || ''}</td></tr>
+        <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Position:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${positionLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>Pag-IBIG Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.pagibig || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Period:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${monthLabel}</td><td style="padding:4px 8px;border:1px solid #999;"><strong>TIN Number:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${emp.tin || ''}</td></tr>
         <tr><td style="padding:4px 8px;border:1px solid #999;"><strong>Pay Date:</strong></td><td style="padding:4px 8px;border:1px solid #999;">${payDateStr}</td><td style="padding:4px 8px;border:1px solid #999;"></td><td style="padding:4px 8px;border:1px solid #999;"></td></tr>
       </tbody>
@@ -13492,7 +16990,7 @@ function adminGeneratePayslipModal(empId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">NHIP EE Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">PhilHealth EE Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${phic > 0 ? '₱' + fmt(phic) : ''}</td>
         </tr>
         <tr>
@@ -13500,7 +16998,7 @@ function adminGeneratePayslipModal(empId) {
           <td style="border-left:1px solid #ddd;padding:5px 8px;"></td>
           <td style="border-left:1px solid #ddd;border-right:1px solid #999;padding:5px 8px;"></td>
           <td style="background:#333;width:4px;padding:0;"></td>
-          <td style="border-left:1px solid #999;padding:5px 8px;">HDMF Contribution</td>
+          <td style="border-left:1px solid #999;padding:5px 8px;">Pag-IBIG Contribution</td>
           <td style="border-right:1px solid #999;padding:5px 8px;text-align:right;">${hdmf > 0 ? '₱' + fmt(hdmf) : ''}</td>
         </tr>
         <tr style="height:22px;">
@@ -13576,7 +17074,7 @@ function renderPrintJobManagement() {
       <td class="td-mono ${isPastDue ? 'danger' : ''}">${o.due_date || '—'}</td>
       <td>
         <button class="btn btn-sm btn-outline" onclick="omViewOrderModal('${o.id}')">View</button>
-        <button class="btn btn-sm btn-maroon" onclick="omUpdateProductionModal && omUpdateProductionModal('${o.id}')">Update</button>
+        <button class="btn btn-sm btn-maroon" onclick="omUpdateProductionByOrder('${o.id}')">Update</button>
       </td>
     </tr>`;
   }).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--ink-60)">No active jobs.</td></tr>'}</tbody>
@@ -13599,7 +17097,7 @@ function buildPrintReportPreview(types) {
       const todayCompleted = orders.filter(o => o.status === 'completed' && o.delivery_date && new Date(o.delivery_date).toDateString() === todayStr);
       const inProd = orders.filter(o => o.status === 'production');
       const pending = orders.filter(o => o.status === 'pending');
-      const dispatch = orders.filter(o => o.status === 'dispatch');
+      const dispatch = orders.filter(o => omIsDispatchReady(o));
       const qcPassed = orders.filter(o => o.qc_status === 'passed');
       const qcFailed = orders.filter(o => o.qc_status === 'failed');
       const passRate = (qcPassed.length + qcFailed.length) > 0 ? ((qcPassed.length / (qcPassed.length + qcFailed.length)) * 100).toFixed(1) + '%' : '—';
